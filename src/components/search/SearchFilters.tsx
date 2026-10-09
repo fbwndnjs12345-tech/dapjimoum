@@ -1,8 +1,6 @@
 import { Filter, X } from 'lucide-react';
 import type { Book } from '../../types/book';
 
-const CURRICULUM_REVISIONS = ['전체', '2015 개정', '2022 개정'];
-
 type SearchFiltersProps = {
   books: Book[];
   dataStatus: 'loading' | 'error' | 'success';
@@ -11,11 +9,10 @@ type SearchFiltersProps = {
   subjectFilter: string; setSubjectFilter: (value: string) => void;
   gradeFilter: string; setGradeFilter: (value: string) => void;
   semesterFilter: string; setSemesterFilter: (value: string) => void;
-  curriculumRevisionFilter: string; setCurriculumRevisionFilter: (value: string) => void;
   onReset: () => void;
 };
 
-export function SearchFilters({ books, dataStatus, searchQuery, setSearchQuery, publisherFilter, setPublisherFilter, subjectFilter, setSubjectFilter, gradeFilter, setGradeFilter, semesterFilter, setSemesterFilter, curriculumRevisionFilter, setCurriculumRevisionFilter, onReset }: SearchFiltersProps) {
+export function SearchFilters({ books, dataStatus, searchQuery, setSearchQuery, publisherFilter, setPublisherFilter, subjectFilter, setSubjectFilter, gradeFilter, setGradeFilter, semesterFilter, setSemesterFilter, onReset }: SearchFiltersProps) {
   const countText = (count: number) => dataStatus === 'success' ? String(count) : '—';
   const optionsFor = (select: (book: Book) => string | null | undefined) => [
     '전체',
@@ -134,18 +131,6 @@ export function SearchFilters({ books, dataStatus, searchQuery, setSearchQuery, 
               </div>
             </div>
 
-            {/* Curriculum Revision Filter */}
-            <div className="space-y-1.5">
-              <label htmlFor="curriculum-revision-filter" className="text-xs font-bold text-[#333D4B]">교육과정 개정</label>
-              <select
-                id="curriculum-revision-filter"
-                value={curriculumRevisionFilter}
-                onChange={(e) => setCurriculumRevisionFilter(e.target.value)}
-                className="w-full px-3.5 py-2.5 text-xs bg-[#F9FAFB] border border-[#E5E8EB] rounded-2xl font-semibold text-[#191F28] outline-none focus:border-[#3182F6]"
-              >
-                {CURRICULUM_REVISIONS.map(revision => <option key={revision} value={revision}>{revision}</option>)}
-              </select>
-            </div>
           </div>
 
   );
