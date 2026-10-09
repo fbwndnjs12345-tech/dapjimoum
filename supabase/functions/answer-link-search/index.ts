@@ -23,7 +23,6 @@ function readSupabaseKey(legacyName: string, keySetName: string): string | undef
 type BookRow = {
   id: string; title: string; publisher: string | null; subject: string | null;
   grade: string | null; semester: string | null; series: string | null;
-  curriculum_revision: string | null;
 };
 
 function canonicalUrl(value: string): string {
@@ -52,7 +51,7 @@ function isSafeSearchUrl(value: string): boolean {
 }
 
 function queryFor(book: BookRow, extra = false): string {
-  const details = [book.publisher, book.subject, book.grade, book.semester, book.series, book.curriculum_revision]
+  const details = [book.publisher, book.subject, book.grade, book.semester, book.series]
     .map(value => value?.trim()).filter(Boolean).join(' ');
   return extra
     ? `"${book.title}" ${details} 정답 해설 공식 자료실`
@@ -66,8 +65,7 @@ function matchAssessment(book: BookRow, title: string, snippet: string) {
   const titleRatio = titleTokens.length ? titleMatches / titleTokens.length : 0;
   const publisherMatches = Boolean(book.publisher && source.includes(book.publisher.toLocaleLowerCase('ko-KR')));
   const gradeMatches = Boolean(book.grade && source.includes(book.grade.toLocaleLowerCase('ko-KR')));
-  const revisionMatches = !book.curriculum_revision || source.includes(book.curriculum_revision.toLocaleLowerCase('ko-KR'));
-  const likely = titleRatio >= 0.8 && (publisherMatches || gradeMatches) && revisionMatches;
+  const likely = titleRatio >= 0.8 && (publisherMatches || gradeMatches);
   return { match_status: likely ? 'likely' : titleRatio < 0.25 ? 'mismatch' : 'uncertain' };
 }
 
@@ -118,13 +116,13 @@ Deno.serve(async (request) => {
     if (selectedIds.length) {
       for (let offset = 0; offset < selectedIds.length; offset += PAGE_SIZE) {
         const ids = selectedIds.slice(offset, offset + PAGE_SIZE);
-        const { data, error } = await admin.from('books').select('id,title,publisher,subject,grade,semester,series,curriculum_revision').in('id', ids);
+        const { data, error } = await admin.from('books').select('id,title,publisher,subject,grade,semester,series').in('id', ids);
         if (error) return json({ error: `교재 목록 조회 실패: ${error.message}` }, 500);
         books.push(...(data ?? []) as BookRow[]);
       }
     } else {
       for (let offset = 0; ; offset += PAGE_SIZE) {
-        const { data, error } = await admin.from('books').select('id,title,publisher,subject,grade,semester,series,curriculum_revision').order('created_at', { ascending: false }).range(offset, offset + PAGE_SIZE - 1);
+        const { data, error } = await admin.from('books').select('id,title,publisher,subject,grade,semester,series').order('created_at', { ascending: false }).range(offset, offset + PAGE_SIZE - 1);
         if (error) return json({ error: `교재 목록 조회 실패: ${error.message}` }, 500);
         const page = (data ?? []) as BookRow[];
         books.push(...page);
@@ -190,7 +188,7 @@ Deno.serve(async (request) => {
     const bookIds = (claim.book_ids ?? []) as string[];
     if (!bookIds.length) return json({ busy: false, done: true });
 
-    const { data: batchBooks, error: booksError } = await admin.from('books').select('id,title,publisher,subject,grade,semester,series,curriculum_revision').in('id', bookIds);
+    const { data: batchBooks, error: booksError } = await admin.from('books').select('id,title,publisher,subject,grade,semester,series').in('id', bookIds);
     if (booksError) {
       await admin.rpc('finish_answer_link_search_batch', { p_run_id: payload.runId, p_lock_token: lockToken, p_processed: 0, p_candidates: 0, p_api_requests: 0, p_failed_book_ids: [], p_error: booksError.message });
       return json({ error: booksError.message }, 500);
