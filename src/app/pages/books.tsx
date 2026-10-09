@@ -11,7 +11,7 @@ import { isPlaceholderBook } from '../../lib/catalog';
 function isIndexableLink(url: string) {
   try {
     const parsedUrl = new URL(url);
-    return ['http:', 'https:'].includes(parsedUrl.protocol) && !/(^|\.)example\.(com|org|net)$/i.test(parsedUrl.hostname);
+    return parsedUrl.protocol === 'https:' && !/(^|\.)example\.(com|org|net)$/i.test(parsedUrl.hostname);
   } catch {
     return false;
   }
