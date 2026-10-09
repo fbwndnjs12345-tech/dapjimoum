@@ -6,6 +6,8 @@ import { AppStateContext } from './state/AppStateContext';
 import { HomePage, SearchPage, BookDetailPage, BookmarksPage, RedirectPage, LoginPage, AdminDashboard, AdminBooksList, AdminBookForm, AdminCsvImport } from './app/pages';
 import { AlertCircle, Trash2, CheckCircle2, X, Send, AlertTriangle, Sparkles } from 'lucide-react';
 import { updateSeoMetadata } from './lib/seo';
+import { SiteInfoPage } from './app/pages/siteInfo';
+import { AdSenseLoader } from './components/ads/AdSenseLoader';
 
 const AdminLinkSearchPage = lazy(() => import('./app/pages/adminLinkSearch').then(module => ({ default: module.AdminLinkSearchPage })));
 
@@ -196,12 +198,20 @@ export default function App() {
     } else if (currentRoute.startsWith('/books/')) {
       updateSeoMetadata({ title: '교재 답지 및 정보 | 답지모음', description: '교재 정보와 등록된 답지 링크를 확인하세요.', path: canonicalPath, robots: 'noindex, follow' });
     } else {
+      const infoPages: Record<string, { title: string; description: string }> = {
+        '/about': { title: '서비스 소개 | 답지모음', description: '답지모음의 교재 정보 검색 방식과 외부 원본 링크 안내, 정보 정확성 및 서비스 운영 원칙을 소개합니다.' },
+        '/privacy': { title: '개인정보처리방침 | 답지모음', description: '답지모음에서 처리하는 정보, 브라우저 보관함, 외부 서비스와 광고, 개인정보 관련 이용자 권리를 안내합니다.' },
+        '/terms': { title: '이용 안내 | 답지모음', description: '답지모음 서비스 이용 원칙과 외부 링크 이용 시 유의사항을 확인하세요.' },
+        '/copyright': { title: '저작권 및 링크 정책 | 답지모음', description: '답지모음의 외부 링크 운영 방식과 저작권 침해 신고 절차를 안내합니다.' },
+        '/contact': { title: '문의 및 오류 신고 | 답지모음', description: '교재 정보 오류, 외부 링크 오류 및 저작권 관련 문의 방법을 안내합니다.' }
+      };
+      const info = infoPages[currentRoute];
       const isSearch = currentRoute === '/search';
       updateSeoMetadata({
-        title: isSearch ? '교재 검색 | 답지모음' : '답지모음',
-        description: isSearch ? '교재명과 출판사, 과목, 학년과 학기로 답지 링크를 검색하세요.' : '답지모음 교재 답지 검색 서비스',
-        path: isSearch ? '/search' : canonicalPath,
-        robots: 'noindex, follow'
+        title: info?.title ?? (isSearch ? '교재 검색 | 답지모음' : '답지모음'),
+        description: info?.description ?? (isSearch ? '교재명과 출판사, 과목, 학년과 학기로 답지 링크를 검색하세요.' : '답지모음 교재 답지 검색 서비스'),
+        path: canonicalPath,
+        robots: info ? 'index, follow' : 'noindex, follow'
       });
     }
   }, [currentRoute]);
@@ -443,7 +453,7 @@ export default function App() {
         ? 'edit'
         : null;
 
-  const isKnownRoute = ['/', '/search', '/bookmarks', '/login', '/admin', '/admin/books', '/admin/books/new', '/admin/links', '/admin/import', '/admin/link-search'].includes(currentRoute)
+  const isKnownRoute = ['/', '/search', '/bookmarks', '/login', '/admin', '/admin/books', '/admin/books/new', '/admin/links', '/admin/import', '/admin/link-search', '/about', '/privacy', '/terms', '/copyright', '/contact'].includes(currentRoute)
     || currentRoute.startsWith('/books/')
     || currentRoute.startsWith('/go/')
     || (currentRoute.startsWith('/admin/books/') && currentRoute !== '/admin/books/new');
@@ -459,6 +469,7 @@ export default function App() {
           {currentRoute === '/' && <HomePage />}
           {currentRoute === '/search' && <SearchPage />}
           {currentRoute === '/bookmarks' && <BookmarksPage />}
+          {['/about', '/privacy', '/terms', '/copyright', '/contact'].includes(currentRoute) && <SiteInfoPage route={currentRoute} />}
           {currentRoute.startsWith('/books/') && <BookDetailPage />}
           {currentRoute.startsWith('/go/') && <RedirectPage />}
           {currentRoute === '/login' && <LoginPage />}
@@ -477,6 +488,7 @@ export default function App() {
       {renderModals()}
 
       <Footer navigateTo={navigateTo} />
+      <AdSenseLoader route={currentRoute} />
     </div>
     </AppStateContext.Provider>
   );
