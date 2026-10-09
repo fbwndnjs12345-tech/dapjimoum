@@ -6,6 +6,7 @@ const projectRoot = process.cwd();
 const outputRoot = path.join(projectRoot, 'dist');
 const env = loadEnv('production', projectRoot, ['NEXT_PUBLIC_', 'VITE_']);
 const siteUrl = (process.env.VITE_SITE_URL || env.VITE_SITE_URL || '').trim().replace(/\/+$/, '');
+const contactEmail = (process.env.VITE_CONTACT_EMAIL || env.VITE_CONTACT_EMAIL || '').trim();
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -173,7 +174,7 @@ const publicInfoPages = [
     route: 'privacy',
     title: '개인정보처리방침 | 답지모음',
     description: '답지모음에서 처리하는 정보, 브라우저 보관함, 외부 서비스와 광고, 개인정보 관련 이용자 권리를 안내합니다.',
-    content: '<h1>개인정보처리방침</h1><p>답지모음은 서비스 운영에 필요한 범위에서 정보를 처리합니다.</p><h2>처리하는 정보</h2><p>저장한 교재 목록은 브라우저 로컬 저장소에 저장됩니다. 관리자 기능은 인증 제공자를 통해 로그인 상태를 확인합니다. 이용자가 직접 제출한 오류 신고 내용은 교재 정보와 링크를 확인하는 데 사용될 수 있습니다.</p><h2>외부 서비스와 광고</h2><p>Google AdSense 광고가 활성화된 경우 Google 및 광고 파트너가 쿠키 또는 유사 기술을 사용해 광고를 제공하고 측정할 수 있습니다. 자세한 내용은 <a href="https://policies.google.com/technologies/ads" rel="noopener noreferrer">Google 광고 기술 안내</a>를 확인해 주세요.</p><h2>이용자 권리 및 방침 변경</h2><p>브라우저에 저장된 보관함은 이용자가 직접 삭제할 수 있습니다. 개인정보 관련 요청 및 방침 변경 문의는 문의 페이지를 이용해 주세요.</p><p><strong>운영자는 게시 전 실제 사업자 정보, 연락처, 보유 기간 및 사용 중인 외부 서비스 목록을 확인하고 이 방침을 완성해야 합니다.</strong></p>'
+    content: '<h1>개인정보처리방침</h1><p>답지모음은 서비스 운영에 필요한 범위에서 정보를 처리합니다.</p><h2>처리하는 정보</h2><p>저장한 교재 목록은 브라우저 로컬 저장소에 저장됩니다. 관리자 기능은 인증 제공자를 통해 로그인 상태를 확인합니다. 이용자가 직접 제출한 오류 신고 내용은 교재 정보와 링크를 확인하는 데 사용될 수 있습니다.</p><h2>외부 서비스와 광고</h2><p>Google AdSense 광고가 활성화된 경우 Google 및 광고 파트너가 쿠키 또는 유사 기술을 사용해 광고를 제공하고 측정할 수 있습니다. 자세한 내용은 <a href="https://policies.google.com/technologies/ads" rel="noopener noreferrer">Google 광고 기술 안내</a>를 확인해 주세요.</p><h2>이용자 권리 및 방침 변경</h2><p>브라우저에 저장된 보관함은 이용자가 직접 삭제할 수 있습니다. 개인정보 관련 요청 및 방침 변경 문의는 문의 페이지를 이용해 주세요.</p><p>개인정보 처리에 관한 문의는 <a href="/contact">문의 및 오류 신고</a> 페이지를 이용해 주세요.</p>'
   },
   {
     route: 'terms',
@@ -191,7 +192,7 @@ const publicInfoPages = [
     route: 'contact',
     title: '문의 및 오류 신고 | 답지모음',
     description: '교재 정보 오류, 외부 링크 오류 및 저작권 관련 문의 방법을 안내합니다.',
-    content: '<h1>문의 및 오류 신고</h1><h2>교재 정보 및 링크 오류</h2><p>교재명이나 출판사 정보가 잘못되었거나 외부 링크가 열리지 않는 경우, 해당 교재 페이지의 오류 링크 신고 기능을 이용해 주세요. 교재명, 링크 제목 및 오류 내용을 포함하면 검토에 도움이 됩니다.</p><h2>저작권 관련 신고</h2><p>저작권 관련 신고에는 대상 URL, 침해 사유 및 회신 가능한 연락처를 포함해 주세요. 운영자 연락 이메일은 사이트 출시 전에 설정되어야 합니다.</p><p><a href="/copyright">저작권 및 링크 정책</a></p>'
+    content: '<h1>문의 및 오류 신고</h1><h2>교재 정보 및 링크 오류</h2><p>교재명이나 출판사 정보가 잘못되었거나 외부 링크가 열리지 않는 경우, 해당 교재 페이지의 오류 링크 신고 기능을 이용해 주세요. 교재명, 링크 제목 및 오류 내용을 포함하면 검토에 도움이 됩니다.</p><h2>저작권 관련 신고</h2><p>저작권 관련 신고에는 대상 URL, 침해 사유 및 회신 가능한 연락처를 포함해 주세요. ${contactEmail ? `운영자 이메일: <a href="mailto:${escapeHtml(contactEmail)}">${escapeHtml(contactEmail)}</a>.` : '운영자 이메일은 아직 등록되지 않았습니다.'}</p><p><a href="/copyright">저작권 및 링크 정책</a></p>'
   }
 ];
 
