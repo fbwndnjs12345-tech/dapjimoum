@@ -1,3 +1,5 @@
+import type { MouseEvent } from 'react';
+
 type FooterProps = { navigateTo: (path: string) => void };
 
 const footerLinks = [
@@ -9,7 +11,7 @@ const footerLinks = [
 ];
 
 export function Footer({ navigateTo }: FooterProps) {
-  const handleInternalLink = (event: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+  const handleInternalLink = (event: MouseEvent<HTMLAnchorElement>, href: string) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     navigateTo(href);
