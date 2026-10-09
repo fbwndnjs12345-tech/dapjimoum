@@ -1,6 +1,6 @@
 export const UNIFIED_CSV_COLUMNS = [
   'title', 'publisher', 'subject', 'grade', 'semester', 'series',
-  'curriculum_revision', 'thumbnail_url', 'description', 'book_url',
+  'thumbnail_url', 'description', 'book_url',
   'link_title', 'url', 'source_name', 'link_type'
 ] as const;
 
@@ -95,14 +95,6 @@ export function parseCsv(text: string): { headers: string[]; rows: CsvRow[] } {
 
 export function normalizeCatalogText(value: string | null | undefined): string {
   return (value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
-}
-
-export function normalizeCurriculumRevision(value: string): '2015 개정' | '2022 개정' | '' | null {
-  const normalized = value.replace(/\s+/g, '').toLocaleLowerCase();
-  if (!normalized) return '';
-  if (normalized === '2015' || normalized === '2015개정') return '2015 개정';
-  if (normalized === '2022' || normalized === '2022개정') return '2022 개정';
-  return null;
 }
 
 export function normalizeGrade(value: string): string | null {
