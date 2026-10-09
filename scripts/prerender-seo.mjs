@@ -199,9 +199,9 @@ for (const page of publicInfoPages) {
   const pagePath = `/${page.route}`;
   const canonical = siteUrl ? `<link rel="canonical" href="${escapeHtml(siteUrl + pagePath)}" />` : '';
   const pageHtml = template
-    .replace(/<title>[\\s\\S]*?<\\/title>/, `<title>${escapeHtml(page.title)}</title>`)
-    .replace(/<meta name="description"[^>]*\\/?\\s*>/, `<meta name="description" content="${escapeHtml(page.description)}" />`)
-    .replace(/<meta name="robots"[^>]*\\/?\\s*>/, '<meta name="robots" content="index, follow" />')
+    .replace(/<title>[\s\S]*?<\/title>/, `<title>${escapeHtml(page.title)}</title>`)
+    .replace(/<meta name="description"[^>]*\/?\s*>/, `<meta name="description" content="${escapeHtml(page.description)}" />`)
+    .replace(/<meta name="robots"[^>]*\/?\s*>/, '<meta name="robots" content="index, follow" />')
     .replace('</head>', `    ${canonical}\n  </head>`)
     .replace('<div id="root"></div>', `<div id="root"><main class="mx-auto max-w-3xl space-y-5 px-5 py-10 text-sm leading-7 text-[#4E5968]"><nav aria-label="Breadcrumb"><a href="/">답지모음</a> › ${escapeHtml(page.title.split(' | ')[0])}</nav><article>${page.content}</article></main></div>`);
   const routeDirectory = path.join(outputRoot, page.route);
@@ -210,7 +210,7 @@ for (const page of publicInfoPages) {
 }
 
 const publisherId = (process.env.VITE_ADSENSE_CLIENT_ID || env.VITE_ADSENSE_CLIENT_ID || '').trim();
-if (/^ca-pub-\\d{16}$/.test(publisherId)) {
+if (/^ca-pub-\d{16}$/.test(publisherId)) {
   await writeFile(path.join(outputRoot, 'ads.txt'), `google.com, ${publisherId.slice(7)}, DIRECT, f08c47fec0942fa0\n`, 'utf8');
 } else {
   console.warn('AdSense: VITE_ADSENSE_CLIENT_ID is not configured; ads.txt was not generated. Set the real ca-pub- ID from your AdSense account after the site is approved/registered.');
