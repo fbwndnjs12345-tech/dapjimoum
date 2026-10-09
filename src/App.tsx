@@ -9,6 +9,17 @@ import { updateSeoMetadata } from './lib/seo';
 
 const AdminLinkSearchPage = lazy(() => import('./app/pages/adminLinkSearch').then(module => ({ default: module.AdminLinkSearchPage })));
 
+function loadSavedBookmarks(): string[] {
+  try {
+    const saved = window.localStorage.getItem('dapji_bookmarks_v3');
+    if (!saved) return [];
+    const parsed: unknown = JSON.parse(saved);
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string' && value.length <= 200) : [];
+  } catch {
+    return [];
+  }
+}
+
 function readRouteInfo() {
   const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
   const bookMatch = pathname.match(/^\/books\/([^/]+)$/);
@@ -30,10 +41,7 @@ export default function App() {
   const [catalogError, setCatalogError] = useState('');
   const catalogRequestId = useRef(0);
 
-  const [bookmarks, setBookmarks] = useState<string[]>(() => {
-    const saved = localStorage.getItem('dapji_bookmarks_v3');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [bookmarks, setBookmarks] = useState<string[]>(loadSavedBookmarks);
 
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -126,7 +134,11 @@ export default function App() {
   }, [refreshCatalog, isAdminLoggedIn]);
 
   useEffect(() => {
-    localStorage.setItem('dapji_bookmarks_v3', JSON.stringify(bookmarks));
+    try {
+      window.localStorage.setItem('dapji_bookmarks_v3', JSON.stringify(bookmarks));
+    } catch {
+      // Storage can be unavailable in private browsing or restricted environments.
+    }
   }, [bookmarks]);
 
   const showToast = (msg, type = 'info') => {
