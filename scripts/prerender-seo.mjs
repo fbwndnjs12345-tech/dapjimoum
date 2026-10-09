@@ -160,6 +160,60 @@ for (const [route, title] of nonIndexableRoutes) {
   await writeFile(path.join(routeDirectory, 'index.html'), routeHtml, 'utf8');
 }
 
+const publicInfoPages = [
+  {
+    route: 'about',
+    title: '서비스 소개 | 답지모음',
+    description: '답지모음의 교재 정보 검색 방식과 외부 원본 링크 안내, 정보 정확성 및 서비스 운영 원칙을 소개합니다.',
+    content: '<h1>답지모음 서비스 소개</h1><p>답지모음은 교재명, 출판사, 과목, 학년 등의 정보를 바탕으로 교재를 찾고 관련 자료의 원본 페이지로 이동하도록 돕는 교재 정보 검색 서비스입니다.</p><h2>외부 원본 링크 안내</h2><p>답지 파일 자체를 호스팅하거나 판매하지 않습니다. 외부 링크를 이용하기 전에 교재명, 출판사, 학년·학기 및 시리즈가 일치하는지 확인해 주세요.</p><h2>정보의 정확성</h2><p>교재 정보와 외부 링크는 변경되거나 삭제될 수 있습니다. 오류는 문의 및 오류 신고 페이지를 통해 알려 주세요.</p><p>답지모음은 교재 출판사나 교육기관의 공식 서비스가 아닙니다.</p>'
+  },
+  {
+    route: 'privacy',
+    title: '개인정보처리방침 | 답지모음',
+    description: '답지모음에서 처리하는 정보, 브라우저 보관함, 외부 서비스와 광고, 개인정보 관련 이용자 권리를 안내합니다.',
+    content: '<h1>개인정보처리방침</h1><p>답지모음은 서비스 운영에 필요한 범위에서 정보를 처리합니다.</p><h2>처리하는 정보</h2><p>저장한 교재 목록은 브라우저 로컬 저장소에 저장됩니다. 관리자 기능은 인증 제공자를 통해 로그인 상태를 확인합니다. 이용자가 직접 제출한 오류 신고 내용은 교재 정보와 링크를 확인하는 데 사용될 수 있습니다.</p><h2>외부 서비스와 광고</h2><p>Google AdSense 광고가 활성화된 경우 Google 및 광고 파트너가 쿠키 또는 유사 기술을 사용해 광고를 제공하고 측정할 수 있습니다. 자세한 내용은 <a href="https://policies.google.com/technologies/ads" rel="noopener noreferrer">Google 광고 기술 안내</a>를 확인해 주세요.</p><h2>이용자 권리 및 방침 변경</h2><p>브라우저에 저장된 보관함은 이용자가 직접 삭제할 수 있습니다. 개인정보 관련 요청 및 방침 변경 문의는 문의 페이지를 이용해 주세요.</p><p><strong>운영자는 게시 전 실제 사업자 정보, 연락처, 보유 기간 및 사용 중인 외부 서비스 목록을 확인하고 이 방침을 완성해야 합니다.</strong></p>'
+  },
+  {
+    route: 'terms',
+    title: '이용 안내 | 답지모음',
+    description: '답지모음 서비스 이용 원칙과 외부 링크 이용 시 유의사항을 확인하세요.',
+    content: '<h1>이용 안내</h1><h2>서비스의 성격</h2><p>답지모음은 교재 정보와 외부 자료 링크를 검색하기 위한 안내 서비스입니다. 특정 자료의 정확성, 지속적인 제공 여부 또는 외부 사이트의 안전성을 보장하지 않습니다.</p><h2>이용자 준수사항</h2><p>서비스를 불법 복제, 저작권 침해, 자동화된 과도한 요청, 보안 우회 또는 타인의 권리를 침해하는 목적으로 사용해서는 안 됩니다.</p><h2>외부 서비스 및 정보 변경</h2><p>외부 링크를 이용할 때는 해당 사이트의 이용 조건과 저작권 정책을 따라야 합니다. 잘못된 정보나 권리 침해 우려가 있는 자료는 수정 또는 제거될 수 있습니다.</p>'
+  },
+  {
+    route: 'copyright',
+    title: '저작권 및 링크 정책 | 답지모음',
+    description: '답지모음의 외부 링크 운영 방식과 저작권 침해 신고 절차를 안내합니다.',
+    content: '<h1>저작권 및 링크 정책</h1><h2>외부 링크 안내</h2><p>답지모음은 외부 웹페이지로 연결되는 링크를 안내합니다. 외부 사이트의 내용과 개인정보 처리, 이용 조건은 해당 사이트 운영자가 책임집니다.</p><h2>저작권 침해 신고</h2><p>권리 침해가 의심되는 링크를 신고할 때는 대상 URL, 침해 사유, 권리자임을 확인할 수 있는 정보 및 회신 가능한 연락처를 포함해 주세요. 확인 후 검토하고 필요한 조치를 진행합니다.</p><h2>자료를 직접 호스팅하지 않습니다</h2><p>답지모음은 답지 파일을 무단 복제하거나 직접 제공하는 용도로 사용해서는 안 됩니다. 권리자 요청이나 링크 확인 결과에 따라 링크가 제거될 수 있습니다.</p><p><a href="/contact">문의 및 오류 신고</a></p>'
+  },
+  {
+    route: 'contact',
+    title: '문의 및 오류 신고 | 답지모음',
+    description: '교재 정보 오류, 외부 링크 오류 및 저작권 관련 문의 방법을 안내합니다.',
+    content: '<h1>문의 및 오류 신고</h1><h2>교재 정보 및 링크 오류</h2><p>교재명이나 출판사 정보가 잘못되었거나 외부 링크가 열리지 않는 경우, 해당 교재 페이지의 오류 링크 신고 기능을 이용해 주세요. 교재명, 링크 제목 및 오류 내용을 포함하면 검토에 도움이 됩니다.</p><h2>저작권 관련 신고</h2><p>저작권 관련 신고에는 대상 URL, 침해 사유 및 회신 가능한 연락처를 포함해 주세요. 운영자 연락 이메일은 사이트 출시 전에 설정되어야 합니다.</p><p><a href="/copyright">저작권 및 링크 정책</a></p>'
+  }
+];
+
+for (const page of publicInfoPages) {
+  const pagePath = `/${page.route}`;
+  const canonical = siteUrl ? `<link rel="canonical" href="${escapeHtml(siteUrl + pagePath)}" />` : '';
+  const pageHtml = template
+    .replace(/<title>[\\s\\S]*?<\\/title>/, `<title>${escapeHtml(page.title)}</title>`)
+    .replace(/<meta name="description"[^>]*\\/?\\s*>/, `<meta name="description" content="${escapeHtml(page.description)}" />`)
+    .replace(/<meta name="robots"[^>]*\\/?\\s*>/, '<meta name="robots" content="index, follow" />')
+    .replace('</head>', `    ${canonical}\\n  </head>`)
+    .replace('<div id="root"></div>', `<div id="root"><main class="mx-auto max-w-3xl space-y-5 px-5 py-10 text-sm leading-7 text-[#4E5968]"><nav aria-label="Breadcrumb"><a href="/">답지모음</a> › ${escapeHtml(page.title.split(' | ')[0])}</nav><article>${page.content}</article></main></div>`);
+  const routeDirectory = path.join(outputRoot, page.route);
+  await mkdir(routeDirectory, { recursive: true });
+  await writeFile(path.join(routeDirectory, 'index.html'), pageHtml, 'utf8');
+}
+
+const publisherId = (process.env.VITE_ADSENSE_CLIENT_ID || env.VITE_ADSENSE_CLIENT_ID || '').trim();
+if (/^ca-pub-\\d{16}$/.test(publisherId)) {
+  await writeFile(path.join(outputRoot, 'ads.txt'), `google.com, ${publisherId.slice(7)}, DIRECT, f08c47fec0942fa0\\n`, 'utf8');
+} else {
+  console.warn('AdSense: VITE_ADSENSE_CLIENT_ID is not configured; ads.txt was not generated. Set the real ca-pub- ID from your AdSense account after the site is approved/registered.');
+}
+
 for (const book of qualifyingBooks) {
   const bookLinks = links.filter(link => link.book_id === book.id && isRecentlyVerified(link) && isPublicHttpsUrl(link.url));
   const related = qualifyingBooks
@@ -171,7 +225,7 @@ for (const book of qualifyingBooks) {
 }
 
 if (siteUrl) {
-  const locations = [siteUrl, ...qualifyingBooks.map(book => `${siteUrl}/books/${encodeURIComponent(book.id)}`)];
+  const locations = [siteUrl, ...publicInfoPages.map(page => `${siteUrl}/${page.route}`), ...qualifyingBooks.map(book => `${siteUrl}/books/${encodeURIComponent(book.id)}`)];
   const sitemap = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${locations.map(location => `  <url><loc>${escapeHtml(location)}</loc></url>`).join('\n')}\n</urlset>\n`;
   await writeFile(path.join(outputRoot, 'sitemap.xml'), sitemap, 'utf8');
 }
