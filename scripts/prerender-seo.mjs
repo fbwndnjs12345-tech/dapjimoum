@@ -192,7 +192,9 @@ const publicInfoPages = [
     route: 'contact',
     title: '문의 및 오류 신고 | 답지모음',
     description: '교재 정보 오류, 외부 링크 오류 및 저작권 관련 문의 방법을 안내합니다.',
-    content: '<h1>문의 및 오류 신고</h1><h2>교재 정보 및 링크 오류</h2><p>교재명이나 출판사 정보가 잘못되었거나 외부 링크가 열리지 않는 경우, 해당 교재 페이지의 오류 링크 신고 기능을 이용해 주세요. 교재명, 링크 제목 및 오류 내용을 포함하면 검토에 도움이 됩니다.</p><h2>저작권 관련 신고</h2><p>저작권 관련 신고에는 대상 URL, 침해 사유 및 회신 가능한 연락처를 포함해 주세요. ${contactEmail ? `운영자 이메일: <a href="mailto:${escapeHtml(contactEmail)}">${escapeHtml(contactEmail)}</a>.` : '운영자 이메일은 아직 등록되지 않았습니다.'}</p><p><a href="/copyright">저작권 및 링크 정책</a></p>'
+    content: '<h1>문의 및 오류 신고</h1><h2>교재 정보 및 링크 오류</h2><p>교재명이나 출판사 정보가 잘못되었거나 외부 링크가 열리지 않는 경우, 해당 교재 페이지의 오류 링크 신고 기능을 이용해 주세요. 교재명, 링크 제목 및 오류 내용을 포함하면 검토에 도움이 됩니다.</p><h2>저작권 관련 신고</h2><p>저작권 관련 신고에는 대상 URL, 침해 사유 및 회신 가능한 연락처를 포함해 주세요. ' +
+      (contactEmail ? `운영자 이메일: <a href="mailto:${escapeHtml(contactEmail)}">${escapeHtml(contactEmail)}</a>.` : '운영자 이메일은 아직 등록되지 않았습니다.') +
+      '</p><p><a href="/copyright">저작권 및 링크 정책</a></p>'
   }
 ];
 
