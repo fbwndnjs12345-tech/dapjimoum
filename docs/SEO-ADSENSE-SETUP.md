@@ -26,10 +26,11 @@ The build generates `robots.txt` and `sitemap.xml` using `VITE_SITE_URL`. It pre
 1. Publish accurate, complete privacy, service, contact, and copyright pages. Replace any operational placeholders with the actual operator/contact and retention information before submitting the site for review.
 2. Ensure each indexed book page is useful and accurate, with correct publisher/title/grade details, meaningful original description, and working relevant source links. Do not index thin, duplicate, placeholder, or unverified pages just to increase page count.
 3. Add the production domain in the AdSense account and complete Google's site review process.
-4. After you have the real publisher ID, set `VITE_ADSENSE_CLIENT_ID` and redeploy. The site loads the official asynchronous AdSense script on the home and book routes; it does not fabricate ad-unit IDs or insert placeholder ads.
+4. After adding the production site to AdSense, copy the real publisher ID, set `VITE_ADSENSE_CLIENT_ID`, and redeploy before submitting the site for review. The build places Google's official asynchronous AdSense code in the HTML head of the home page and eligible book pages; it does not fabricate publisher IDs or ad-unit IDs.
 5. Confirm `https://YOUR-DOMAIN/ads.txt` contains the generated publisher record. Google may take time to crawl and update the status.
 6. In AdSense, configure Auto ads and review the placement preview. Ensure ads are not placed where they can be confused with navigation, answer links, download controls, or page content.
-7. Test the live site after deployment with browser developer tools. Confirm the AdSense script is not blocked by the Content Security Policy and that console/network errors are resolved.
+7. If the site serves users in the EEA, UK, or Switzerland, review Google's current consent requirements and use a Google-certified CMP where required.
+8. Test the live site after deployment with browser developer tools. Confirm the AdSense script is not blocked by the Content Security Policy and that console/network errors are resolved.
 
 ## Important limitations
 
