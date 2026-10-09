@@ -272,11 +272,6 @@ export function BookDetailPage() {
                     {book.edition}
                   </span>
                 )}
-                {book.curriculum_revision && (
-                  <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#F2F4F6] text-[#4E5968]">
-                    {book.curriculum_revision}
-                  </span>
-                )}
                 <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#F2F4F6] text-[#4E5968]">
                   {[book.grade, book.semester].filter(Boolean).join(' · ') || '학년·학기 미등록'}
                 </span>
