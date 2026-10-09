@@ -7,7 +7,6 @@ import { HomePage, SearchPage, BookDetailPage, BookmarksPage, RedirectPage, Logi
 import { AlertCircle, Trash2, CheckCircle2, X, Send, AlertTriangle, Sparkles } from 'lucide-react';
 import { updateSeoMetadata } from './lib/seo';
 import { SiteInfoPage } from './app/pages/siteInfo';
-import { AdSenseLoader } from './components/ads/AdSenseLoader';
 
 const AdminLinkSearchPage = lazy(() => import('./app/pages/adminLinkSearch').then(module => ({ default: module.AdminLinkSearchPage })));
 
@@ -488,7 +487,6 @@ export default function App() {
       {renderModals()}
 
       <Footer navigateTo={navigateTo} />
-      <AdSenseLoader route={currentRoute} />
     </div>
     </AppStateContext.Provider>
   );
