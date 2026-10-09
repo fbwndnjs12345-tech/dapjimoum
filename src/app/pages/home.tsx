@@ -1,17 +1,21 @@
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Plus, ShieldCheck } from 'lucide-react';
 
 import { useAppContext } from '../../state/useAppContext';
 import { BookCard } from '../../components/books/BookCard';
 import { Hero } from '../../components/home/Hero';
 import { SubjectNavigation } from '../../components/home/SubjectNavigation';
-import type { Book } from '../../types/book';
+import type { AnswerLink, Book } from '../../types/book';
+import { isPlaceholderBook } from '../../lib/catalog';
 
 export function HomePage() {
-    const {books, links, bookmarks, searchQuery, setSearchQuery, setPublisherFilter, setIsRequestModalOpen, navigateTo, toggleBookmark} = useAppContext();
-    const [supabaseBooks, setSupabaseBooks] = useState<Book[] | null>(null);
+    const {bookmarks, searchQuery, setSearchQuery, setPublisherFilter, setIsRequestModalOpen, navigateTo, toggleBookmark} = useAppContext();
+    const [homeBooks, setHomeBooks] = useState<Book[]>([]);
+    const [homeLinks, setHomeLinks] = useState<AnswerLink[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [loadError, setLoadError] = useState('');
+    const [reloadKey, setReloadKey] = useState(0);
 
     useEffect(() => {
       let isActive = true;
@@ -23,17 +27,23 @@ export function HomePage() {
         );
 
         if (!hasSupabaseConfig) {
-          if (isActive) setIsLoading(false);
+          if (isActive) { setLoadError('Supabase 환경 변수를 확인해 주세요.'); setIsLoading(false); }
           return;
         }
 
         try {
-          const { getBooks } = await import('../../lib/supabase/books');
-          const result = await getBooks();
-          if (isActive) setSupabaseBooks(result);
-        } catch {
-          // Keep the existing mock books as a fallback when Supabase is unavailable.
-          if (isActive) setSupabaseBooks(null);
+          const [{ getBooks }, { getAnswerLinks }] = await Promise.all([
+            import('../../lib/supabase/books'),
+            import('../../lib/supabase/answerLinks')
+          ]);
+          const [result, answerLinks] = await Promise.all([getBooks(), getAnswerLinks()]);
+          if (isActive) { setHomeBooks(result.filter(book => !isPlaceholderBook(book))); setHomeLinks(answerLinks); setLoadError(''); }
+        } catch (error) {
+          if (isActive) {
+            setHomeBooks([]);
+            setHomeLinks([]);
+            setLoadError(error instanceof Error ? error.message : '교재 정보를 불러오지 못했습니다.');
+          }
         } finally {
           if (isActive) setIsLoading(false);
         }
@@ -41,21 +51,27 @@ export function HomePage() {
 
       void loadBooks();
       return () => { isActive = false; };
-    }, []);
+    }, [reloadKey]);
 
-    const homeBooks = supabaseBooks ?? books;
+    const popularBooks = useMemo(() => {
+      const clicksByBook = new Map<string, number>();
+      homeLinks.forEach(link => clicksByBook.set(link.book_id, (clicksByBook.get(link.book_id) ?? 0) + link.click_count));
+      return [...homeBooks]
+        .sort((left, right) => (clicksByBook.get(right.id) ?? 0) - (clicksByBook.get(left.id) ?? 0) || new Date(right.created_at).getTime() - new Date(left.created_at).getTime())
+        .slice(0, 6);
+    }, [homeBooks, homeLinks]);
 
     return (
       <div className="space-y-12 pb-20 pt-8 sm:pt-14">
-        <Hero query={searchQuery} onQueryChange={setSearchQuery} onSearch={() => navigateTo('/search')} />
-        <SubjectNavigation books={books} onViewAll={() => navigateTo('/search')} onSelect={(publisher) => { setPublisherFilter(publisher); navigateTo('/search'); }} />
+        <Hero query={searchQuery} onQueryChange={setSearchQuery} onSearch={() => navigateTo('/search')} suggestions={homeBooks.slice(0, 6).map(book => book.title)} />
+        <SubjectNavigation books={homeBooks} status={isLoading ? 'loading' : loadError ? 'error' : 'success'} onViewAll={() => navigateTo('/search')} onSelect={(publisher) => { setPublisherFilter(publisher); navigateTo('/search'); }} />
 
         {/* Popular / Recommended Workbooks */}
         <section className="max-w-[1100px] mx-auto px-5 space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-bold text-[#191F28]">지금 학생들이 가장 많이 찾는 교재</h2>
-              <p className="text-xs text-[#8B95A1] mt-0.5">실시간 조회수 기준 인기 답지 목록입니다.</p>
+              <h2 className="text-lg font-bold text-[#191F28]">{homeLinks.some(link => link.click_count > 0) ? '답지 링크 클릭이 많은 교재' : '최근 등록된 교재'}</h2>
+              <p className="text-xs text-[#8B95A1] mt-0.5">{homeLinks.some(link => link.click_count > 0) ? '공개 링크의 누적 클릭 수 기준입니다.' : '공개 링크 클릭 데이터가 없어 최근 등록순으로 표시합니다.'}</p>
             </div>
             <button
               onClick={() => setIsRequestModalOpen(true)}
@@ -71,12 +87,17 @@ export function HomePage() {
               <div className="sm:col-span-2 md:col-span-3 rounded-3xl border border-[#E5E8EB] bg-white p-8 text-center text-sm text-[#8B95A1]">
                 교재 목록을 불러오고 있습니다.
               </div>
+            ) : loadError ? (
+              <div role="alert" className="sm:col-span-2 md:col-span-3 rounded-3xl border border-[#E5E8EB] bg-white p-8 text-center text-sm text-[#667085]">
+                교재 정보를 불러오지 못했습니다. {loadError}
+                <button type="button" onClick={() => setReloadKey(key => key + 1)} className="ml-2 font-bold text-[#191F28] underline">다시 시도</button>
+              </div>
             ) : homeBooks.length === 0 ? (
               <div className="sm:col-span-2 md:col-span-3 rounded-3xl border border-[#E5E8EB] bg-white p-8 text-center text-sm text-[#8B95A1]">
                 등록된 교재가 없습니다.
               </div>
-            ) : homeBooks.slice(0, 6).map(book => {
-              const bookLinks = links.filter(l => l.book_id === book.id);
+            ) : popularBooks.map(book => {
+              const bookLinks = homeLinks.filter(l => l.book_id === book.id);
               const verifiedCount = bookLinks.filter(l => l.verified).length;
               const isBookmarked = bookmarks.includes(book.id);
 

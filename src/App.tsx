@@ -1,15 +1,15 @@
-import { useState, useEffect, useMemo } from 'react';
-import { ALL_PUBLISHERS, ALL_SUBJECTS, ALL_GRADES, ALL_SEMESTERS, INITIAL_BOOKS, INITIAL_LINKS } from './data/mockBooks';
+import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import type { Book, AnswerLink } from './types/book';
 import { Header } from './components/layout/Header';
 import { Footer } from './components/layout/Footer';
 import { AppStateContext } from './state/AppStateContext';
-import { HomePage, SearchPage, BookDetailPage, BookmarksPage, RedirectPage, LoginPage, AdminDashboard, AdminBooksList, AdminBookForm, AdminLinksList } from './app/pages';
+import { HomePage, SearchPage, BookDetailPage, BookmarksPage, RedirectPage, LoginPage, AdminDashboard, AdminBooksList, AdminBookForm, AdminCsvImport } from './app/pages';
 import { AlertCircle, Trash2, CheckCircle2, X, Send, AlertTriangle, Sparkles } from 'lucide-react';
 import { updateSeoMetadata } from './lib/seo';
 
-const CURRICULUM_REVISION_OPTIONS = ['2015 개정', '2022 개정'];
+const AdminLinkSearchPage = lazy(() => import('./app/pages/adminLinkSearch').then(module => ({ default: module.AdminLinkSearchPage })));
 
+const CURRICULUM_REVISION_OPTIONS = ['2015 개정', '2022 개정'];
 function readCurriculumRevisionFromUrl() {
   const revision = new URLSearchParams(window.location.search).get('curriculum');
   return CURRICULUM_REVISION_OPTIONS.includes(revision ?? '') ? revision! : '전체';
@@ -30,15 +30,11 @@ function readRouteInfo() {
 
 export default function App() {
   // State management
-  const [books, setBooks] = useState<Book[]>(() => {
-    const saved = localStorage.getItem('dapji_books_v3');
-    return saved ? JSON.parse(saved) : INITIAL_BOOKS;
-  });
-
-  const [links, setLinks] = useState<AnswerLink[]>(() => {
-    const saved = localStorage.getItem('dapji_links_v3');
-    return saved ? JSON.parse(saved) : INITIAL_LINKS;
-  });
+  const [books, setBooks] = useState<Book[]>([]);
+  const [links, setLinks] = useState<AnswerLink[]>([]);
+  const [catalogStatus, setCatalogStatus] = useState<'loading' | 'success' | 'error'>('loading');
+  const [catalogError, setCatalogError] = useState('');
+  const catalogRequestId = useRef(0);
 
   const [bookmarks, setBookmarks] = useState<string[]>(() => {
     const saved = localStorage.getItem('dapji_bookmarks_v3');
@@ -103,14 +99,38 @@ export default function App() {
   // Minimal Toast Notification
   const [toastMessage, setToastMessage] = useState(null);
 
-  // Local storage synchronization
-  useEffect(() => {
-    localStorage.setItem('dapji_books_v3', JSON.stringify(books));
-  }, [books]);
+  const refreshCatalog = useCallback(async () => {
+    const requestId = ++catalogRequestId.current;
+    setCatalogStatus('loading');
+    setCatalogError('');
+    try {
+      if (!import.meta.env.NEXT_PUBLIC_SUPABASE_URL || !import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+        throw new Error('Supabase 환경 변수를 확인해 주세요.');
+      }
+      const [{ getBooks }, { getAnswerLinks }] = await Promise.all([
+        import('./lib/supabase/books'),
+        import('./lib/supabase/answerLinks')
+      ]);
+      const [catalog, answerLinks] = await Promise.all([getBooks(), getAnswerLinks()]);
+      if (requestId !== catalogRequestId.current) return;
+      setBooks(catalog);
+      setLinks(answerLinks);
+      setCatalogStatus('success');
+    } catch (error) {
+      if (requestId !== catalogRequestId.current) return;
+      setBooks([]);
+      setLinks([]);
+      setCatalogError(error instanceof Error ? error.message : 'Supabase 데이터를 불러오지 못했습니다.');
+      setCatalogStatus('error');
+    }
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem('dapji_links_v3', JSON.stringify(links));
-  }, [links]);
+    void refreshCatalog();
+    const reloadCatalog = () => { void refreshCatalog(); };
+    window.addEventListener('catalog-data-updated', reloadCatalog);
+    return () => window.removeEventListener('catalog-data-updated', reloadCatalog);
+  }, [refreshCatalog, isAdminLoggedIn]);
 
   useEffect(() => {
     localStorage.setItem('dapji_bookmarks_v3', JSON.stringify(bookmarks));
@@ -189,6 +209,10 @@ export default function App() {
   }, [currentRoute]);
 
   useEffect(() => {
+    if (currentRoute === '/admin/links') navigateTo('/admin/books');
+  }, [currentRoute]);
+
+  useEffect(() => {
     if (!isAuthLoading && currentRoute.startsWith('/admin') && !isAdminLoggedIn) {
       navigateTo('/login');
     }
@@ -218,40 +242,7 @@ export default function App() {
     }
   };
 
-  // Filtered books computing
-  const filteredBooks = useMemo(() => {
-    return books.filter(book => {
-      const q = searchQuery.trim().toLowerCase();
-      const matchesQuery = !q || (
-        book.title.toLowerCase().includes(q) ||
-        book.publisher.toLowerCase().includes(q) ||
-        book.subject.toLowerCase().includes(q) ||
-        (book.series && book.series.toLowerCase().includes(q)) ||
-        book.grade.toLowerCase().includes(q) ||
-        (book.description && book.description.toLowerCase().includes(q))
-      );
-
-      const matchesSubject = subjectFilter === '전체' || book.subject === subjectFilter;
-      const matchesGrade = gradeFilter === '전체' || book.grade === gradeFilter;
-      const matchesSemester = semesterFilter === '전체' || book.semester === semesterFilter;
-      const matchesPublisher = publisherFilter === '전체' || book.publisher === publisherFilter;
-      const matchesCurriculumRevision = curriculumRevisionFilter === '전체' || book.curriculum_revision === curriculumRevisionFilter;
-
-      return matchesQuery && matchesSubject && matchesGrade && matchesSemester && matchesPublisher && matchesCurriculumRevision;
-    }).sort((a, b) => {
-      if (sortBy === 'latest') {
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      }
-      if (sortBy === 'popular') {
-        const clicksA = links.filter(l => l.book_id === a.id).reduce((sum, l) => sum + l.click_count, 0);
-        const clicksB = links.filter(l => l.book_id === b.id).reduce((sum, l) => sum + l.click_count, 0);
-        return clicksB - clicksA;
-      }
-      return 0;
-    });
-  }, [books, links, searchQuery, subjectFilter, gradeFilter, semesterFilter, publisherFilter, curriculumRevisionFilter, sortBy]);
-
-  const appState = { books, setBooks, links, setLinks, bookmarks, setBookmarks, isAdminLoggedIn, setIsAdminLoggedIn, currentRoute, routeParams, searchQuery, setSearchQuery, subjectFilter, setSubjectFilter, gradeFilter, setGradeFilter, semesterFilter, setSemesterFilter, publisherFilter, setPublisherFilter, curriculumRevisionFilter, setCurriculumRevisionFilter, sortBy, setSortBy, isRequestModalOpen, setIsRequestModalOpen, requestBookName, setRequestBookName, requestBookPublisher, setRequestBookPublisher, isReportModalOpen, setIsReportModalOpen, reportTargetLink, setReportTargetLink, reportReason, setReportReason, confirmDeleteDialog, setConfirmDeleteDialog, toastMessage, setToastMessage, showToast, navigateTo, toggleBookmark, filteredBooks, ALL_PUBLISHERS, ALL_SUBJECTS, ALL_GRADES, ALL_SEMESTERS };
+  const appState = { books, setBooks, links, setLinks, catalogStatus, catalogError, refreshCatalog, bookmarks, setBookmarks, isAdminLoggedIn, setIsAdminLoggedIn, currentRoute, routeParams, searchQuery, setSearchQuery, subjectFilter, setSubjectFilter, gradeFilter, setGradeFilter, semesterFilter, setSemesterFilter, publisherFilter, setPublisherFilter, curriculumRevisionFilter, setCurriculumRevisionFilter, sortBy, setSortBy, isRequestModalOpen, setIsRequestModalOpen, requestBookName, setRequestBookName, requestBookPublisher, setRequestBookPublisher, isReportModalOpen, setIsReportModalOpen, reportTargetLink, setReportTargetLink, reportReason, setReportReason, confirmDeleteDialog, setConfirmDeleteDialog, toastMessage, setToastMessage, showToast, navigateTo, toggleBookmark };
 
   const renderHeader = () => <Header navigateTo={navigateTo} currentRoute={currentRoute} bookmarks={bookmarks} isAdminLoggedIn={isAdminLoggedIn} onLogout={handleAdminLogout} />;
 
@@ -446,7 +437,15 @@ export default function App() {
     </>
   );
 
-  const isKnownRoute = ['/', '/search', '/bookmarks', '/login', '/admin', '/admin/books', '/admin/books/new', '/admin/links'].includes(currentRoute)
+  const adminBookScreen: 'list' | 'create' | 'edit' | null = currentRoute === '/admin/books'
+    ? 'list'
+    : currentRoute === '/admin/books/new'
+      ? 'create'
+      : currentRoute.startsWith('/admin/books/')
+        ? 'edit'
+        : null;
+
+  const isKnownRoute = ['/', '/search', '/bookmarks', '/login', '/admin', '/admin/books', '/admin/books/new', '/admin/links', '/admin/import', '/admin/link-search'].includes(currentRoute)
     || currentRoute.startsWith('/books/')
     || currentRoute.startsWith('/go/')
     || (currentRoute.startsWith('/admin/books/') && currentRoute !== '/admin/books/new');
@@ -467,10 +466,11 @@ export default function App() {
           {currentRoute === '/login' && <LoginPage />}
           {currentRoute.startsWith('/admin') && isAuthLoading && <div className="py-16 text-center text-xs text-[#8B95A1]">로그인 상태를 확인하고 있습니다.</div>}
           {!isAuthLoading && isAdminLoggedIn && currentRoute === '/admin' && <AdminDashboard />}
-          {!isAuthLoading && isAdminLoggedIn && currentRoute === '/admin/books' && <AdminBooksList />}
-          {!isAuthLoading && isAdminLoggedIn && currentRoute === '/admin/books/new' && <AdminBookForm isEdit={false} />}
-          {!isAuthLoading && isAdminLoggedIn && currentRoute.startsWith('/admin/books/') && <AdminBookForm isEdit />}
-          {!isAuthLoading && isAdminLoggedIn && currentRoute === '/admin/links' && <AdminLinksList />}
+          {!isAuthLoading && isAdminLoggedIn && adminBookScreen === 'list' && <AdminBooksList />}
+          {!isAuthLoading && isAdminLoggedIn && adminBookScreen === 'create' && <AdminBookForm mode="create" />}
+          {!isAuthLoading && isAdminLoggedIn && adminBookScreen === 'edit' && <AdminBookForm mode="edit" />}
+          {!isAuthLoading && isAdminLoggedIn && currentRoute === '/admin/import' && <AdminCsvImport />}
+          {!isAuthLoading && isAdminLoggedIn && currentRoute === '/admin/link-search' && <Suspense fallback={<div role="status" className="py-16 text-center text-xs text-[#8B95A1]">자동 검색 화면을 불러오고 있습니다.</div>}><AdminLinkSearchPage /></Suspense>}
           {!isKnownRoute && <section className="max-w-xl mx-auto px-5 py-20 text-center space-y-3"><h1 className="text-xl font-bold text-[#191F28]">페이지를 찾을 수 없습니다</h1><p className="text-sm text-[#8B95A1]">주소가 변경되었거나 페이지가 존재하지 않습니다.</p><a href="/" onClick={event => { event.preventDefault(); navigateTo('/'); }} className="inline-flex mt-3 px-5 py-2.5 bg-[#191F28] text-white text-xs font-bold rounded-2xl">홈으로</a></section>}
         </main>
       </div>

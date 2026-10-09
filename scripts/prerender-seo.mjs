@@ -33,23 +33,31 @@ function isRecentlyVerified(link) {
 }
 
 async function fetchRows(table, select) {
-  const endpoint = new URL(`/rest/v1/${table}`, supabaseUrl);
-  endpoint.searchParams.set('select', select);
-  endpoint.searchParams.set('order', table === 'books' ? 'title.asc' : 'created_at.desc');
-  const response = await fetch(endpoint, {
-    headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` }
-  });
-  if (!response.ok && table === 'books' && select.includes('edition,')) {
-    const legacySelect = select.replace('edition,', '');
-    const legacyRows = await fetchRows(table, legacySelect);
-    return legacyRows.map(row => ({ ...row, edition: null }));
+  const pageSize = 1000;
+  const rows = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const endpoint = new URL(`/rest/v1/${table}`, supabaseUrl);
+    endpoint.searchParams.set('select', select);
+    endpoint.searchParams.set('order', table === 'books' ? 'title.asc,id.asc' : 'created_at.desc,id.desc');
+    endpoint.searchParams.set('limit', String(pageSize));
+    endpoint.searchParams.set('offset', String(offset));
+    const response = await fetch(endpoint, {
+      headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` }
+    });
+    if (!response.ok && table === 'books' && select.includes('edition,')) {
+      const legacySelect = select.replace('edition,', '');
+      const legacyRows = await fetchRows(table, legacySelect);
+      return legacyRows.map(row => ({ ...row, edition: null }));
+    }
+    if (!response.ok) throw new Error(`Supabase ${table} request returned ${response.status}`);
+    const page = await response.json();
+    rows.push(...page);
+    if (page.length < pageSize) return rows;
   }
-  if (!response.ok) throw new Error(`Supabase ${table} request returned ${response.status}`);
-  return response.json();
 }
 
 function qualifiesForIndex(book, links) {
-  const fields = [book.publisher, book.subject, book.grade, book.semester, book.series, book.edition].filter(value => String(value ?? '').trim());
+  const fields = [book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.curriculum_revision].filter(value => String(value ?? '').trim());
   const hasCuratedFacts = book.title?.trim() && book.publisher?.trim() && (book.description?.trim().length ?? 0) >= 40 && fields.length >= 3;
   const containsPlaceholder = /테스트|샘플|seed|example|예시|mock|placeholder/i.test([book.title, book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.description].join(' '));
   const recentVerification = Date.now() - 180 * 24 * 60 * 60 * 1000;
@@ -59,15 +67,18 @@ function qualifiesForIndex(book, links) {
 function pageHtml(template, book, bookLinks, relatedBooks) {
   const canonical = siteUrl ? `${siteUrl}/books/${encodeURIComponent(book.id)}` : '';
   const title = `${book.title} 답지·교재 정보 | 답지모음`;
-  const facts = [book.publisher, book.subject, book.grade, book.semester, book.series, book.edition].filter(Boolean);
+  const facts = [book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.curriculum_revision].filter(Boolean);
   const description = `${book.title} · ${facts.join(' · ')}${book.description ? ` · ${book.description}` : ''}`.slice(0, 160);
   const linksMarkup = bookLinks.filter(link => isRecentlyVerified(link) && isPublicHttpsUrl(link.url)).map(link =>
     `<li><a href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(link.title)}</a>${link.source_name ? ` <span>(${escapeHtml(link.source_name)})</span>` : ''}${link.last_checked_at ? ` <span>· 확인 ${escapeHtml(new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium' }).format(new Date(link.last_checked_at)))}</span>` : ''}</li>`
   ).join('');
+  const bookPageMarkup = isPublicHttpsUrl(book.book_url)
+    ? `<p class="mt-3 text-sm"><a href="${escapeHtml(book.book_url)}" rel="noopener noreferrer">교재 페이지 보기</a></p>`
+    : '';
   const relatedMarkup = relatedBooks.map(related =>
     `<li><a href="/books/${encodeURIComponent(related.id)}">${escapeHtml(related.title)}</a> <span>${escapeHtml([related.publisher, related.subject, related.grade, related.semester].filter(Boolean).join(' · '))}</span></li>`
   ).join('');
-  const content = `<main class="mx-auto max-w-[860px] space-y-6 px-5 py-8"><nav aria-label="Breadcrumb"><a href="/">답지모음 홈</a> <span aria-hidden="true">›</span> <span>${escapeHtml(book.title)}</span></nav><article class="space-y-5"><header class="rounded-3xl border border-[#E5E8EB] bg-white p-6 sm:p-8"><h1 class="text-2xl font-extrabold text-[#191F28]">${escapeHtml(book.title)}</h1><p class="mt-3 text-sm text-[#6B7684]">${escapeHtml(facts.join(' · '))}</p>${book.description ? `<p class="mt-3 text-sm leading-relaxed text-[#6B7684]">${escapeHtml(book.description)}</p>` : ''}</header><section class="space-y-3"><h2 class="text-lg font-bold text-[#191F28]">검증된 답지 링크</h2><ul class="space-y-2">${linksMarkup}</ul><p class="text-xs text-[#8B95A1]">교재 표지와 학년·학기·시리즈를 확인한 뒤 원본 자료 페이지를 이용하세요. 답지 파일은 이 사이트에 저장하지 않습니다.</p></section>${relatedMarkup ? `<nav class="space-y-3" aria-label="관련 교재"><h2 class="text-lg font-bold text-[#191F28]">관련 교재</h2><ul class="space-y-2">${relatedMarkup}</ul></nav>` : ''}</article></main>`;
+  const content = `<main class="mx-auto max-w-[860px] space-y-6 px-5 py-8"><nav aria-label="Breadcrumb"><a href="/">답지모음 홈</a> <span aria-hidden="true">›</span> <span>${escapeHtml(book.title)}</span></nav><article class="space-y-5"><header class="rounded-3xl border border-[#E5E8EB] bg-white p-6 sm:p-8"><h1 class="text-2xl font-extrabold text-[#191F28]">${escapeHtml(book.title)}</h1><p class="mt-3 text-sm text-[#6B7684]">${escapeHtml(facts.join(' · '))}</p>${book.description ? `<p class="mt-3 text-sm leading-relaxed text-[#6B7684]">${escapeHtml(book.description)}</p>` : ''}${bookPageMarkup}</header><section class="space-y-3"><h2 class="text-lg font-bold text-[#191F28]">검증된 답지 링크</h2><ul class="space-y-2">${linksMarkup}</ul><p class="text-xs text-[#8B95A1]">교재 표지와 학년·학기·시리즈를 확인한 뒤 원본 자료 페이지를 이용하세요. 답지 파일은 이 사이트에 저장하지 않습니다.</p></section>${relatedMarkup ? `<nav class="space-y-3" aria-label="관련 교재"><h2 class="text-lg font-bold text-[#191F28]">관련 교재</h2><ul class="space-y-2">${relatedMarkup}</ul></nav>` : ''}</article></main>`;
   const metas = [
     `<title>${escapeHtml(title)}</title>`,
     `<meta name="description" content="${escapeHtml(description)}" />`,
@@ -109,7 +120,7 @@ let links = [];
 if (supabaseUrl && anonKey) {
   try {
     [books, links] = await Promise.all([
-      fetchRows('books', 'id,title,publisher,subject,grade,semester,series,edition,description,thumbnail_url,created_at,updated_at'),
+      fetchRows('books', 'id,title,publisher,subject,grade,semester,series,edition,curriculum_revision,description,thumbnail_url,book_url,created_at,updated_at'),
       fetchRows('answer_links', 'id,book_id,title,url,source_name,verified,last_checked_at,created_at')
     ]);
   } catch (error) {
