@@ -7,7 +7,6 @@ export interface Book {
   semester: string;
   series?: string;
   edition?: string;
-  curriculum_revision?: '2015 개정' | '2022 개정' | null;
   catalog_key?: string;
   book_url?: string | null;
   thumbnail_url?: string;
