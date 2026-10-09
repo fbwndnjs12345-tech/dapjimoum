@@ -9,7 +9,7 @@ import { BookCard } from '../../components/books/BookCard';
 import { SearchFilters } from '../../components/search/SearchFilters';
 
 export function SearchPage() {
-    const {bookmarks, searchQuery, setSearchQuery, subjectFilter, setSubjectFilter, gradeFilter, setGradeFilter, semesterFilter, setSemesterFilter, publisherFilter, setPublisherFilter, curriculumRevisionFilter, setCurriculumRevisionFilter, sortBy, setSortBy, setIsRequestModalOpen, navigateTo, toggleBookmark} = useAppContext();
+    const {bookmarks, searchQuery, setSearchQuery, subjectFilter, setSubjectFilter, gradeFilter, setGradeFilter, semesterFilter, setSemesterFilter, publisherFilter, setPublisherFilter, sortBy, setSortBy, setIsRequestModalOpen, navigateTo, toggleBookmark} = useAppContext();
     const [allBooks, setAllBooks] = useState<Book[]>([]);
     const [links, setLinks] = useState<AnswerLink[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -49,14 +49,13 @@ export function SearchPage() {
     const displayedBooks = useMemo(() => {
       const query = searchQuery.trim().toLocaleLowerCase();
       const filtered = allBooks.filter(book => !isPlaceholderBook(book)).filter(book => {
-        const matchesQuery = !query || [book.title, book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.curriculum_revision, book.description]
+        const matchesQuery = !query || [book.title, book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.description]
           .some(value => value?.toLocaleLowerCase().includes(query));
         return matchesQuery &&
           (publisherFilter === '전체' || book.publisher?.trim() === publisherFilter) &&
           (subjectFilter === '전체' || book.subject?.trim() === subjectFilter) &&
           (gradeFilter === '전체' || book.grade?.trim() === gradeFilter) &&
           (semesterFilter === '전체' || book.semester?.trim() === semesterFilter) &&
-          (curriculumRevisionFilter === '전체' || book.curriculum_revision === curriculumRevisionFilter);
       });
       const clicksByBook = new Map<string, number>();
       links.forEach(link => clicksByBook.set(link.book_id, (clicksByBook.get(link.book_id) ?? 0) + link.click_count));
@@ -66,7 +65,7 @@ export function SearchPage() {
       );
       if (sortBy === 'latest') return filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
       return filtered;
-    }, [allBooks, links, searchQuery, publisherFilter, subjectFilter, gradeFilter, semesterFilter, curriculumRevisionFilter, sortBy]);
+    }, [allBooks, links, searchQuery, publisherFilter, subjectFilter, gradeFilter, semesterFilter, sortBy]);
     const visibleCatalog = useMemo(() => allBooks.filter(book => !isPlaceholderBook(book)), [allBooks]);
 
     return (
@@ -95,7 +94,7 @@ export function SearchPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          <SearchFilters books={visibleCatalog} dataStatus={isLoading ? 'loading' : loadError ? 'error' : 'success'} searchQuery={searchQuery} setSearchQuery={setSearchQuery} publisherFilter={publisherFilter} setPublisherFilter={setPublisherFilter} subjectFilter={subjectFilter} setSubjectFilter={setSubjectFilter} gradeFilter={gradeFilter} setGradeFilter={setGradeFilter} semesterFilter={semesterFilter} setSemesterFilter={setSemesterFilter} curriculumRevisionFilter={curriculumRevisionFilter} setCurriculumRevisionFilter={setCurriculumRevisionFilter} onReset={() => { setSearchQuery(''); setSubjectFilter('전체'); setGradeFilter('전체'); setSemesterFilter('전체'); setPublisherFilter('전체'); setCurriculumRevisionFilter('전체'); }} />
+          <SearchFilters books={visibleCatalog} dataStatus={isLoading ? 'loading' : loadError ? 'error' : 'success'} searchQuery={searchQuery} setSearchQuery={setSearchQuery} publisherFilter={publisherFilter} setPublisherFilter={setPublisherFilter} subjectFilter={subjectFilter} setSubjectFilter={setSubjectFilter} gradeFilter={gradeFilter} setGradeFilter={setGradeFilter} semesterFilter={semesterFilter} setSemesterFilter={setSemesterFilter} onReset={() => { setSearchQuery(''); setSubjectFilter('전체'); setGradeFilter('전체'); setSemesterFilter('전체'); setPublisherFilter('전체'); }} />
 
           {/* Right Results Grid */}
           <div className="lg:col-span-3">
