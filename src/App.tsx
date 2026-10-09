@@ -9,12 +9,6 @@ import { updateSeoMetadata } from './lib/seo';
 
 const AdminLinkSearchPage = lazy(() => import('./app/pages/adminLinkSearch').then(module => ({ default: module.AdminLinkSearchPage })));
 
-const CURRICULUM_REVISION_OPTIONS = ['2015 개정', '2022 개정'];
-function readCurriculumRevisionFromUrl() {
-  const revision = new URLSearchParams(window.location.search).get('curriculum');
-  return CURRICULUM_REVISION_OPTIONS.includes(revision ?? '') ? revision! : '전체';
-}
-
 function readRouteInfo() {
   const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
   const bookMatch = pathname.match(/^\/books\/([^/]+)$/);
@@ -78,7 +72,6 @@ export default function App() {
 
   // Filter & Search states
   const [searchQuery, setSearchQuery] = useState(() => new URLSearchParams(window.location.search).get('q') ?? '');
-  const [curriculumRevisionFilter, setCurriculumRevisionFilter] = useState(readCurriculumRevisionFromUrl);
   const [subjectFilter, setSubjectFilter] = useState('전체');
   const [gradeFilter, setGradeFilter] = useState('전체');
   const [semesterFilter, setSemesterFilter] = useState('전체');
@@ -149,9 +142,6 @@ export default function App() {
     if (nextUrl.pathname === '/search' && !nextUrl.searchParams.has('q') && searchQuery.trim()) {
       nextUrl.searchParams.set('q', searchQuery.trim());
     }
-    if (nextUrl.pathname === '/search' && !nextUrl.searchParams.has('curriculum') && curriculumRevisionFilter !== '전체') {
-      nextUrl.searchParams.set('curriculum', curriculumRevisionFilter);
-    }
     window.history.pushState({}, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
     const routeInfo = readRouteInfo();
     setCurrentRoute(routeInfo.route);
@@ -167,8 +157,6 @@ export default function App() {
       if (routeInfo.route === '/search') {
         const searchParams = new URLSearchParams(window.location.search);
         setSearchQuery(searchParams.get('q') ?? '');
-        const revision = searchParams.get('curriculum');
-        setCurriculumRevisionFilter(CURRICULUM_REVISION_OPTIONS.includes(revision ?? '') ? revision! : '전체');
       }
     };
     window.addEventListener('popstate', handlePopState);
@@ -180,11 +168,9 @@ export default function App() {
       const nextUrl = new URL(window.location.href);
       if (searchQuery.trim()) nextUrl.searchParams.set('q', searchQuery.trim());
       else nextUrl.searchParams.delete('q');
-      if (curriculumRevisionFilter !== '전체') nextUrl.searchParams.set('curriculum', curriculumRevisionFilter);
-      else nextUrl.searchParams.delete('curriculum');
       window.history.replaceState({}, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
     }
-  }, [currentRoute, searchQuery, curriculumRevisionFilter]);
+  }, [currentRoute, searchQuery]);
 
   useEffect(() => {
     const canonicalPath = currentRoute.startsWith('/books/') ? currentRoute : currentRoute.split('?')[0];
@@ -242,7 +228,7 @@ export default function App() {
     }
   };
 
-  const appState = { books, setBooks, links, setLinks, catalogStatus, catalogError, refreshCatalog, bookmarks, setBookmarks, isAdminLoggedIn, setIsAdminLoggedIn, currentRoute, routeParams, searchQuery, setSearchQuery, subjectFilter, setSubjectFilter, gradeFilter, setGradeFilter, semesterFilter, setSemesterFilter, publisherFilter, setPublisherFilter, curriculumRevisionFilter, setCurriculumRevisionFilter, sortBy, setSortBy, isRequestModalOpen, setIsRequestModalOpen, requestBookName, setRequestBookName, requestBookPublisher, setRequestBookPublisher, isReportModalOpen, setIsReportModalOpen, reportTargetLink, setReportTargetLink, reportReason, setReportReason, confirmDeleteDialog, setConfirmDeleteDialog, toastMessage, setToastMessage, showToast, navigateTo, toggleBookmark };
+  const appState = { books, setBooks, links, setLinks, catalogStatus, catalogError, refreshCatalog, bookmarks, setBookmarks, isAdminLoggedIn, setIsAdminLoggedIn, currentRoute, routeParams, searchQuery, setSearchQuery, subjectFilter, setSubjectFilter, gradeFilter, setGradeFilter, semesterFilter, setSemesterFilter, publisherFilter, setPublisherFilter, sortBy, setSortBy, isRequestModalOpen, setIsRequestModalOpen, requestBookName, setRequestBookName, requestBookPublisher, setRequestBookPublisher, isReportModalOpen, setIsReportModalOpen, reportTargetLink, setReportTargetLink, reportReason, setReportReason, confirmDeleteDialog, setConfirmDeleteDialog, toastMessage, setToastMessage, showToast, navigateTo, toggleBookmark };
 
   const renderHeader = () => <Header navigateTo={navigateTo} currentRoute={currentRoute} bookmarks={bookmarks} isAdminLoggedIn={isAdminLoggedIn} onLogout={handleAdminLogout} />;
 
