@@ -7,7 +7,6 @@ import {
   areSameAnswerLinkUrl,
   normalizeCatalogText,
   compareBookDuplicateValues,
-  normalizeCurriculumRevision,
   normalizeGrade,
   normalizeSemester,
   normalizeUrlForDuplicateCheck,
@@ -69,9 +68,6 @@ function validateRow(values: Record<string, string>): RowIssue[] {
 
   if (values.grade && !normalizeGrade(values.grade)) addError('grade', 'grade는 전학년, 중1·고1·초등1 또는 1~6 형식이어야 합니다.');
   if (values.semester && !normalizeSemester(values.semester)) addError('semester', 'semester는 1학기, 2학기 또는 공통이어야 합니다.');
-  if (values.curriculum_revision && normalizeCurriculumRevision(values.curriculum_revision) === null) {
-    addError('curriculum_revision', 'curriculum_revision은 2015 개정 또는 2022 개정이어야 합니다.');
-  }
 
   for (const field of ['thumbnail_url', 'book_url']) {
     const error = validateHttpsUrl(values[field] ?? '', field, true);
@@ -387,14 +383,11 @@ export function AdminCsvImport() {
               book = matches[0];
               reusedBook = true;
             } else {
-              const revision = normalizeCurriculumRevision(row.values.curriculum_revision);
-              if (revision === null) throw new Error('교육과정 개정 값이 올바르지 않습니다.');
               try {
                 book = await createBook({
                   title: row.values.title.trim(), publisher: row.values.publisher.trim(), subject: row.values.subject.trim(),
                   grade: normalizeGrade(row.values.grade)!, semester: normalizeSemester(row.values.semester)!,
                   series: row.values.series.trim() || null,
-                  curriculum_revision: revision || null,
                   thumbnail_url: row.values.thumbnail_url.trim() || null,
                   description: row.values.description.trim() || null,
                   book_url: row.values.book_url.trim() || null
