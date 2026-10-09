@@ -67,7 +67,7 @@ function qualifiesForIndex(book, links) {
 function pageHtml(template, book, bookLinks, relatedBooks) {
   const canonical = siteUrl ? `${siteUrl}/books/${encodeURIComponent(book.id)}` : '';
   const title = `${book.title} 답지·교재 정보 | 답지모음`;
-  const facts = [book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.curriculum_revision].filter(Boolean);
+  const facts = [book.publisher, book.subject, book.grade, book.semester, book.series, book.edition].filter(Boolean);
   const description = `${book.title} · ${facts.join(' · ')}${book.description ? ` · ${book.description}` : ''}`.slice(0, 160);
   const linksMarkup = bookLinks.filter(link => isRecentlyVerified(link) && isPublicHttpsUrl(link.url)).map(link =>
     `<li><a href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(link.title)}</a>${link.source_name ? ` <span>(${escapeHtml(link.source_name)})</span>` : ''}${link.last_checked_at ? ` <span>· 확인 ${escapeHtml(new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium' }).format(new Date(link.last_checked_at)))}</span>` : ''}</li>`
