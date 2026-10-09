@@ -150,6 +150,8 @@ const nonIndexableRoutes = [
   ['admin/books', '교재 관리 | 답지모음'],
   ['admin/books/new', '교재 등록 | 답지모음'],
   ['admin/links', '답지 링크 관리 | 답지모음'],
+  ['admin/import', 'CSV 일괄 등록 | 답지모음'],
+  ['admin/link-search', '답지 링크 자동 검색 | 답지모음'],
 ];
 for (const [route, title] of nonIndexableRoutes) {
   const routeHtml = template
