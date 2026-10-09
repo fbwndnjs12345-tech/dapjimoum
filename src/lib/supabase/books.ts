@@ -9,7 +9,6 @@ export interface BookSearchFilters {
   semester?: string;
   series?: string;
   edition?: string;
-  curriculumRevision?: string;
 }
 
 export type BookInput = Pick<Book, 'title'> & Partial<Omit<Book, 'id' | 'created_at' | 'title'>>;
@@ -85,7 +84,6 @@ export async function searchBooks(filters: BookSearchFilters): Promise<Book[]> {
         `semester.ilike.%${escaped}%`,
         `series.ilike.%${escaped}%`,
         `edition.ilike.%${escaped}%`,
-        `curriculum_revision.ilike.%${escaped}%`
       ].join(','));
     }
     if (filters.publisher) query = query.eq('publisher', filters.publisher.trim());
@@ -94,7 +92,6 @@ export async function searchBooks(filters: BookSearchFilters): Promise<Book[]> {
     if (filters.semester) query = query.eq('semester', filters.semester.trim());
     if (filters.series) query = query.eq('series', filters.series.trim());
     if (filters.edition) query = query.eq('edition', filters.edition.trim());
-    if (filters.curriculumRevision) query = query.eq('curriculum_revision', filters.curriculumRevision.trim());
     return query;
   };
 
