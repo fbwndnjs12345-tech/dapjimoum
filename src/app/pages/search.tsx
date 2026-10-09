@@ -55,7 +55,7 @@ export function SearchPage() {
           (publisherFilter === '전체' || book.publisher?.trim() === publisherFilter) &&
           (subjectFilter === '전체' || book.subject?.trim() === subjectFilter) &&
           (gradeFilter === '전체' || book.grade?.trim() === gradeFilter) &&
-          (semesterFilter === '전체' || book.semester?.trim() === semesterFilter) &&
+          (semesterFilter === '전체' || book.semester?.trim() === semesterFilter);
       });
       const clicksByBook = new Map<string, number>();
       links.forEach(link => clicksByBook.set(link.book_id, (clicksByBook.get(link.book_id) ?? 0) + link.click_count));
