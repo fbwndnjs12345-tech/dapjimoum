@@ -256,6 +256,7 @@ export function AdminDashboard() {
 export function AdminBooksList() {
   const { showToast, navigateTo, refreshCatalog } = useAppContext();
   const [books, setBooks] = useState<Book[]>([]);
+  const [answerLinkCounts, setAnswerLinkCounts] = useState<Record<string, number>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -267,8 +268,16 @@ export function AdminBooksList() {
     setIsLoading(true); setError('');
     try {
       if (!hasSupabaseConfig()) throw new Error('Supabase 환경 변수를 확인해 주세요.');
-      const { getBooks } = await import('../../lib/supabase/books');
-      setBooks(await getBooks());
+      const [{ getBooks }, { getAnswerLinks }] = await Promise.all([
+        import('../../lib/supabase/books'),
+        import('../../lib/supabase/answerLinks')
+      ]);
+      const [loadedBooks, answerLinks] = await Promise.all([getBooks(), getAnswerLinks()]);
+      setBooks(loadedBooks);
+      setAnswerLinkCounts(answerLinks.reduce<Record<string, number>>((counts, link) => {
+        counts[link.book_id] = (counts[link.book_id] ?? 0) + 1;
+        return counts;
+      }, {}));
     } catch (loadError) { setError(getAdminDataError(loadError)); }
     finally { setIsLoading(false); }
   };
