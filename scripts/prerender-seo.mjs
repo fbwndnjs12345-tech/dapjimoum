@@ -220,7 +220,7 @@ for (const page of publicInfoPages) {
 if (isValidPublisherId) {
   await writeFile(path.join(outputRoot, 'ads.txt'), `google.com, ${publisherId.slice(7)}, DIRECT, f08c47fec0942fa0\n`, 'utf8');
 } else {
-  console.warn('AdSense: VITE_ADSENSE_CLIENT_ID is not configured; ads.txt was not generated. Set the real ca-pub- ID from your AdSense account after the site is approved/registered.');
+  console.warn('AdSense: VITE_ADSENSE_CLIENT_ID is not configured; ads.txt was not generated. Set the real ca-pub- ID after adding the production site to your AdSense account, before submitting it for review.');
 }
 
 for (const book of qualifyingBooks) {
