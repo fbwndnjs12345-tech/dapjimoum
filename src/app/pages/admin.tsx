@@ -541,7 +541,7 @@ export function AdminLinksList({ embeddedBookId }: { embeddedBookId?: string }) 
   const normalizedBookQuery = bookSearchTerm.trim().toLocaleLowerCase();
   const matchingBooks = useMemo(() => books.filter(book => {
     if (!normalizedBookQuery) return true;
-    const searchable = [book.title, book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.curriculum_revision]
+    const searchable = [book.title, book.publisher, book.subject, book.grade, book.semester, book.series, book.edition ]
       .filter(Boolean).join(' ').toLocaleLowerCase();
     return searchable.includes(normalizedBookQuery);
   }), [books, normalizedBookQuery]);
