@@ -161,15 +161,17 @@ Deno.serve(async (request) => {
       locked_until: null,
       finished_at: action === 'pause' ? new Date().toISOString() : null,
       ...(action === 'pause' && typeof payload.reason === 'string' ? { last_error: payload.reason.slice(0, 1500) } : {}),
-    }).eq('id', payload.runId).select('id,status').single();
+    }).eq('id', payload.runId).eq('created_by', authData.user.id).select('id,status').maybeSingle();
     if (error) return json({ error: error.message }, 500);
+    if (!data) return json({ error: '검색 작업을 찾을 수 없거나 접근 권한이 없습니다.' }, 404);
     return json({ run: data });
   }
 
   if (action === 'retry') {
     if (!payload.runId) return json({ error: '검색 작업 ID가 필요합니다.' }, 400);
-    const { data: previous, error: previousError } = await admin.from('answer_link_search_runs').select('failed_book_ids').eq('id', payload.runId).single();
+    const { data: previous, error: previousError } = await admin.from('answer_link_search_runs').select('failed_book_ids').eq('id', payload.runId).eq('created_by', authData.user.id).maybeSingle();
     if (previousError) return json({ error: previousError.message }, 500);
+    if (!previous) return json({ error: '검색 작업을 찾을 수 없거나 접근 권한이 없습니다.' }, 404);
     const failedIds = previous.failed_book_ids ?? [];
     if (failedIds.length === 0) return json({ error: '재시도할 실패 교재가 없습니다.' }, 400);
     const { data: run, error } = await admin.from('answer_link_search_runs').insert({ created_by: authData.user.id, status: 'running', book_ids: failedIds }).select('id,status,book_ids,started_at').single();
@@ -179,6 +181,9 @@ Deno.serve(async (request) => {
 
   if (action === 'batch') {
     if (!payload.runId) return json({ error: '검색 작업 ID가 필요합니다.' }, 400);
+    const { data: ownedRun, error: ownedRunError } = await admin.from('answer_link_search_runs').select('id').eq('id', payload.runId).eq('created_by', authData.user.id).maybeSingle();
+    if (ownedRunError) return json({ error: ownedRunError.message }, 500);
+    if (!ownedRun) return json({ error: '검색 작업을 찾을 수 없거나 접근 권한이 없습니다.' }, 404);
     const apiKey = Deno.env.get('BRAVE_SEARCH_API_KEY');
     if (!apiKey) return json({ error: 'BRAVE_SEARCH_API_KEY 서버 설정이 필요합니다.' }, 503);
     const lockToken = crypto.randomUUID();
