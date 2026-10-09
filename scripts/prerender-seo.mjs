@@ -202,7 +202,7 @@ for (const page of publicInfoPages) {
     .replace(/<title>[\\s\\S]*?<\\/title>/, `<title>${escapeHtml(page.title)}</title>`)
     .replace(/<meta name="description"[^>]*\\/?\\s*>/, `<meta name="description" content="${escapeHtml(page.description)}" />`)
     .replace(/<meta name="robots"[^>]*\\/?\\s*>/, '<meta name="robots" content="index, follow" />')
-    .replace('</head>', `    ${canonical}\\n  </head>`)
+    .replace('</head>', `    ${canonical}\n  </head>`)
     .replace('<div id="root"></div>', `<div id="root"><main class="mx-auto max-w-3xl space-y-5 px-5 py-10 text-sm leading-7 text-[#4E5968]"><nav aria-label="Breadcrumb"><a href="/">답지모음</a> › ${escapeHtml(page.title.split(' | ')[0])}</nav><article>${page.content}</article></main></div>`);
   const routeDirectory = path.join(outputRoot, page.route);
   await mkdir(routeDirectory, { recursive: true });
@@ -211,7 +211,7 @@ for (const page of publicInfoPages) {
 
 const publisherId = (process.env.VITE_ADSENSE_CLIENT_ID || env.VITE_ADSENSE_CLIENT_ID || '').trim();
 if (/^ca-pub-\\d{16}$/.test(publisherId)) {
-  await writeFile(path.join(outputRoot, 'ads.txt'), `google.com, ${publisherId.slice(7)}, DIRECT, f08c47fec0942fa0\\n`, 'utf8');
+  await writeFile(path.join(outputRoot, 'ads.txt'), `google.com, ${publisherId.slice(7)}, DIRECT, f08c47fec0942fa0\n`, 'utf8');
 } else {
   console.warn('AdSense: VITE_ADSENSE_CLIENT_ID is not configured; ads.txt was not generated. Set the real ca-pub- ID from your AdSense account after the site is approved/registered.');
 }
@@ -243,7 +243,7 @@ const homeStructuredData = JSON.stringify({
 }).replace(/</g, '\\u003c');
 const homeContent = '<main class="mx-auto max-w-[1100px] space-y-10 px-5 py-10 text-sm leading-7 text-[#4E5968]"><section><h1 class="text-3xl font-extrabold tracking-tight text-[#191F28]">교재별 답지와 교재 정보를 찾아보세요</h1><p class="mt-4 max-w-3xl">답지모음은 교재명, 출판사, 과목, 학년과 학기 등의 정보를 바탕으로 교재를 찾고 관련 자료의 원본 페이지로 이동하도록 돕는 검색 서비스입니다.</p><p class="mt-3"><a class="font-bold text-[#1B64DA] underline" href="/search">교재 검색 시작하기</a></p></section><section><h2 class="text-xl font-bold text-[#191F28]">교재를 확인할 때 살펴볼 정보</h2><ul class="mt-3 list-disc space-y-2 pl-5"><li>교재명과 출판사 이름이 정확히 일치하는지 확인하세요.</li><li>학년, 학기, 과목과 시리즈가 실제 교재와 일치하는지 확인하세요.</li><li>외부 링크로 이동한 뒤 자료의 출처와 이용 조건을 확인하세요.</li><li>링크가 작동하지 않거나 정보가 다르면 오류 신고 기능을 이용해 주세요.</li></ul></section><section><h2 class="text-xl font-bold text-[#191F28]">원본 링크와 저작권</h2><p class="mt-3">답지모음은 답지 파일을 직접 저장하거나 판매하지 않습니다. 등록된 외부 페이지로 연결해 드리며, 해당 페이지의 콘텐츠와 이용 조건은 원본 사이트 및 권리자의 정책을 따릅니다.</p><p class="mt-3"><a class="font-semibold text-[#1B64DA] underline" href="/copyright">저작권 및 링크 정책</a> · <a class="font-semibold text-[#1B64DA] underline" href="/privacy">개인정보처리방침</a> · <a class="font-semibold text-[#1B64DA] underline" href="/contact">문의 및 오류 신고</a></p></section></main>';
 const homeHtml = template
-  .replace('</head>', `    ${homeCanonical}\\n    <script type="application/ld+json">${homeStructuredData}</script>\\n  </head>`)
+  .replace('</head>', `    ${homeCanonical}\n    <script type="application/ld+json">${homeStructuredData}</script>\n  </head>`)
   .replace('<div id="root"></div>', `<div id="root">${homeContent}</div>`);
 await writeFile(path.join(outputRoot, 'index.html'), homeHtml, 'utf8');
 
