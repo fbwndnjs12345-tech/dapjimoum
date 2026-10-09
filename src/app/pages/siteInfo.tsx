@@ -33,8 +33,8 @@ export function SiteInfoPage({ route }: SiteInfoPageProps) {
           <section className="space-y-3"><h2 className="text-lg font-bold text-[#191F28]">2. 외부 서비스와 광고</h2><p>서비스는 데이터 제공 및 관리자 인증을 위해 외부 인프라를 사용할 수 있습니다. Google AdSense 광고가 활성화된 경우 Google 및 광고 파트너가 쿠키 또는 유사 기술을 사용해 광고를 제공·측정할 수 있습니다. 개인 맞춤 광고와 쿠키 설정은 Google의 안내 및 이용 가능한 광고 설정을 통해 관리할 수 있습니다.</p><p><a className="font-semibold text-[#1B64DA] underline" href="https://policies.google.com/technologies/ads" target="_blank" rel="noopener noreferrer">Google 광고 기술 및 쿠키 안내 <ExternalLink className="inline h-3 w-3" /></a></p></section>
           <section className="space-y-3"><h2 className="text-lg font-bold text-[#191F28]">3. 보유 기간과 이용자 권리</h2><p>브라우저에 저장된 보관함 정보는 이용자가 직접 삭제할 수 있습니다. 그 밖의 정보는 처리 목적 달성 및 적용되는 법령에 필요한 기간 동안만 보유하도록 관리합니다. 개인정보 관련 요청은 문의 페이지의 연락 방법을 이용해 주세요.</p></section>
           <section className="space-y-3"><h2 className="text-lg font-bold text-[#191F28]">4. 아동의 개인정보</h2><p>서비스는 교재 정보 검색을 제공하지만, 이용자의 불필요한 개인정보 입력을 요구하지 않습니다. 문의 시 비밀번호나 민감한 개인정보를 보내지 마세요.</p></section>
-          <section className="space-y-3"><h2 className="text-lg font-bold text-[#191F28]">5. 방침 변경</h2><p>서비스 기능이나 적용 법령이 변경되면 이 방침을 수정하고 변경 내용을 이 페이지에 게시합니다.</p></section>
-          <p className="rounded-xl bg-[#F9FAFB] p-4 text-xs text-[#6B7684]">게시 전 확인 필요: 실제 운영자의 성명 또는 상호, 연락처, 적용되는 보유 기간과 외부 서비스 목록을 운영 현황에 맞게 확정해야 합니다.</p>
+          <section className="space-y-3"><h2 className="text-lg font-bold text-[#191F28]">5. 개인정보 관련 문의</h2><p>개인정보 처리에 관한 문의나 요청은 문의 및 오류 신고 페이지를 이용해 주세요.{contactEmail ? <> 운영자 이메일: <a className="font-semibold text-[#1B64DA] underline" href={`mailto:${contactEmail}`}>{contactEmail}</a></> : null}</p></section>
+          <section className="space-y-3"><h2 className="text-lg font-bold text-[#191F28]">6. 방침 변경</h2><p>서비스 기능이나 적용 법령이 변경되면 이 방침을 수정하고 변경 내용을 이 페이지에 게시합니다.</p></section>
         </div>
       )}
 
