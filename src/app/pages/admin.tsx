@@ -19,7 +19,6 @@ const getAdminBookLabel = (book: Book) => [
   book.series
 ].filter(Boolean).join(' · ');
 
-type CurriculumRevision = Exclude<Book['curriculum_revision'], null | undefined>;
 type AdminBookFormValues = {
   title: string;
   publisher: string;
@@ -28,7 +27,6 @@ type AdminBookFormValues = {
   semester: string;
   series: string;
   edition: string;
-  curriculum_revision: CurriculumRevision | '';
   description: string;
   thumbnail_url: string;
   book_url: string;
@@ -288,7 +286,7 @@ export function AdminBooksList() {
   const visibleBooks = useMemo(() => {
     const query = searchTerm.trim().toLocaleLowerCase();
     return books.filter(book => {
-      const searchable = [book.title, book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.curriculum_revision]
+      const searchable = [book.title, book.publisher, book.subject, book.grade, book.semester, book.series, book.edition]
         .filter(Boolean).join(' ').toLocaleLowerCase();
       return (!query || searchable.includes(query)) &&
         (publisherFilter === '전체' || book.publisher === publisherFilter) &&
@@ -327,7 +325,7 @@ export function AdminBooksList() {
           <div className="overflow-x-auto"><table className="w-full min-w-[900px] table-fixed text-left text-sm text-[#344054]">
             <thead><tr className="bg-[#F9FAFB] border-b border-[#E5E8EB] text-[#344054] font-bold"><th className="w-[25%] px-4 py-4">교재명</th><th className="w-[15%] px-4 py-4">출판사</th><th className="w-[11%] px-4 py-4">과목</th><th className="w-[18%] px-4 py-4">학년 / 학기</th><th className="w-[14%] px-4 py-4">시리즈 / 판본</th><th className="w-[13%] px-4 py-4">연결된 답지</th><th className="w-[15%] px-4 py-4 text-right">관리</th></tr></thead>
             <tbody className="divide-y divide-[#EAECF0]">{visibleBooks.map(book => <tr key={book.id} className="hover:bg-[#FCFCFD]">
-              <td className="break-words px-4 py-5 align-top font-semibold leading-6 text-[#191F28]">{book.title}{book.book_url && <span className="mt-1 block break-all font-normal text-xs leading-5 text-[#667085]">{book.book_url}</span>}</td><td className="break-words px-4 py-5 align-top">{book.publisher || '—'}</td><td className="break-words px-4 py-5 align-top">{book.subject || '—'}</td><td className="break-words px-4 py-5 align-top">{[book.grade, book.semester, book.curriculum_revision].filter(Boolean).join(' · ') || '—'}</td><td className="break-words px-4 py-5 align-top">{[book.series, book.edition].filter(Boolean).join(' · ') || '—'}</td><td className="px-4 py-5 align-top"><span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${ (answerLinkCounts[book.id] ?? 0) > 0 ? 'bg-[#ECFDF3] text-[#027A48]' : 'bg-[#F2F4F7] text-[#667085]' }`}>{answerLinkCounts[book.id] ?? 0}개 연결</span></td>
+              <td className="break-words px-4 py-5 align-top font-semibold leading-6 text-[#191F28]">{book.title}{book.book_url && <span className="mt-1 block break-all font-normal text-xs leading-5 text-[#667085]">{book.book_url}</span>}</td><td className="break-words px-4 py-5 align-top">{book.publisher || '—'}</td><td className="break-words px-4 py-5 align-top">{book.subject || '—'}</td><td className="break-words px-4 py-5 align-top">{[book.grade, book.semester].filter(Boolean).join(' · ') || '—'}</td><td className="break-words px-4 py-5 align-top">{[book.series, book.edition].filter(Boolean).join(' · ') || '—'}</td><td className="px-4 py-5 align-top"><span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${ (answerLinkCounts[book.id] ?? 0) > 0 ? 'bg-[#ECFDF3] text-[#027A48]' : 'bg-[#F2F4F7] text-[#667085]' }`}>{answerLinkCounts[book.id] ?? 0}개 연결</span></td>
               <td className="px-4 py-5 align-top"><div className="flex flex-wrap justify-end gap-2"><button onClick={() => navigateTo('/admin/books/' + book.id, { id: book.id })} className="rounded-lg border border-[#D0D5DD] bg-white px-3 py-2 font-semibold text-[#344054] hover:bg-[#F2F4F6]">수정</button><button onClick={() => void handleDelete(book)} disabled={deletingId === book.id} className="rounded-lg border border-[#D0D5DD] bg-[#F9FAFB] px-3 py-2 font-semibold text-[#344054] hover:border-[#98A2B3] hover:bg-[#F2F4F6] disabled:opacity-50">{deletingId === book.id ? '삭제 중…' : '삭제'}</button></div></td>
             </tr>)}</tbody>
           </table></div>
@@ -341,7 +339,7 @@ export function AdminBookForm({ mode }: { mode: 'create' | 'edit' }) {
   const { routeParams, showToast, navigateTo, refreshCatalog } = useAppContext();
   const isEdit = mode === 'edit';
   const bookId = routeParams.id;
-  const [form, setForm] = useState<AdminBookFormValues>({ title: '', publisher: '', subject: '', grade: '', semester: '', series: '', edition: '', curriculum_revision: '', description: '', thumbnail_url: '', book_url: '' });
+  const [form, setForm] = useState<AdminBookFormValues>({ title: '', publisher: '', subject: '', grade: '', semester: '', series: '', edition: '', description: '', thumbnail_url: '', book_url: '' });
   const [isLoading, setIsLoading] = useState(isEdit);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
@@ -356,7 +354,7 @@ export function AdminBookForm({ mode }: { mode: 'create' | 'edit' }) {
         const { getBookById } = await import('../../lib/supabase/books');
         const book = await getBookById(bookId);
         if (!book) throw new Error('교재를 찾을 수 없습니다.');
-        if (active) setForm({ title: book.title ?? '', publisher: book.publisher ?? '', subject: book.subject ?? '', grade: book.grade ?? '', semester: book.semester ?? '', series: book.series ?? '', edition: book.edition ?? '', curriculum_revision: book.curriculum_revision ?? '', description: book.description ?? '', thumbnail_url: book.thumbnail_url ?? '', book_url: book.book_url ?? '' });
+        if (active) setForm({ title: book.title ?? '', publisher: book.publisher ?? '', subject: book.subject ?? '', grade: book.grade ?? '', semester: book.semester ?? '', series: book.series ?? '', edition: book.edition ?? '', description: book.description ?? '', thumbnail_url: book.thumbnail_url ?? '', book_url: book.book_url ?? '' });
       } catch (loadError) { if (active) setError(getAdminDataError(loadError)); }
       finally { if (active) setIsLoading(false); }
     };
@@ -370,7 +368,7 @@ export function AdminBookForm({ mode }: { mode: 'create' | 'edit' }) {
     try {
       if (!hasSupabaseConfig()) throw new Error('Supabase 환경 변수를 확인해 주세요.');
       const { createBook, updateBook } = await import('../../lib/supabase/books');
-      const values = { ...form, curriculum_revision: form.curriculum_revision || null };
+      const values = { ...form };
       const savedBook = isEdit
         ? await updateBook(bookId, values)
         : await createBook(values);
@@ -397,7 +395,6 @@ export function AdminBookForm({ mode }: { mode: 'create' | 'edit' }) {
           </div>
           <div className="space-y-2"><label htmlFor="book-series" className="block text-sm font-semibold text-[#344054]">시리즈</label><input id="book-series" value={form.series} onChange={e => change('series', e.target.value)} className={inputClass} /></div>
           <div className="space-y-2"><label htmlFor="book-edition" className="block text-sm font-semibold text-[#344054]">개정판 / 판본</label><input id="book-edition" value={form.edition} onChange={e => change('edition', e.target.value)} placeholder="공식 표기 확인 후 입력" className={inputClass} /></div>
-          <div className="space-y-2"><label htmlFor="book-curriculum-revision" className="block text-sm font-semibold text-[#344054]">교육과정 개정</label><select id="book-curriculum-revision" value={form.curriculum_revision} onChange={e => change('curriculum_revision', e.target.value as AdminBookFormValues['curriculum_revision'])} className={inputClass}><option value="">미지정</option><option value="2015 개정">2015 개정</option><option value="2022 개정">2022 개정</option></select></div>
           <div className="space-y-2"><label htmlFor="book-thumbnail" className="block text-sm font-semibold text-[#344054]">대표 표지 이미지 URL</label><input id="book-thumbnail" type="url" value={form.thumbnail_url} onChange={e => change('thumbnail_url', e.target.value)} placeholder="https://..." className={inputClass} /></div>
           <div className="space-y-2"><label htmlFor="book-url" className="block text-sm font-semibold text-[#344054]">교재 페이지 URL</label><input id="book-url" type="url" value={form.book_url} onChange={e => change('book_url', e.target.value)} placeholder="https://..." className={inputClass} /></div>
           <div className="space-y-2"><label htmlFor="book-description" className="block text-sm font-semibold text-[#344054]">교재 요약 정보</label><textarea id="book-description" value={form.description} onChange={e => change('description', e.target.value)} rows={4} className={inputClass} /></div>
