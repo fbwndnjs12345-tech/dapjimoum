@@ -57,7 +57,7 @@ async function fetchRows(table, select) {
 }
 
 function qualifiesForIndex(book, links) {
-  const fields = [book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.curriculum_revision].filter(value => String(value ?? '').trim());
+  const fields = [book.publisher, book.subject, book.grade, book.semester, book.series, book.edition].filter(value => String(value ?? '').trim());
   const hasCuratedFacts = book.title?.trim() && book.publisher?.trim() && (book.description?.trim().length ?? 0) >= 40 && fields.length >= 3;
   const containsPlaceholder = /테스트|샘플|seed|example|예시|mock|placeholder/i.test([book.title, book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.description].join(' '));
   const recentVerification = Date.now() - 180 * 24 * 60 * 60 * 1000;
@@ -120,7 +120,7 @@ let links = [];
 if (supabaseUrl && anonKey) {
   try {
     [books, links] = await Promise.all([
-      fetchRows('books', 'id,title,publisher,subject,grade,semester,series,edition,curriculum_revision,description,thumbnail_url,book_url,created_at,updated_at'),
+      fetchRows('books', 'id,title,publisher,subject,grade,semester,series,edition,description,thumbnail_url,book_url,created_at,updated_at'),
       fetchRows('answer_links', 'id,book_id,title,url,source_name,verified,last_checked_at,created_at')
     ]);
   } catch (error) {
