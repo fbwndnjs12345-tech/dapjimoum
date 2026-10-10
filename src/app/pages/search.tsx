@@ -124,7 +124,6 @@ export function SearchPage() {
                       setGradeFilter('전체');
                       setSemesterFilter('전체');
                       setPublisherFilter('전체');
-                      setCurriculumRevisionFilter('전체');
                     }}
                     className="px-4 py-2.5 bg-[#F2F4F6] text-[#4E5968] font-bold text-xs rounded-2xl hover:bg-[#E5E8EB]"
                   >
