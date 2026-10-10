@@ -116,7 +116,7 @@ function pageHtml(template, book, bookLinks, relatedBooks) {
     .replace('<div id="root"></div>', `<div id="root">${content}</div>`);
 }
 
-const robots = ['User-agent: *', 'Allow: /', ...(siteUrl ? [`Sitemap: ${siteUrl}/sitemap.xml`] : [])].join('\n') + '\n';
+const robots = ['User-agent: *', 'Allow: /', ...(siteUrl ? [`Sitemap: ${siteUrl}/sitemap.xml`, `Sitemap: ${siteUrl}/sitemap.txt`] : [])].join('\n') + '\n';
 await writeFile(path.join(outputRoot, 'robots.txt'), robots, 'utf8');
 
 if (!siteUrl) {
@@ -239,6 +239,9 @@ if (siteUrl) {
   const locations = [siteUrl, ...publicInfoPages.map(page => `${siteUrl}/${page.route}`), ...qualifyingBooks.map(book => `${siteUrl}/books/${encodeURIComponent(book.id)}`)];
   const sitemap = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${locations.map(location => `  <url><loc>${escapeHtml(location)}</loc></url>`).join('\n')}\n</urlset>\n`;
   await writeFile(path.join(outputRoot, 'sitemap.xml'), sitemap, 'utf8');
+  // Plain-text sitemap is an independent fallback for crawlers or CDN rules
+  // that mishandle XML content types. Keep exactly the same canonical URLs.
+  await writeFile(path.join(outputRoot, 'sitemap.txt'), `${locations.join('\n')}\n`, 'utf8');
 }
 
 
