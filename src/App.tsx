@@ -200,7 +200,7 @@ export default function App() {
       const infoPages: Record<string, { title: string; description: string }> = {
         '/about': { title: '서비스 소개 | 답지모음', description: '답지모음의 교재 정보 검색 방식과 외부 원본 링크 안내, 정보 정확성 및 서비스 운영 원칙을 소개합니다.' },
         '/privacy': { title: '개인정보처리방침 | 답지모음', description: '답지모음에서 처리하는 정보, 브라우저 보관함, 외부 서비스와 광고, 개인정보 관련 이용자 권리를 안내합니다.' },
-        '/terms': { title: '이용 안내 | 답지모음', description: '답지모음 서비스 이용 원칙과 외부 링크 이용 시 유의사항을 확인하세요.' },
+        '/terms': { title: '이용약관 | 답지모음', description: '답지모음의 서비스 이용 조건, 이용자 준수사항, 외부 링크, 지식재산권 및 책임 범위를 안내합니다.' },
         '/copyright': { title: '저작권 및 링크 정책 | 답지모음', description: '답지모음의 외부 링크 운영 방식과 저작권 침해 신고 절차를 안내합니다.' },
         '/contact': { title: '문의 및 오류 신고 | 답지모음', description: '교재 정보 오류, 외부 링크 오류 및 저작권 관련 문의 방법을 안내합니다.' }
       };
