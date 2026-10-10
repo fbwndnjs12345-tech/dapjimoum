@@ -62,12 +62,13 @@ async function fetchRows(table, select) {
   }
 }
 
-function qualifiesForIndex(book, links) {
+function qualifiesForIndex(book) {
   const fields = [book.publisher, book.subject, book.grade, book.semester, book.series, book.edition].filter(value => String(value ?? '').trim());
-  const hasCuratedFacts = book.title?.trim() && book.publisher?.trim() && (book.description?.trim().length ?? 0) >= 40 && fields.length >= 3;
+  // Index real textbook pages even when a long description or a recently checked answer link is not yet available.
+  // Require enough catalog facts to avoid generating thin pages for placeholders or incomplete imports.
+  const hasUsefulCatalogData = Boolean(book.title?.trim() && book.publisher?.trim() && fields.length >= 3);
   const containsPlaceholder = /테스트|샘플|seed|example|예시|mock|placeholder/i.test([book.title, book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.description].join(' '));
-  const recentVerification = Date.now() - 180 * 24 * 60 * 60 * 1000;
-  return Boolean(hasCuratedFacts && !containsPlaceholder && links.some(link => isRecentlyVerified(link) && isPublicHttpsUrl(link.url)));
+  return Boolean(hasUsefulCatalogData && !containsPlaceholder);
 }
 
 function pageHtml(template, book, bookLinks, relatedBooks) {
@@ -75,9 +76,10 @@ function pageHtml(template, book, bookLinks, relatedBooks) {
   const title = `${book.title} 답지·교재 정보 | 답지모음`;
   const facts = [book.publisher, book.subject, book.grade, book.semester, book.series, book.edition].filter(Boolean);
   const description = `${book.title} · ${facts.join(' · ')}${book.description ? ` · ${book.description}` : ''}`.slice(0, 160);
-  const linksMarkup = bookLinks.filter(link => isRecentlyVerified(link) && isPublicHttpsUrl(link.url)).map(link =>
+  const verifiedLinks = bookLinks.filter(link => isRecentlyVerified(link) && isPublicHttpsUrl(link.url));
+  const linksMarkup = verifiedLinks.map(link =>
     `<li><a href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(link.title)}</a>${link.source_name ? ` <span>(${escapeHtml(link.source_name)})</span>` : ''}${link.last_checked_at ? ` <span>· 확인 ${escapeHtml(new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium' }).format(new Date(link.last_checked_at)))}</span>` : ''}</li>`
-  ).join('');
+  ).join('') || '<li>현재 확인된 원본 답지 링크가 없습니다. 교재명과 판본 정보를 확인해 주세요.</li>';
   const bookPageMarkup = isPublicHttpsUrl(book.book_url)
     ? `<p class="mt-3 text-sm"><a href="${escapeHtml(book.book_url)}" rel="noopener noreferrer">교재 페이지 보기</a></p>`
     : '';
@@ -136,7 +138,7 @@ if (supabaseUrl && anonKey) {
   console.warn('SEO: Supabase public environment variables are missing; no book pages were generated.');
 }
 
-const qualifyingBooks = books.filter(book => qualifiesForIndex(book, links.filter(link => link.book_id === book.id)));
+const qualifyingBooks = books.filter(book => qualifiesForIndex(book));
 if (qualifyingBooks.length === 0) {
   console.warn('SEO: No verified, sufficiently described Supabase books qualified for indexing; placeholder and unverified rows were excluded.');
 }
@@ -258,4 +260,4 @@ const homeHtml = template
   .replace('<div id="root"></div>', `<div id="root">${homeContent}</div>`);
 await writeFile(path.join(outputRoot, 'index.html'), homeHtml, 'utf8');
 
-console.info(`SEO: prerendered ${qualifyingBooks.length} verified book page(s).`);
+console.info(`SEO: prerendered ${qualifyingBooks.length} catalog book page(s).`);
