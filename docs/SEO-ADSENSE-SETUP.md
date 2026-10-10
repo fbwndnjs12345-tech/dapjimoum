@@ -12,7 +12,16 @@ Configure these in the production build environment (for example, Cloudflare Pag
 
 The build generates `robots.txt` and `sitemap.xml` using `VITE_SITE_URL`. It prerenders the home page and public information pages, and generates `ads.txt` only when a valid AdSense publisher ID is configured. Book pages are prerendered only when their metadata is sufficiently complete and at least one HTTPS link was marked verified within the last 180 days.
 
-## Google Search launch steps
+## Search engine launch steps (Google and Naver)
+
+1. Deploy the production site with the real `VITE_SITE_URL`. Do not use a preview or example domain as the canonical origin.
+2. Open `https://YOUR-DOMAIN/robots.txt` and `https://YOUR-DOMAIN/sitemap.xml`. The build creates the sitemap only when `VITE_SITE_URL` is configured; it includes the homepage, public information pages, and only sufficiently described books with a recently verified HTTPS source link.
+3. In Google Search Console, add the exact production domain, verify ownership (DNS verification is recommended for a whole domain), and submit `sitemap.xml`. Use URL Inspection to request indexing for the homepage and a small set of eligible book pages.
+4. In [Naver Search Advisor](https://searchadvisor.naver.com/), add the production site, complete ownership verification, submit the sitemap, and check the site/robots collection status. The site allows crawlers through `robots.txt`; do not block Yeti in Cloudflare security settings.
+5. Check results later with `site:YOUR-DOMAIN` in each search engine and use Search Console / Naver reports to identify pages that are crawled but not indexed.
+6. Do not create many near-duplicate pages or index placeholder books. Improve accurate, original descriptions and keep the outbound source links up to date. No SEO change can guarantee a top ranking.
+
+## Google Search launch steps (additional checks)
 
 1. Deploy the production site with the real `VITE_SITE_URL`.
 2. Open `https://YOUR-DOMAIN/robots.txt` and `https://YOUR-DOMAIN/sitemap.xml`; check that the sitemap contains only canonical, public URLs.
