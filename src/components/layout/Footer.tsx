@@ -5,7 +5,7 @@ type FooterProps = { navigateTo: (path: string) => void };
 const footerLinks = [
   { href: '/about', label: '서비스 소개' },
   { href: '/privacy', label: '개인정보처리방침' },
-  { href: '/terms', label: '이용 안내' },
+  { href: '/terms', label: '이용약관' },
   { href: '/copyright', label: '저작권·링크 정책' },
   { href: '/contact', label: '문의 및 오류 신고' },
 ];
