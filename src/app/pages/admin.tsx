@@ -495,7 +495,7 @@ export function AdminLinksList({ embeddedBookId }: { embeddedBookId?: string }) 
         setLinks(current => current.map(link => link.id === saved.id ? saved : link));
         showToast('답지 링크가 수정되었습니다.');
       } else {
-        const saved = await createAnswerLink({ ...values, book_id: selectedBookId });
+        const saved = await createAnswerLink({ ...values, book_id: selectedBookId, verified: false });
         setLinks(current => [saved, ...current]);
         showToast('답지 링크가 추가되었습니다.');
       }
