@@ -189,13 +189,46 @@ export default function App() {
     const canonicalPath = currentRoute.startsWith('/books/') ? currentRoute : currentRoute.split('?')[0];
     if (currentRoute === '/') {
       updateSeoMetadata({
-        title: '답지모음 | 교재별 답지 검색',
-        description: '교재별 답지 정보를 검색하고 원본 링크를 찾아볼 수 있는 서비스입니다.',
+        title: '답지모음 | 초·중·고 교재 답지 링크 검색',
+        description: '교재명, 출판사, 과목, 학년과 학기로 교재 정보를 찾고 확인된 원본 답지 링크를 검색하세요.',
         path: '/',
-        structuredData: { '@context': 'https://schema.org', '@type': 'WebSite', name: '답지모음', url: window.location.origin }
+        structuredData: { '@context': 'https://schema.org', '@type': 'WebSite', name: '답지모음', url: window.location.origin, inLanguage: 'ko-KR' }
       });
     } else if (currentRoute.startsWith('/books/')) {
-      updateSeoMetadata({ title: '교재 답지 및 정보 | 답지모음', description: '교재 정보와 등록된 답지 링크를 확인하세요.', path: canonicalPath, robots: 'noindex, follow' });
+      // Keep the prerendered metadata intact while the public catalog is loading.
+      // The build only prerenders fully described books with a recently verified HTTPS source link.
+      if (catalogStatus === 'loading') return;
+      let bookId = currentRoute.slice('/books/'.length);
+      try { bookId = decodeURIComponent(bookId); } catch { /* Keep the raw ID. */ }
+      const book = books.find(item => item.id === bookId);
+      const bookLinks = links.filter(link => link.book_id === bookId);
+      const facts = book ? [book.publisher, book.subject, book.grade, book.semester, book.series, book.edition].filter(value => String(value ?? '').trim()) : [];
+      const hasCuratedFacts = Boolean(book?.title?.trim() && book.publisher?.trim() && (book.description?.trim().length ?? 0) >= 40 && facts.length >= 3);
+      const containsPlaceholder = book ? /테스트|샘플|seed|example|예시|mock|placeholder/i.test([book.title, book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.description].join(' ')) : true;
+      const hasVerifiedSource = bookLinks.some(link => {
+        const checkedAt = link.last_checked_at ? new Date(link.last_checked_at).getTime() : 0;
+        const age = Date.now() - checkedAt;
+        try {
+          const url = new URL(link.url);
+          return link.verified && checkedAt > 0 && age >= 0 && age <= 180 * 24 * 60 * 60 * 1000 && url.protocol === 'https:' && !/(^|\\.)example\\.(com|org|net)$/i.test(url.hostname);
+        } catch { return false; }
+      });
+      const indexable = Boolean(book && hasCuratedFacts && !containsPlaceholder && hasVerifiedSource);
+      if (!indexable || !book) {
+        updateSeoMetadata({ title: book ? `${book.title} | 답지모음` : '교재를 찾을 수 없습니다 | 답지모음', description: '교재 정보 또는 확인된 원본 링크를 찾을 수 없습니다.', path: canonicalPath, robots: 'noindex, follow' });
+      } else {
+        const title = `${book.title} 답지·교재 정보 | 답지모음`;
+        const description = `${book.title} · ${facts.join(' · ')}${book.description ? ` · ${book.description}` : ''}`.slice(0, 160);
+        updateSeoMetadata({
+          title,
+          description,
+          path: canonicalPath,
+          structuredData: [
+            { '@context': 'https://schema.org', '@type': 'Book', name: book.title, ...(book.publisher ? { publisher: { '@type': 'Organization', name: book.publisher } } : {}), ...(book.subject ? { genre: book.subject } : {}), ...(book.edition ? { bookEdition: book.edition } : {}), ...(book.description ? { description: book.description } : {}), inLanguage: 'ko' },
+            { '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: '홈', item: window.location.origin }, { '@type': 'ListItem', position: 2, name: book.title, item: new URL(canonicalPath, window.location.origin).toString() }] }
+          ]
+        });
+      }
     } else {
       const infoPages: Record<string, { title: string; description: string }> = {
         '/about': { title: '서비스 소개 | 답지모음', description: '답지모음의 교재 정보 검색 방식과 외부 원본 링크 안내, 정보 정확성 및 서비스 운영 원칙을 소개합니다.' },
@@ -213,7 +246,7 @@ export default function App() {
         robots: info ? 'index, follow' : 'noindex, follow'
       });
     }
-  }, [currentRoute]);
+  }, [currentRoute, books, links, catalogStatus]);
 
   useEffect(() => {
     if (currentRoute === '/admin/links') navigateTo('/admin/books');
