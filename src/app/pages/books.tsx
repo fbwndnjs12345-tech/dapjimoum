@@ -8,21 +8,6 @@ import { BookThumbnail } from '../../components/books/BookThumbnail';
 import { updateSeoMetadata } from '../../lib/seo';
 import { isPlaceholderBook } from '../../lib/catalog';
 
-function isIndexableLink(url: string) {
-  try {
-    const parsedUrl = new URL(url);
-    return parsedUrl.protocol === 'https:' && !/(^|\.)example\.(com|org|net)$/i.test(parsedUrl.hostname);
-  } catch {
-    return false;
-  }
-}
-
-function hasRecentVerification(link: AnswerLink) {
-  const checkedAt = link.last_checked_at ? new Date(link.last_checked_at).getTime() : 0;
-  const age = Date.now() - checkedAt;
-  return link.verified && checkedAt > 0 && age >= 0 && age <= 180 * 24 * 60 * 60 * 1000;
-}
-
 function isHttpUrl(value?: string | null): value is string {
   if (!value) return false;
   try { return ['http:', 'https:'].includes(new URL(value).protocol); } catch { return false; }
@@ -123,9 +108,6 @@ export function BookDetailPage() {
 
     useEffect(() => {
       if (isLoading) return;
-      const publicResources = (supabaseLinks ?? []).filter(link =>
-        hasRecentVerification(link) && isIndexableLink(link.url)
-      );
       const catalogFacts = [supabaseBook?.publisher, supabaseBook?.subject, supabaseBook?.grade, supabaseBook?.semester, supabaseBook?.series, supabaseBook?.edition]
         .filter(value => Boolean(value?.trim()));
       const hasPlaceholderText = /테스트|샘플|seed|example|예시|mock|placeholder/i.test([
@@ -134,11 +116,9 @@ export function BookDetailPage() {
       ].join(' '));
       const seoReady = Boolean(
         supabaseBook &&
-        (supabaseBook.description?.trim().length ?? 0) >= 40 &&
         supabaseBook.publisher &&
         catalogFacts.length >= 3 &&
-        !hasPlaceholderText &&
-        publicResources.length > 0
+        !hasPlaceholderText
       );
 
       if (!supabaseBook || !seoReady) {
