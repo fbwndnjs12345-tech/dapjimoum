@@ -8,7 +8,7 @@ const env = loadEnv('production', projectRoot, ['NEXT_PUBLIC_', 'VITE_']);
 const siteUrl = (process.env.VITE_SITE_URL || env.VITE_SITE_URL || '').trim().replace(/\/+$/, '');
 const contactEmail = (process.env.VITE_CONTACT_EMAIL || env.VITE_CONTACT_EMAIL || '').trim();
 const publisherId = (process.env.VITE_ADSENSE_CLIENT_ID || env.VITE_ADSENSE_CLIENT_ID || '').trim();
-const isValidPublisherId = /^ca-pub-\\d{16}$/.test(publisherId);
+const isValidPublisherId = /^ca-pub-\d{16}$/.test(publisherId);
 const adsenseCode = isValidPublisherId
   ? `<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${publisherId}" crossorigin="anonymous"></script>`
   : '';
