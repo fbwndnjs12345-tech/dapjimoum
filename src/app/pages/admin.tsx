@@ -416,7 +416,7 @@ export function AdminLinksList({ embeddedBookId }: { embeddedBookId?: string }) 
   const [links, setLinks] = useState<AnswerLink[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [verificationFilter, setVerificationFilter] = useState<'전체' | '검증 완료' | '미검증'>('전체');
-  const [form, setForm] = useState({ title: '', url: '', source_name: '', link_type: '', verified: false });
+  const [form, setForm] = useState({ url: '', source_name: '', link_type: '' });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isBooksLoading, setIsBooksLoading] = useState(true);
   const [isLinksLoading, setIsLinksLoading] = useState(false);
@@ -471,7 +471,7 @@ export function AdminLinksList({ embeddedBookId }: { embeddedBookId?: string }) 
   }, [selectedBookId]);
 
   const resetForm = () => {
-    setForm({ title: '', url: '', source_name: '', link_type: '', verified: false });
+    setForm({ url: '', source_name: '', link_type: '' });
     setEditingId(null);
   };
 
@@ -482,12 +482,13 @@ export function AdminLinksList({ embeddedBookId }: { embeddedBookId?: string }) 
     setError('');
     try {
       const { createAnswerLink, updateAnswerLink } = await import('../../lib/supabase/answerLinks');
+      const selectedBook = books.find(book => book.id === selectedBookId);
+      if (!selectedBook) throw new Error('교재를 찾을 수 없습니다.');
       const values = {
-        title: form.title.trim(),
+        title: selectedBook.title,
         url: form.url.trim(),
         source_name: form.source_name.trim() || undefined,
-        link_type: form.link_type.trim() || undefined,
-        verified: form.verified
+        link_type: form.link_type.trim() || undefined
       };
       if (editingId) {
         const saved = await updateAnswerLink(editingId, values);
@@ -510,11 +511,9 @@ export function AdminLinksList({ embeddedBookId }: { embeddedBookId?: string }) 
   const handleEdit = (link: AnswerLink) => {
     setEditingId(link.id);
     setForm({
-      title: link.title ?? '',
       url: link.url ?? '',
       source_name: link.source_name ?? '',
-      link_type: link.link_type ?? '',
-      verified: Boolean(link.verified)
+      link_type: link.link_type ?? ''
     });
   };
 
@@ -609,14 +608,12 @@ export function AdminLinksList({ embeddedBookId }: { embeddedBookId?: string }) 
       </div>}
 
       {selectedBookId && <form onSubmit={handleSave} className="bg-white rounded-2xl border border-[#E5E8EB] p-5 sm:p-7 space-y-6 shadow-sm">
-        <div><h3 className="font-bold text-base text-[#191F28]">{editingId ? '답지 링크 수정' : '답지 링크 추가'}</h3><p className="mt-1 text-sm text-[#667085]">제목과 원본 URL을 입력하세요.</p></div>
-        <div className="space-y-2"><label htmlFor="answer-title" className="block text-sm font-semibold text-[#344054]">제목 <span className="text-[#667085]">(필수)</span></label><input id="answer-title" value={form.title} onChange={event => setForm(current => ({ ...current, title: event.target.value }))} required className={inputClass} /></div>
+        <div><h3 className="font-bold text-base text-[#191F28]">{editingId ? '답지 링크 수정' : '답지 링크 추가'}</h3><p className="mt-1 text-sm text-[#667085]">선택한 교재명이 링크 제목으로 자동 등록됩니다. 원본 URL만 입력해도 링크를 추가할 수 있습니다.</p><p className="mt-2 rounded-xl bg-[#F9FAFB] px-3 py-2.5 text-sm font-semibold text-[#344054]">링크 제목: {selectedBook?.title || '교재를 선택해 주세요'}</p></div>
         <div className="space-y-2"><label htmlFor="answer-url" className="block text-sm font-semibold text-[#344054]">원본 URL <span className="text-[#667085]">(필수)</span></label><input id="answer-url" type="url" value={form.url} onChange={event => setForm(current => ({ ...current, url: event.target.value }))} required placeholder="https://..." className={inputClass} /></div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-2"><label htmlFor="answer-source" className="block text-sm font-semibold text-[#344054]">출처 이름</label><input id="answer-source" value={form.source_name} onChange={event => setForm(current => ({ ...current, source_name: event.target.value }))} className={inputClass} /></div>
           <div className="space-y-2"><label htmlFor="answer-type" className="block text-sm font-semibold text-[#344054]">답지 제공 방식</label><select id="answer-type" value={form.link_type} onChange={event => setForm(current => ({ ...current, link_type: event.target.value }))} className={inputClass}><option value="">선택해 주세요</option>{ANSWER_LINK_TYPES.map(type => <option key={type} value={type}>{type}</option>)}{form.link_type && !ANSWER_LINK_TYPES.includes(form.link_type as typeof ANSWER_LINK_TYPES[number]) && <option value={form.link_type}>{form.link_type} (기존 값)</option>}</select><p className="text-xs leading-5 text-[#667085]">자료를 저장해야 하면 ‘다운로드’, 브라우저에서 바로 보려면 ‘온라인 PDF 뷰어’ 또는 ‘이미지 보기’를 선택하세요. 버튼은 원본 링크를 새 탭으로 엽니다.</p></div>
         </div>
-        <label className="flex min-h-11 items-center gap-3 rounded-xl border border-[#E5E8EB] px-4 text-sm font-semibold text-[#344054]"><input type="checkbox" checked={form.verified} onChange={event => setForm(current => ({ ...current, verified: event.target.checked }))} className="h-4 w-4 accent-[#191F28]" />검증 완료</label>
         <div className="flex flex-col-reverse sm:flex-row gap-2">
           {editingId && <button type="button" onClick={resetForm} className="sm:w-1/3 py-3 bg-[#F2F4F6] text-[#344054] font-bold text-sm rounded-xl">취소</button>}
           <button type="submit" disabled={isSaving} className="flex-1 py-3 bg-[#191F28] hover:bg-[#333D4B] text-white font-bold text-sm rounded-xl disabled:opacity-50">{isSaving ? '저장 중…' : editingId ? '수정 사항 저장' : '링크 등록'}</button>
