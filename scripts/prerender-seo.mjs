@@ -140,7 +140,7 @@ if (supabaseUrl && anonKey) {
 
 const qualifyingBooks = books.filter(book => qualifiesForIndex(book));
 if (qualifyingBooks.length === 0) {
-  console.warn('SEO: No verified, sufficiently described Supabase books qualified for indexing; placeholder and unverified rows were excluded.');
+  console.warn('SEO: No sufficiently complete textbook catalog rows qualified for indexing; placeholder and incomplete rows were excluded.');
 }
 
 const template = await readFile(path.join(outputRoot, 'index.html'), 'utf8');
