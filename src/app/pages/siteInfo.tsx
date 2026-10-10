@@ -6,7 +6,7 @@ const updatedDate = '2026년 10월 9일';
 
 export function SiteInfoPage({ route }: SiteInfoPageProps) {
   const contactEmail = import.meta.env.VITE_CONTACT_EMAIL?.trim();
-  const title = route === '/about' ? '서비스 소개' : route === '/privacy' ? '개인정보처리방침' : route === '/copyright' ? '저작권 및 링크 정책' : route === '/terms' ? '이용 안내' : '문의 및 오류 신고';
+  const title = route === '/about' ? '서비스 소개' : route === '/privacy' ? '개인정보처리방침' : route === '/copyright' ? '저작권 및 링크 정책' : route === '/terms' ? '이용약관' : '문의 및 오류 신고';
 
   return (
     <article className="mx-auto w-full max-w-3xl px-5 py-10 sm:py-14">
