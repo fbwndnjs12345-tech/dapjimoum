@@ -125,7 +125,7 @@ def search_google_page(page, query: str, limit: int = 10):
     text = (page.locator("body").inner_text(timeout=5000) or "").lower()
     if any(word in text for word in ("unusual traffic", "자동화된 요청", "비정상적인 트래픽", "captcha")):
         raise RuntimeError("Google이 자동 검색 요청을 제한했습니다. 차단을 우회하지 않고 Google 검색은 건너뜁니다.")
-    found = page.locator("a[href]").evaluate_all("""els => els.map(a => ({
+    found = page.locator("a:has(h3)").evaluate_all("""els => els.map(a => ({
       url:a.href, title:(a.innerText||'').trim()
     })).filter(x => /^https?:/.test(x.url) &&
       !/(google\\.com|accounts\\.google|support\\.google|policies\\.google)/i.test(new URL(x.url).hostname) &&
