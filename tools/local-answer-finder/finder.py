@@ -262,7 +262,7 @@ def assess(book, title, snippet, terms):
     score=max(0,min(100,score))
     if conflict or not answer_signal: status="mismatch"
     elif score>=72 and (exact or ratio>=0.75): status="likely"
-    elif score>=42 and ratio>=0.4: status="uncertain"
+    elif score>=38 and ratio>=0.4: status="uncertain"
     else: status="mismatch"
     return score,status,", ".join(matched or (["답지/정답/해설"] if answer_signal else []))
 
