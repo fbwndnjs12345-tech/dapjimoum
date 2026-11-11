@@ -402,11 +402,44 @@ class FinderApp:
             messagebox.showinfo("결과 없음", "아직 후보 CSV가 없습니다. 먼저 탐색을 실행하세요.")
 
 
-if __name__ == "__main__":
-    root = tk.Tk()
+def self_test():
+    """Run dependency, configuration, Tk, and bundled Chromium smoke checks."""
     try:
-        ttk.Style().theme_use("vista")
-    except tk.TclError:
-        pass
+        from finder import read_books, assess
+        from playwright.sync_api import sync_playwright
+        example = ROOT / "sources.example.json"
+        config = json.loads(example.read_text(encoding="utf-8"))
+        if not isinstance(config.get("sources"), list) or not config["sources"]:
+            raise RuntimeError("예시 출처 설정이 비어 있습니다.")
+        for source in config["sources"]:
+            for url in source.get("start_urls", []):
+                parsed = urllib.parse.urlparse(url)
+                if parsed.scheme not in ("http", "https") or not parsed.hostname:
+                    raise RuntimeError("예시 자료실 URL 형식이 올바르지 않습니다.")
+        sample = {"title": "오투 중등 과학 2-1"}
+        if assess(sample, "오투 중등 과학 2-1 정답과 해설", "정답과 해설", ["정답과 해설"])[1] != "likely":
+            raise RuntimeError("후보 판정 자체 테스트 실패")
+        root = tk.Tk()
+        root.withdraw()
+        root.update_idletasks()
+        root.destroy()
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.set_content("<html><head><title>DapjiMoum smoke test</title></head><body>OK</body></html>")
+            if page.title() != "DapjiMoum smoke test":
+                raise RuntimeError("Chromium 페이지 테스트 실패")
+            browser.close()
+        print("SELF-TEST PASSED: config, matching, Tk, Playwright Chromium")
+        return 0
+    except Exception as exc:
+        print(f"SELF-TEST FAILED: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    if "--self-test" in sys.argv:
+        raise SystemExit(self_test())
+    root = tk.Tk()
     FinderApp(root)
     root.mainloop()
