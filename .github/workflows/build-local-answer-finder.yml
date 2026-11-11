@@ -50,6 +50,8 @@ jobs:
         run: |
           if (!(Test-Path "dist\\DapjiMoumFinder\\DapjiMoumFinder.exe")) { throw "EXE not found" }
           if (!(Test-Path "dist\\DapjiMoumFinder\\ms-playwright")) { throw "Bundled Chromium not found" }
+          & "dist\\DapjiMoumFinder\\DapjiMoumFinder.exe" --self-test
+          if ($LASTEXITCODE -ne 0) { throw "Packaged executable self-test failed with exit code $LASTEXITCODE" }
       - uses: actions/upload-artifact@v4
         with:
           name: 답지모음-로컬-탐색기-Windows
