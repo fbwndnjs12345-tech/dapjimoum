@@ -148,12 +148,12 @@ class FinderApp:
             messagebox.showerror("설정 오류", str(exc))
 
     def fetch_books(self):
+        base = self.supabase_url.get().strip().rstrip("/")
+        key = self.anon_key.get().strip()
+        email = self.email.get().strip()
+        password = self.password.get()
         def worker():
             try:
-                base = self.supabase_url.get().strip().rstrip("/")
-                key = self.anon_key.get().strip()
-                email = self.email.get().strip()
-                password = self.password.get()
                 if not all([base, key, email, password]):
                     raise ValueError("Supabase URL, anon key, 이메일, 비밀번호를 모두 입력하세요.")
                 auth = request_json(base + "/auth/v1/token?grant_type=password",
@@ -207,12 +207,13 @@ class FinderApp:
         except Exception as exc:
             messagebox.showerror("설정 확인", str(exc))
             return
+        headed = self.headed.get()
         self.run_button.configure(state="disabled")
         self.status.set("탐색 중입니다. 사이트별 robots.txt 정책을 확인하며 진행합니다.")
         def worker():
             try:
                 from finder import run_search
-                count = run_search(csv_path, OUTPUT, DEFAULT_CONFIG, self.headed.get(), max_pages,
+                count = run_search(csv_path, OUTPUT, DEFAULT_CONFIG, headed, max_pages,
                                    lambda line: self.events.put(("log", line)))
                 self.events.put(("done", f"탐색 완료: 후보 {count}개\n저장 위치: {OUTPUT}"))
             except Exception as exc:
