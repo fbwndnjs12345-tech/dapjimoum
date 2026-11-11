@@ -58,7 +58,7 @@ class FinderUnitTests(unittest.TestCase):
         self.assertIn(status, ("likely", "uncertain"))
 
     def test_bing_rss_search_result_parsing(self):
-        rss = b"""<?xml version="1.0"?><rss><channel><item><title>오투 과학 정답과 해설</title><link>https://example.com/answer</link><description>정답과 해설 자료</description></item></channel></rss>"""
+        rss = """<?xml version="1.0"?><rss><channel><item><title>오투 과학 정답과 해설</title><link>https://example.com/answer</link><description>정답과 해설 자료</description></item></channel></rss>""".encode("utf-8")
         with patch("finder.fetch", return_value=rss):
             results = search_bing_rss("오투 과학 답지", 5)
         self.assertEqual(len(results), 1)
