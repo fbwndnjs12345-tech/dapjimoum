@@ -1,0 +1,43 @@
+name: Build local answer finder
+on:
+  push:
+    branches:
+      - feat/local-answer-link-finder
+    paths:
+      - "tools/local-answer-finder/**"
+      - ".github/workflows/build-local-answer-finder.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: tools/local-answer-finder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install chromium
+      - name: Compile and smoke test
+        run: |
+          python -m compileall -q app.py finder.py
+          python -c "from pathlib import Path; from finder import read_books, assess; p=Path('smoke.csv'); p.write_text('id,title,publisher\n1,테스트 수학,테스트 출판사\n',encoding='utf-8-sig'); rows=read_books(p); assert rows[0]['id']=='1'; assert assess(rows[0], '테스트 수학 정답과 해설', '정답과 해설', ['정답과 해설'])[1]=='likely'; p.unlink()"
+      - name: Package ZIP
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item app.py, finder.py, requirements.txt, README.md, sources.example.json, 설치_및_실행.bat, 프로그램_실행.bat -Destination dist
+          Compress-Archive -Path dist\* -DestinationPath 답지모음-로컬-탐색기-Windows.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 답지모음-로컬-탐색기-Windows
+          path: tools/local-answer-finder/답지모음-로컬-탐색기-Windows.zip
+          retention-days: 30
