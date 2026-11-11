@@ -261,7 +261,7 @@ def assess(book, title, snippet, terms):
     if expected_grade and actual_grades and expected_grade.group(1) not in actual_grades: conflict=True
     expected_sem=re.search(r"([12])\s*학기",book.get("semester","")); actual_sem=set(re.findall(r"([12])\s*학기",raw))
     if expected_sem and actual_sem and expected_sem.group(1) not in actual_sem: conflict=True
-    score=round(ratio*45+(18 if exact else 0)+(18 if answer_signal else 0)+(5 if series_hit else 0)
+    score=round(ratio*45+(25 if exact else 0)+(22 if answer_signal else 0)+(5 if series_hit else 0)
                 +(5 if subject_hit else 0)+(4 if publisher_hit else 0)+(3 if grade_hit else 0)+(2 if semester_hit else 0))
     if conflict: score-=35
     score=max(0,min(100,score))
