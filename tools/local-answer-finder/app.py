@@ -40,6 +40,7 @@ class FinderApp:
         root.geometry("900x720")
         root.minsize(760, 620)
         self.events: queue.Queue = queue.Queue()
+        self.stop_event = None
         self.access_token: str | None = None
         self.project_url: str = ''
         self.anon_key_value: str = ''
@@ -147,6 +148,8 @@ class FinderApp:
         ttk.Checkbutton(options, text="브라우저 창 표시 (Google 직접 인증)", variable=self.headed).pack(side="left")
         self.run_button = ttk.Button(options, text="탐색 시작", command=self.run_finder, style="Accent.TButton")
         self.run_button.pack(side="right")
+        self.stop_button = ttk.Button(options, text="중지 및 결과 저장", command=self.stop_finder, state="disabled")
+        self.stop_button.pack(side="right", padx=8)
         ttk.Button(options, text="결과 CSV 열기", command=self.open_output).pack(side="right", padx=8)
 
         self.progress = ttk.Progressbar(search, mode="indeterminate")
@@ -198,7 +201,15 @@ class FinderApp:
                     self.password.set("")
                 elif kind == "books_path":
                     self.books_path.set(value)
+                elif kind == "paused":
+                    self.run_button.configure(state="normal")
+                    self.stop_button.configure(state="disabled")
+                    self.progress.stop()
+                    self.status.set(value)
+                    self.load_results()
+                    messagebox.showwarning("검색 중지", value)
                 elif kind == "done":
+                    self.stop_button.configure(state="disabled")
                     self.run_button.configure(state="normal")
                     if hasattr(self, "progress"):
                         self.progress.stop()
@@ -206,6 +217,7 @@ class FinderApp:
                     self.load_results()
                     messagebox.showinfo("완료", value)
                 elif kind == "error":
+                    self.stop_button.configure(state="disabled")
                     self.run_button.configure(state="normal")
                     if hasattr(self, "progress"):
                         self.progress.stop()
@@ -336,6 +348,8 @@ class FinderApp:
             return
         headed = self.headed.get()
         self.run_button.configure(state="disabled")
+        self.stop_event = threading.Event()
+        self.stop_button.configure(state="normal")
         self.status.set("탐색 중입니다. 검색엔진과 대상 사이트의 접근 정책을 확인하며 진행합니다.")
         self.tabs.select(2)
         self.progress.start(12)
@@ -344,12 +358,22 @@ class FinderApp:
             try:
                 from finder import run_search
                 count = run_search(csv_path, OUTPUT, DEFAULT_CONFIG, headed, max_pages,
-                                   lambda line: self.events.put(("log", line)))
-                self.events.put(("done", f"탐색 완료: 후보 {count}개\n저장 위치: {OUTPUT}"))
+                                   lambda line: self.events.put(("log", line)), self.stop_event)
+                if self.stop_event.is_set():
+                    self.events.put(("paused", f"검색을 중지했습니다. 후보 {count}개를 CSV에 저장했습니다.\n저장 위치: {OUTPUT}"))
+                else:
+                    self.events.put(("done", f"탐색 완료: 후보 {count}개\n저장 위치: {OUTPUT}"))
             except Exception as exc:
                 self.events.put(("error", str(exc)))
         threading.Thread(target=worker, daemon=True).start()
 
+
+    def stop_finder(self):
+        if self.stop_event is not None and not self.stop_event.is_set():
+            self.stop_event.set()
+            self.stop_button.configure(state="disabled")
+            self.status.set("중지 요청을 보냈습니다. 현재 페이지 요청이 끝나면 후보를 저장하고 알림을 표시합니다.")
+            self.log_line("[중지 요청] 현재 처리 중인 요청이 끝나는 대로 검색을 멈춥니다.")
 
     def upload_candidates(self):
         if not self.access_token or not self.project_url or not self.anon_key_value:
