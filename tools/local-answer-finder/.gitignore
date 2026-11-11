@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+sources.json
+books.csv
+answer-link-candidates.csv
