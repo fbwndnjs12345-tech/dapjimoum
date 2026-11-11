@@ -96,10 +96,10 @@ class FinderApp:
         self._entry(supa, "관리자 이메일", self.email, 2)
         self._entry(supa, "관리자 비밀번호", self.password, 3, show="•")
         row = ttk.Frame(supa)
-        row.pack(fill="x", pady=(10, 0))
+        row.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(10, 0))
         ttk.Button(row, text="로그인 및 교재 가져오기", command=self.fetch_books, style="Accent.TButton").pack(side="left")
         ttk.Button(row, text="검색 후보 사이트 등록", command=self.upload_candidates).pack(side="left", padx=8)
-        ttk.Label(supa, text="비밀번호는 파일에 저장하지 않습니다. 관리자 계정 권한이 필요합니다.", style="Sub.TLabel").pack(anchor="w", pady=(8, 0))
+        ttk.Label(supa, text="비밀번호는 파일에 저장하지 않습니다. 관리자 계정 권한이 필요합니다.", style="Sub.TLabel").grid(row=5, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
         csvbox = ttk.LabelFrame(account, text="교재 CSV 직접 선택", style="Card.TLabelframe", padding=14)
         csvbox.pack(fill="x")
