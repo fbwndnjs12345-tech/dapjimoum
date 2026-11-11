@@ -54,6 +54,7 @@ jobs:
           Copy-Item "$env:LOCALAPPDATA\ms-playwright" "dist\DapjiMoumFinder\ms-playwright" -Recurse
           pyinstaller --noconfirm --clean --console --name DapjiMoumFinderTest --distpath test-dist --workpath test-build --specpath test-spec --collect-all playwright --collect-all greenlet --collect-all pyee app.py
           Copy-Item "$env:LOCALAPPDATA\ms-playwright" "test-dist\DapjiMoumFinderTest\ms-playwright" -Recurse
+          Copy-Item sources.example.json -Destination "test-dist\DapjiMoumFinderTest"
           Copy-Item README.md, sources.example.json -Destination "dist\DapjiMoumFinder"
           Compress-Archive -Path "dist\DapjiMoumFinder\*" -DestinationPath "답지모음-로컬-탐색기-Windows.zip" -Force
 
