@@ -116,6 +116,8 @@ class FinderApp:
                     self.log_line(value)
                 elif kind == "status":
                     self.status.set(value)
+                elif kind == "clear_password":
+                    self.password.set("")
                 elif kind == "books_path":
                     self.books_path.set(value)
                 elif kind == "done":
@@ -183,7 +185,7 @@ class FinderApp:
                     writer.writeheader()
                     writer.writerows(rows)
                 self.events.put(("books_path", str(path)))
-                self.password.set("")
+                self.events.put(("clear_password", ""))
                 self.events.put(("status", f"교재 {len(rows)}권 저장 완료: {path}"))
             except Exception as exc:
                 self.events.put(("error", str(exc)))
