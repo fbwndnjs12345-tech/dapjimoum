@@ -52,6 +52,8 @@ jobs:
         run: |
           pyinstaller --noconfirm --clean --windowed --name DapjiMoumFinder --collect-all playwright --collect-all greenlet --collect-all pyee app.py
           Copy-Item "$env:LOCALAPPDATA\ms-playwright" "dist\DapjiMoumFinder\ms-playwright" -Recurse
+          pyinstaller --noconfirm --clean --console --name DapjiMoumFinderTest --distpath test-dist --workpath test-build --specpath test-spec --collect-all playwright --collect-all greenlet --collect-all pyee app.py
+          Copy-Item "$env:LOCALAPPDATA\ms-playwright" "test-dist\DapjiMoumFinderTest\ms-playwright" -Recurse
           Copy-Item README.md, sources.example.json -Destination "dist\DapjiMoumFinder"
           Compress-Archive -Path "dist\DapjiMoumFinder\*" -DestinationPath "답지모음-로컬-탐색기-Windows.zip" -Force
 
@@ -60,12 +62,12 @@ jobs:
         run: |
           if (!(Test-Path "dist\DapjiMoumFinder\DapjiMoumFinder.exe")) { throw "EXE not found" }
           if (!(Test-Path "dist\DapjiMoumFinder\ms-playwright")) { throw "Bundled Chromium not found" }
-          & "dist\DapjiMoumFinder\DapjiMoumFinder.exe" --self-test
-          $selfTestExit = $LASTEXITCODE
-          if (!(Test-Path "dist\DapjiMoumFinder\self-test.log")) { throw "Packaged self-test log not found; exit code $selfTestExit" }
-          Get-Content "dist\DapjiMoumFinder\self-test.log" -Raw
-          if ($selfTestExit -ne 0) { throw "Packaged executable self-test failed with exit code $selfTestExit" }
-          if ((Get-Content "dist\DapjiMoumFinder\self-test.log" -Raw) -notmatch "SELF-TEST PASSED") { throw "Packaged self-test did not report success" }
+          if (!(Test-Path "test-dist\DapjiMoumFinderTest\DapjiMoumFinderTest.exe")) { throw "Console test EXE not found" }
+          & "test-dist\DapjiMoumFinderTest\DapjiMoumFinderTest.exe" --self-test
+          if ($LASTEXITCODE -ne 0) { throw "Packaged executable self-test failed with exit code $LASTEXITCODE" }
+          if (!(Test-Path "test-dist\DapjiMoumFinderTest\self-test.log")) { throw "Packaged self-test log not found" }
+          Get-Content "test-dist\DapjiMoumFinderTest\self-test.log" -Raw
+          if ((Get-Content "test-dist\DapjiMoumFinderTest\self-test.log" -Raw) -notmatch "SELF-TEST PASSED") { throw "Packaged self-test did not report success" }
           if (!(Test-Path "답지모음-로컬-탐색기-Windows.zip")) { throw "ZIP artifact not found" }
 
       - uses: actions/upload-artifact@v4
