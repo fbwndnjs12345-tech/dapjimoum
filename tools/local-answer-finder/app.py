@@ -223,9 +223,19 @@ class FinderApp:
     def save_config(self):
         try:
             config = json.loads(self.config_text.get("1.0", "end"))
-            sources = config.get("sources")
-            if not isinstance(sources, list) or not sources:
-                raise ValueError("sources 배열에 공식 자료실을 한 곳 이상 추가하세요.")
+            sources = config.get("sources", [])
+            web_cfg = config.get("web_search", {})
+            web_enabled = bool(web_cfg.get("enabled", True))
+            if not isinstance(sources, list):
+                raise ValueError("sources는 배열이어야 합니다.")
+            if not sources and not web_enabled:
+                raise ValueError("공식 자료실 또는 공개 웹 검색 중 하나 이상 활성화하세요.")
+            engines = web_cfg.get("engines", ["google", "bing"])
+            if web_enabled and (not isinstance(engines, list) or not engines or any(x not in ("google", "bing") for x in engines)):
+                raise ValueError("web_search.engines에는 google 또는 bing을 하나 이상 지정하세요.")
+            results_per_engine = int(web_cfg.get("results_per_engine", 8))
+            if results_per_engine < 1 or results_per_engine > 20:
+                raise ValueError("검색엔진별 결과 수는 1~20 사이여야 합니다.")
             seen = set()
             for index, source in enumerate(sources, 1):
                 if not isinstance(source, dict):
@@ -251,7 +261,7 @@ class FinderApp:
             if not isinstance(terms, list) or not terms or any(not isinstance(term, str) or not term.strip() for term in terms):
                 raise ValueError("answer_keywords는 비어 있지 않은 문자열 배열이어야 합니다.")
             DEFAULT_CONFIG.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            self.events.put(("status", f"설정 검사 및 저장 완료: 출처 {len(sources)}곳"))
+            self.events.put(("status", f"설정 검사 및 저장 완료: 공식 출처 {len(sources)}곳 · 공개 웹 검색 {'활성화' if web_enabled else '비활성화'}"))
             return True
         except Exception as exc:
             messagebox.showerror("설정 오류", str(exc))
@@ -308,8 +318,8 @@ class FinderApp:
             return
         try:
             config = json.loads(self.config_text.get("1.0", "end"))
-            if not config.get("sources"):
-                raise ValueError("출판사 공식 자료실 주소가 없습니다. sources.json에 최소 한 곳을 설정하세요.")
+            if not config.get("sources") and not config.get("web_search", {}).get("enabled", True):
+                raise ValueError("공식 자료실 또는 공개 웹 검색 중 하나 이상 활성화하세요.")
             if not self.save_config():
                 return
             max_pages = int(self.max_pages.get())
@@ -320,7 +330,7 @@ class FinderApp:
             return
         headed = self.headed.get()
         self.run_button.configure(state="disabled")
-        self.status.set("탐색 중입니다. 사이트별 robots.txt 정책을 확인하며 진행합니다.")
+        self.status.set("탐색 중입니다. 검색엔진과 대상 사이트의 접근 정책을 확인하며 진행합니다.")
         self.tabs.select(2)
         self.progress.start(12)
         self.log_line("[시작] 탐색 작업을 준비합니다.")
