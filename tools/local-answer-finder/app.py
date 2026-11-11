@@ -237,9 +237,9 @@ class FinderApp:
             results_per_engine = int(web_cfg.get("results_per_engine", 8))
             if results_per_engine < 1 or results_per_engine > 20:
                 raise ValueError("검색엔진별 결과 수는 1~20 사이여야 합니다.")
-            max_queries = int(web_cfg.get("max_queries_per_book", 4))
-            if max_queries < 1 or max_queries > 6:
-                raise ValueError("교재별 검색어 수는 1~6 사이여야 합니다.")
+            max_queries = int(web_cfg.get("max_queries_per_book", 8))
+            if max_queries < 1 or max_queries > 10:
+                raise ValueError("교재별 검색어 수는 1~10 사이여야 합니다.")
             seen = set()
             for index, source in enumerate(sources, 1):
                 if not isinstance(source, dict):
@@ -386,6 +386,8 @@ class FinderApp:
                             "snippet": row.get("snippet", ""),
                             "match_status": row.get("match_status", "uncertain"),
                             "link_type": row.get("link_type", "웹페이지"),
+                            "source_type": "official" if row.get("source_type") == "publisher" else "general",
+                            "query": row.get("search_query") or "local-search",
                         })
                     if not batch:
                         continue
