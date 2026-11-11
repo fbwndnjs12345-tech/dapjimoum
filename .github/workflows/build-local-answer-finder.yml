@@ -6,6 +6,12 @@ on:
     paths:
       - "tools/local-answer-finder/**"
       - ".github/workflows/build-local-answer-finder.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "tools/local-answer-finder/**"
+      - ".github/workflows/build-local-answer-finder.yml"
   workflow_dispatch:
 
 permissions:
