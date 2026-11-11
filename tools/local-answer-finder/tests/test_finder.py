@@ -68,6 +68,28 @@ class FinderUnitTests(unittest.TestCase):
         _, status, _ = assess(book, "오투 중등 과학 1-2 목차", "교재 소개 및 목차", ["정답과 해설", "답지"])
         self.assertEqual(status, "mismatch")
 
+    def test_assess_rejects_check_icon_page_for_checkcheck_textbook(self):
+        book = {"title": "체크체크 중학 수학 2-1", "series": "체크체크",
+                "subject": "수학", "grade": "중2", "semester": "1학기"}
+        _, status, _ = assess(book, "체크 이모티콘 모음 - 체크 표시 아이콘",
+                              "각종 체크 표시와 정답 해설 아이콘을 제공합니다.", ["정답과 해설", "답지"])
+        self.assertEqual(status, "mismatch")
+
+    def test_assess_accepts_exact_checkcheck_answer_page(self):
+        book = {"title": "체크체크 중학 수학 2-1", "series": "체크체크",
+                "subject": "수학", "grade": "중2", "semester": "1학기"}
+        score, status, _ = assess(book, "체크체크 중학 수학 2-1 수학 정답과 해설",
+                                  "중2 1학기 체크체크 수학 답지", ["정답과 해설", "답지"])
+        self.assertGreaterEqual(score, 75)
+        self.assertEqual(status, "likely")
+
+    def test_assess_rejects_same_series_wrong_subject_or_edition(self):
+        book = {"title": "체크체크 중학 수학 2-1", "series": "체크체크",
+                "subject": "수학", "grade": "중2"}
+        _, status, _ = assess(book, "체크체크 중학 과학 2-1 정답과 해설",
+                              "체크체크 과학 답지", ["답지"])
+        self.assertEqual(status, "mismatch")
+
     def test_build_queries_includes_blog_platforms(self):
         book = {"title": "오투 중등 과학 1-2", "series": "오투", "subject": "과학",
                 "grade": "중1", "semester": "2학기"}
