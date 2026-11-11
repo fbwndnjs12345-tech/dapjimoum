@@ -343,6 +343,11 @@ class FinderApp:
                     rows = list(csv.DictReader(handle))
                 if not rows:
                     raise RuntimeError("등록할 후보가 없습니다.")
+                invalid = [index + 2 for index, row in enumerate(rows) if not row.get("book_id") or not row.get("url")]
+                if invalid:
+                    preview = ", ".join(map(str, invalid[:10]))
+                    suffix = " 외" if len(invalid) > 10 else ""
+                    raise RuntimeError(f"CSV {len(invalid)}개 행에 교재 ID 또는 URL이 없습니다. 누락 행: {preview}{suffix}. Supabase에서 교재 목록을 다시 가져오거나 CSV를 수정하세요.")
                 inserted = duplicates = 0
                 endpoint = self.project_url + "/functions/v1/answer-link-import-candidates"
                 headers = {"apikey": self.anon_key_value, "Authorization": "Bearer " + self.access_token, "Content-Type": "application/json"}
