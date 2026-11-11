@@ -110,9 +110,9 @@ class FinderApp:
         ttk.Entry(csvrow, textvariable=self.books_path).pack(side="left", fill="x", expand=True, padx=(0, 8))
         ttk.Button(csvrow, text="CSV 찾아보기", command=self.choose_csv).pack(side="left")
 
-        sourcecard = ttk.LabelFrame(sources, text="출판사 공식 자료실", style="Card.TLabelframe", padding=14)
+        sourcecard = ttk.LabelFrame(sources, text="공식 자료실 및 공개 웹 검색", style="Card.TLabelframe", padding=14)
         sourcecard.pack(fill="both", expand=True)
-        ttk.Label(sourcecard, text="실제 공식 자료실 URL만 입력하세요. robots.txt 및 동일 도메인 정책을 준수합니다.", style="Sub.TLabel").pack(anchor="w")
+        ttk.Label(sourcecard, text="Google·Bing 공개 검색과 출판사 자료실을 함께 탐색합니다. 공개 웹 검색은 robots.txt 및 대상 사이트 정책을 준수합니다.", style="Sub.TLabel").pack(anchor="w")
         editor = ttk.Frame(sourcecard)
         editor.pack(fill="both", expand=True, pady=(10, 8))
         self.config_text = tk.Text(editor, height=16, wrap="none", font=("Consolas", 10), undo=True,
