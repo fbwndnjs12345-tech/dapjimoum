@@ -213,12 +213,18 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                 target = link.get("href", "")
                                 if not allowed_host(target, host) or not robots.can_fetch(USER_AGENT, target):
                                     continue
+                                link_text = (link.get("text") or "").strip()
+                                if urlparse(target).path.lower().endswith(".pdf"):
+                                    targets.append((target, link_text or "정답과 해설 PDF", description, body))
+                                    continue
                                 try:
                                     page.goto(target, wait_until="domcontentloaded")
                                     t, d, b = extract_page(page)
-                                    targets.append((target, t, d, b))
+                                    targets.append((target, t or link_text, d, b))
                                 except Exception:
-                                    continue
+                                    # A link is still retained as a candidate if its anchor clearly names the resource.
+                                    if link_text:
+                                        targets.append((target, link_text, description, body))
 
                             for book in books:
                                 bp = norm(book.get("publisher", ""))
