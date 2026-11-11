@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse, urljoin, urlencode
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 if getattr(sys, "frozen", False):
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(Path(sys.executable).resolve().parent / "ms-playwright")
