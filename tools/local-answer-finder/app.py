@@ -270,7 +270,7 @@ class FinderApp:
                     raise RuntimeError("로그인 응답에 access_token이 없습니다.")
                 rows, offset, limit = [], 0, 1000
                 while True:
-                    query = urllib.parse.urlencode({"select": "id,title,publisher,subject,grade,semester,series", "order": "created_at.desc", "limit": str(limit), "offset": str(offset)})
+                    query = urllib.parse.urlencode({"select": "id,title,publisher,subject,grade,semester,series", "order": "title.asc", "limit": str(limit), "offset": str(offset)})
                     data = request_json(base + "/rest/v1/books?" + query,
                         {"apikey": key, "Authorization": "Bearer " + token, "Accept": "application/json"})
                     if not isinstance(data, list):
