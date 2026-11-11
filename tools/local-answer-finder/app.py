@@ -248,8 +248,10 @@ class FinderApp:
                 raise ValueError("요청 간격은 1초 이상, 페이지 시간 제한은 1000ms 이상, 최대 페이지는 1 이상이어야 합니다.")
             DEFAULT_CONFIG.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             self.events.put(("status", f"설정 검사 및 저장 완료: 출처 {len(sources)}곳"))
+            return True
         except Exception as exc:
             messagebox.showerror("설정 오류", str(exc))
+            return False
 
     def fetch_books(self):
         base = self.supabase_url.get().strip().rstrip("/")
@@ -304,7 +306,8 @@ class FinderApp:
             config = json.loads(self.config_text.get("1.0", "end"))
             if not config.get("sources"):
                 raise ValueError("출판사 공식 자료실 주소가 없습니다. sources.json에 최소 한 곳을 설정하세요.")
-            self.save_config()
+            if not self.save_config():
+                return
             max_pages = int(self.max_pages.get())
             if max_pages < 1:
                 raise ValueError("최대 페이지는 1 이상이어야 합니다.")
