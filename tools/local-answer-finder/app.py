@@ -148,9 +148,23 @@ class FinderApp:
         self.run_button.pack(side="right")
         ttk.Button(options, text="결과 CSV 열기", command=self.open_output).pack(side="right", padx=8)
 
-        logcard = ttk.LabelFrame(search, text="진행 상황 및 로그", style="Card.TLabelframe", padding=12)
+        self.progress = ttk.Progressbar(search, mode="indeterminate")
+        self.progress.pack(fill="x", pady=(0, 10))
+        preview = ttk.LabelFrame(search, text="후보 미리보기", style="Card.TLabelframe", padding=10)
+        preview.pack(fill="both", expand=True, pady=(0, 10))
+        columns = ("book", "candidate", "status", "score")
+        self.results = ttk.Treeview(preview, columns=columns, show="headings", height=6)
+        for column, label, width in (("book", "교재", 240), ("candidate", "후보 페이지", 300), ("status", "판정", 90), ("score", "점수", 70)):
+            self.results.heading(column, text=label)
+            self.results.column(column, width=width, anchor="w" if column in ("book", "candidate") else "center")
+        result_scroll = ttk.Scrollbar(preview, orient="vertical", command=self.results.yview)
+        self.results.configure(yscrollcommand=result_scroll.set)
+        self.results.pack(side="left", fill="both", expand=True)
+        result_scroll.pack(side="right", fill="y")
+
+        logcard = ttk.LabelFrame(search, text="진행 상황 및 로그", style="Card.TLabelframe", padding=10)
         logcard.pack(fill="both", expand=True)
-        self.log = tk.Text(logcard, height=12, state="disabled", wrap="word", font=("Malgun Gothic", 9),
+        self.log = tk.Text(logcard, height=7, state="disabled", wrap="word", font=("Malgun Gothic", 9),
                            bg="#ffffff", fg="#334155", relief="solid", bd=1, padx=10, pady=8)
         self.log.pack(fill="both", expand=True)
 
@@ -184,11 +198,17 @@ class FinderApp:
                     self.books_path.set(value)
                 elif kind == "done":
                     self.run_button.configure(state="normal")
+                    if hasattr(self, "progress"):
+                        self.progress.stop()
                     self.status.set(value)
+                    self.load_results()
                     messagebox.showinfo("완료", value)
                 elif kind == "error":
                     self.run_button.configure(state="normal")
-                    self.status.set("오류가 발생했습니다.")
+                    if hasattr(self, "progress"):
+                        self.progress.stop()
+                    self.status.set("오류가 발생했습니다. 로그와 입력 설정을 확인하세요.")
+                    self.log_line("[오류] " + value)
                     messagebox.showerror("오류", value)
         except queue.Empty:
             pass
@@ -294,6 +314,9 @@ class FinderApp:
         headed = self.headed.get()
         self.run_button.configure(state="disabled")
         self.status.set("탐색 중입니다. 사이트별 robots.txt 정책을 확인하며 진행합니다.")
+        self.tabs.select(2)
+        self.progress.start(12)
+        self.log_line("[시작] 탐색 작업을 준비합니다.")
         def worker():
             try:
                 from finder import run_search
@@ -346,6 +369,26 @@ class FinderApp:
             except Exception as exc:
                 self.events.put(("error", str(exc)))
         threading.Thread(target=worker, daemon=True).start()
+
+    def load_results(self):
+        if not hasattr(self, "results") or not OUTPUT.is_file():
+            return
+        for item in self.results.get_children():
+            self.results.delete(item)
+        try:
+            with OUTPUT.open("r", encoding="utf-8-sig", newline="") as handle:
+                rows = list(csv.DictReader(handle))
+            for row in rows[:500]:
+                self.results.insert("", "end", values=(
+                    row.get("book_title", ""),
+                    row.get("candidate_title", ""),
+                    row.get("match_status", ""),
+                    row.get("match_score", ""),
+                ))
+            if len(rows) > 500:
+                self.log_line(f"[안내] 후보 {len(rows)}개 중 처음 500개만 미리 표시합니다.")
+        except Exception as exc:
+            self.log_line(f"[결과 미리보기 오류] {exc}")
 
     def open_output(self):
         if OUTPUT.exists():
