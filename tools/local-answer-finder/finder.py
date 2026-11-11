@@ -318,7 +318,9 @@ def assess(book, title, snippet, terms):
     if subject:
         identity_ok = identity_ok and subject_hit
     if expected_pair:
-        identity_ok = identity_ok and edition_hit
+        # If no edition is stated on the result, keep it for manual review only.
+        # A different explicit edition remains a hard mismatch above.
+        identity_ok = identity_ok and (edition_hit or not actual_pairs)
     elif grade:
         identity_ok = identity_ok and grade_hit
 
