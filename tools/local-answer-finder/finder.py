@@ -240,36 +240,77 @@ def extract_page(page):
 
 
 def assess(book, title, snippet, terms):
-    """Score page evidence and reject conflicting grade/semester editions."""
-    raw=" ".join(str(x or "") for x in (title,snippet)); combined=norm(raw)
-    book_title=book.get("title",""); title_norm=norm(book_title)
-    tokens=[norm(t) for t in re.findall(r"[가-힣A-Za-z]+|[0-9]+",book_title)
-            if norm(t) and norm(t) not in {"중등","중학","중학교","교재"}]
-    ratio=sum(1 for t in tokens if t in combined)/len(tokens) if tokens else 0.0
-    exact=bool(title_norm and title_norm in combined)
-    matched=[t for t in terms if norm(t) and norm(t) in combined]
-    answer_signal=any(w in combined for w in ("정답","해설","답지","정오표"))
-    series=norm(book.get("series","")); subject=norm(book.get("subject",""))
-    publisher=norm(book.get("publisher","")); grade=norm(book.get("grade","")); semester=norm(book.get("semester",""))
-    series_hit=bool(series and series in combined); subject_hit=bool(subject and subject in combined)
-    publisher_hit=bool(publisher and publisher in combined); grade_hit=bool(grade and grade in combined)
-    semester_hit=bool(semester and semester in combined)
-    expected_pair=re.search(r"(?<![0-9])([1-3])\s*[-–]\s*([12])(?![0-9])",book_title)
-    actual_pairs=set(re.findall(r"(?<![0-9])([1-3])\s*[-–]\s*([12])(?![0-9])",raw))
-    conflict=bool(expected_pair and actual_pairs and expected_pair.groups() not in actual_pairs)
-    expected_grade=re.search(r"중\s*([1-3])",book.get("grade","")); actual_grades=set(re.findall(r"중\s*([1-3])",raw))
-    if expected_grade and actual_grades and expected_grade.group(1) not in actual_grades: conflict=True
-    expected_sem=re.search(r"([12])\s*학기",book.get("semester","")); actual_sem=set(re.findall(r"([12])\s*학기",raw))
-    if expected_sem and actual_sem and expected_sem.group(1) not in actual_sem: conflict=True
-    score=round(ratio*45+(25 if exact else 0)+(22 if answer_signal else 0)+(5 if series_hit else 0)
-                +(5 if subject_hit else 0)+(4 if publisher_hit else 0)+(3 if grade_hit else 0)+(2 if semester_hit else 0))
-    if conflict: score-=35
-    score=max(0,min(100,score))
-    if conflict or not answer_signal: status="mismatch"
-    elif score>=72 and (exact or ratio>=0.75): status="likely"
-    elif score>=38 and ratio>=0.4: status="uncertain"
-    else: status="mismatch"
-    return score,status,", ".join(matched or (["답지/정답/해설"] if answer_signal else []))
+    """Require book-specific identity and answer evidence; generic check/icon pages must fail."""
+    page_title = str(title or "")
+    evidence = str(snippet or "")
+    raw = page_title + " " + evidence
+    combined = norm(raw)
+    title_norm = norm(book.get("title", ""))
+    series = norm(book.get("series", ""))
+    subject = norm(book.get("subject", ""))
+    publisher = norm(book.get("publisher", ""))
+    grade = norm(book.get("grade", ""))
+    semester = norm(book.get("semester", ""))
+
+    # A distinctive series name must appear as a complete normalized string.
+    # This rejects generic "체크", check-mark emoji, and unrelated icon pages for "체크체크".
+    series_hit = bool(series and series in combined)
+    subject_hit = bool(subject and subject in combined)
+    publisher_hit = bool(publisher and publisher in combined)
+    grade_hit = bool(grade and grade in combined)
+    semester_hit = bool(semester and semester in combined)
+
+    expected_pair = re.search(r"(?<![0-9])([1-3])\\s*[-–]\\s*([12])(?![0-9])", book.get("title", ""))
+    actual_pairs = set(re.findall(r"(?<![0-9])([1-3])\\s*[-–]\\s*([12])(?![0-9])", raw))
+    edition_hit = bool(expected_pair and expected_pair.groups() in actual_pairs)
+    edition_conflict = bool(expected_pair and actual_pairs and expected_pair.groups() not in actual_pairs)
+
+    expected_grade = re.search(r"중\\s*([1-3])", book.get("grade", ""))
+    actual_grades = set(re.findall(r"중\\s*([1-3])", raw))
+    if expected_grade and actual_grades and expected_grade.group(1) not in actual_grades:
+        edition_conflict = True
+    expected_semester = re.search(r"([12])\\s*학기", book.get("semester", ""))
+    actual_semesters = set(re.findall(r"([12])\\s*학기", raw))
+    if expected_semester and actual_semesters and expected_semester.group(1) not in actual_semesters:
+        edition_conflict = True
+
+    answer_signal = any(word in combined for word in ("정답", "해설", "답지"))
+    matched = [term for term in terms if norm(term) and norm(term) in combined]
+    tokens = [norm(token) for token in re.findall(r"[가-힣A-Za-z]+|[0-9]+", book.get("title", ""))
+              if norm(token) and norm(token) not in {"중등", "중학", "중학교", "교재"}]
+    token_hits = sum(1 for token in tokens if token in combined)
+    ratio = token_hits / len(tokens) if tokens else 0.0
+    exact_title = bool(title_norm and title_norm in combined)
+
+    # Do not accept a candidate based only on a generic word such as "체크".
+    # When the CSV supplies series/subject/edition, all are required for a match.
+    identity_ok = True
+    if series:
+        identity_ok = identity_ok and series_hit
+    if subject:
+        identity_ok = identity_ok and subject_hit
+    if expected_pair:
+        identity_ok = identity_ok and edition_hit
+    elif grade:
+        identity_ok = identity_ok and grade_hit
+
+    score = round(ratio * 30 + (25 if exact_title else 0) + (25 if answer_signal else 0)
+                  + (8 if series_hit else 0) + (6 if subject_hit else 0)
+                  + (3 if publisher_hit else 0) + (2 if grade_hit else 0)
+                  + (1 if semester_hit else 0) + (5 if edition_hit else 0))
+    if edition_conflict:
+        score -= 50
+    score = max(0, min(100, score))
+
+    if edition_conflict or not identity_ok or not answer_signal:
+        status = "mismatch"
+    elif score >= 75 and (exact_title or (series_hit and subject_hit and edition_hit)):
+        status = "likely"
+    elif score >= 60 and series_hit and subject_hit and (edition_hit or not expected_pair):
+        status = "uncertain"
+    else:
+        status = "mismatch"
+    return score, status, ", ".join(matched or (["답지/정답/해설"] if answer_signal else []))
 
 
 def run_search(input_path: Path, output_path: Path, config_path: Path, headed: bool,
