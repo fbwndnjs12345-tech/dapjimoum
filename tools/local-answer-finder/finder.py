@@ -322,7 +322,7 @@ def assess(book, title, snippet, terms):
     elif grade:
         identity_ok = identity_ok and grade_hit
 
-    score = round(ratio * 30 + (25 if exact_title else 0) + (25 if answer_signal else 0)
+    score = round(ratio * 30 + (30 if exact_title else 0) + (25 if answer_signal else 0)
                   + (8 if series_hit else 0) + (6 if subject_hit else 0)
                   + (3 if publisher_hit else 0) + (2 if grade_hit else 0)
                   + (1 if semester_hit else 0) + (5 if edition_hit else 0))
@@ -335,6 +335,10 @@ def assess(book, title, snippet, terms):
     elif score >= 75 and (exact_title or (series_hit and subject_hit and edition_hit)):
         status = "likely"
     elif score >= 60 and series_hit and subject_hit and (edition_hit or not expected_pair):
+        status = "uncertain"
+    elif (not edition_conflict and answer_signal and token_hits >= 2
+          and (not series or series_hit) and (not subject or subject_hit)):
+        # Missing edition evidence may be shown for manual review, never as likely.
         status = "uncertain"
     else:
         status = "mismatch"
