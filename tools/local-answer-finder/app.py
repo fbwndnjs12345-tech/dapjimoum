@@ -35,6 +35,9 @@ class FinderApp:
         root.geometry("900x720")
         root.minsize(760, 620)
         self.events: queue.Queue = queue.Queue()
+        self.access_token: str | None = None
+        self.project_url: str = ''
+        self.anon_key_value: str = ''
         self.books_path = tk.StringVar()
         self.supabase_url = tk.StringVar()
         self.anon_key = tk.StringVar()
@@ -60,6 +63,7 @@ class FinderApp:
         self._entry(supa, "관리자 비밀번호", self.password, 3, show="•")
         row = ttk.Frame(supa); row.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(8, 0))
         ttk.Button(row, text="로그인 후 교재 CSV 저장", command=self.fetch_books).pack(side="left")
+        ttk.Button(row, text="검색 후보를 사이트에 등록", command=self.upload_candidates).pack(side="left", padx=8)
         ttk.Label(row, text="비밀번호는 저장하지 않으며 Supabase 인증에만 사용합니다.", foreground="#555").pack(side="left", padx=10)
 
         csvbox = ttk.LabelFrame(outer, text="2. 교재 CSV", padding=10)
@@ -112,6 +116,8 @@ class FinderApp:
                     self.log_line(value)
                 elif kind == "status":
                     self.status.set(value)
+                elif kind == "books_path":
+                    self.books_path.set(value)
                 elif kind == "done":
                     self.run_button.configure(state="normal")
                     self.status.set(value)
@@ -151,6 +157,9 @@ class FinderApp:
                 auth = request_json(base + "/auth/v1/token?grant_type=password",
                     {"apikey": key, "Content-Type": "application/json"}, {"email": email, "password": password})
                 token = auth.get("access_token")
+                self.access_token = token
+                self.project_url = base
+                self.anon_key_value = key
                 if not token:
                     raise RuntimeError("로그인 응답에 access_token이 없습니다.")
                 rows, offset, limit = [], 0, 1000
@@ -173,7 +182,7 @@ class FinderApp:
                     writer = csv.DictWriter(f, fieldnames=fields)
                     writer.writeheader()
                     writer.writerows(rows)
-                self.books_path.set(str(path))
+                self.events.put(("books_path", str(path)))
                 self.password.set("")
                 self.events.put(("status", f"교재 {len(rows)}권 저장 완료: {path}"))
             except Exception as exc:
@@ -204,6 +213,49 @@ class FinderApp:
                 count = run_search(csv_path, OUTPUT, DEFAULT_CONFIG, self.headed.get(), max_pages,
                                    lambda line: self.events.put(("log", line)))
                 self.events.put(("done", f"탐색 완료: 후보 {count}개\n저장 위치: {OUTPUT}"))
+            except Exception as exc:
+                self.events.put(("error", str(exc)))
+        threading.Thread(target=worker, daemon=True).start()
+
+
+    def upload_candidates(self):
+        if not self.access_token or not self.project_url or not self.anon_key_value:
+            messagebox.showerror("로그인 필요", "먼저 Supabase URL, anon key, 관리자 이메일과 비밀번호를 입력하고 '로그인 후 교재 CSV 저장'을 누르세요.")
+            return
+        if not OUTPUT.is_file():
+            messagebox.showerror("결과 없음", "먼저 후보 탐색을 실행하세요.")
+            return
+        if not messagebox.askyesno("후보 등록", "검색 후보를 Supabase 관리자 검수 대기 목록에 등록합니다. 자동 승인되지는 않습니다. 계속할까요?"):
+            return
+        def worker():
+            try:
+                with OUTPUT.open("r", encoding="utf-8-sig", newline="") as handle:
+                    rows = list(csv.DictReader(handle))
+                if not rows:
+                    raise RuntimeError("등록할 후보가 없습니다.")
+                inserted = duplicates = 0
+                endpoint = self.project_url + "/functions/v1/answer-link-import-candidates"
+                headers = {"apikey": self.anon_key_value, "Authorization": "Bearer " + self.access_token, "Content-Type": "application/json"}
+                for start in range(0, len(rows), 100):
+                    batch = []
+                    for row in rows[start:start + 100]:
+                        if not row.get("book_id") or not row.get("url"):
+                            continue
+                        batch.append({
+                            "book_id": row.get("book_id"),
+                            "title": row.get("candidate_title") or row.get("source_name") or "답지 후보",
+                            "url": row.get("url"),
+                            "snippet": row.get("snippet", ""),
+                            "match_status": row.get("match_status", "uncertain"),
+                            "link_type": row.get("link_type", "웹페이지"),
+                        })
+                    if not batch:
+                        continue
+                    result = request_json(endpoint, headers, {"candidates": batch})
+                    inserted += int(result.get("inserted", 0))
+                    duplicates += int(result.get("duplicates", 0))
+                    self.events.put(("log", f"등록 처리 {min(start + 100, len(rows))}/{len(rows)}"))
+                self.events.put(("done", f"사이트 등록 완료: 신규 후보 {inserted}개, 기존 중복 {duplicates}개. 관리자 페이지에서 검수하세요."))
             except Exception as exc:
                 self.events.put(("error", str(exc)))
         threading.Thread(target=worker, daemon=True).start()
