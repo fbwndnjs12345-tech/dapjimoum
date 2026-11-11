@@ -451,8 +451,9 @@ def self_test():
         (ROOT / "self-test.log").write_text("SELF-TEST PASSED: config, matching, Tk, Playwright Chromium\\n", encoding="utf-8")
         return 0
     except Exception as exc:
+        print(f"SELF-TEST FAILED: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
         try:
-            (ROOT / "self-test.log").write_text(f"SELF-TEST FAILED: {exc}\\n", encoding="utf-8")
+            (ROOT / "self-test.log").write_text(f"SELF-TEST FAILED: {type(exc).__name__}: {exc}\\n", encoding="utf-8")
         except Exception:
             pass
         return 1
