@@ -97,6 +97,17 @@ class FinderUnitTests(unittest.TestCase):
         self.assertGreaterEqual(len(queries), 4)
         self.assertTrue(any("tistory.com" in q and "blog.naver.com" in q for q in queries))
 
+    def test_build_queries_combines_textbook_metadata_and_answer_intent(self):
+        book = {"title": "체크체크 중학 수학 2-1", "publisher": "천재교육",
+                "series": "체크체크", "subject": "수학", "grade": "중2",
+                "semester": "1학기"}
+        queries = build_queries(book, 8)
+        self.assertTrue(any('"체크체크 중학 수학 2-1" "답지"' in q for q in queries))
+        self.assertTrue(any('"체크체크 수학 중2 1학기 2-1" "답지"' in q for q in queries))
+        self.assertTrue(any('"천재교육 체크체크 수학 중2 1학기 2-1" "답지"' in q for q in queries))
+        self.assertTrue(any("site:tistory.com" in q for q in queries))
+        self.assertTrue(any("site:blog.naver.com" in q for q in queries))
+
     def test_missing_robots_file_is_treated_as_no_published_rules(self):
         error = HTTPError("https://example.com/robots.txt", 404, "Not Found", {}, None)
         with patch("finder.fetch", side_effect=error):
