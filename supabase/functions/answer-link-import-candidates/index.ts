@@ -65,6 +65,8 @@ Deno.serve(async (request) => {
       const url = new URL(urlIdentity);
       const matchStatus = ['likely', 'uncertain', 'mismatch'].includes(String(item.match_status)) ? String(item.match_status) : 'uncertain';
       const linkType = item.link_type === 'PDF' ? 'PDF' : '웹페이지';
+      const sourceType = ['official', 'general', 'unknown'].includes(String(item.source_type)) ? String(item.source_type) : 'unknown';
+      const query = typeof item.query === 'string' ? item.query.trim().slice(0, 1000) : 'local-search';
       rows.push({
         book_id: bookId,
         title,
@@ -72,8 +74,8 @@ Deno.serve(async (request) => {
         url_identity: urlIdentity,
         source_name: url.hostname,
         link_type: linkType,
-        source_type: 'unknown',
-        query: 'local-publisher-crawl',
+        source_type: sourceType,
+        query: query || 'local-search',
         snippet: typeof item.snippet === 'string' ? item.snippet.slice(0, 2000) : null,
         match_status: matchStatus,
         status: 'pending',
