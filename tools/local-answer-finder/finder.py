@@ -346,7 +346,7 @@ def assess(book, title, snippet, terms):
 
 
 def run_search(input_path: Path, output_path: Path, config_path: Path, headed: bool,
-               max_pages_override: int, callback: Callable[[str], None] = print) -> int:
+               max_pages_override: int, callback: Callable[[str], None] = print, stop_event=None) -> int:
     books=read_books(input_path); config=json.loads(config_path.read_text(encoding="utf-8"))
     sources=config.get("sources",[]); web_cfg=config.get("web_search",{})
     web_enabled=bool(web_cfg.get("enabled",True)); engines=web_cfg.get("engines",["google","bing"])
@@ -384,6 +384,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
             if key not in candidates or score>int(candidates[key].get("match_score",0)): candidates[key]=row
         try:
             for source in sources:
+                if stop_event is not None and stop_event.is_set(): break
                 publisher=(source.get("publisher") or "").strip()
                 for start_url in source.get("start_urls") or []:
                     parsed=urlparse(start_url)
@@ -396,6 +397,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                     pages=collect_pages(start_url,robots,sitemaps,limit,callback)
                     log(callback,f"[공식 자료실 탐색] {publisher or host}: {len(pages)}개 공개 페이지")
                     for index,url in enumerate(pages,1):
+                        if stop_event is not None and stop_event.is_set(): break
                         if not allowed_host(url,host) or not robots.can_fetch(USER_AGENT,url): continue
                         try:
                             response=page.goto(url,wait_until="domcontentloaded")
@@ -419,11 +421,13 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                         except Exception as exc: log(callback,f"[오류] {url}: {exc}")
                         if index%20==0: log(callback,f"  공식 자료실 진행 {index}/{len(pages)} · 후보 {len(candidates)}개")
                         time.sleep(delay)
-            if web_enabled:
+            if web_enabled and not (stop_event is not None and stop_event.is_set()):
                 for book in books:
+                    if stop_event is not None and stop_event.is_set(): break
                     queries=build_queries(book,query_limit); log(callback,f"[검색어 구성] {book['title']}: {len(queries)}개")
                     seen_urls=set(); google_blocked=False
                     for qi,query in enumerate(queries,1):
+                        if stop_event is not None and stop_event.is_set(): break
                         results=[]
                         if "bing" in engines:
                             try:
@@ -438,6 +442,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                 log(callback,f"[Google 검색 건너뜀] {book['title']}: {exc}")
                                 if "대기 시간이 끝났습니다" in str(exc) or "인증을 요구합니다" in str(exc): google_blocked=True
                         for item in results:
+                            if stop_event is not None and stop_event.is_set(): break
                             raw=item.get("url","").strip(); parsed=urlparse(raw)
                             if parsed.scheme not in ("http","https") or not parsed.hostname: continue
                             target=canonicalize_url(raw)
@@ -467,7 +472,10 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     with output_path.open("w",encoding="utf-8-sig",newline="") as handle:
         writer=csv.DictWriter(handle,fieldnames=FIELDS); writer.writeheader()
         writer.writerows(sorted(candidates.values(),key=lambda row:(-int(row["match_score"]),row["book_title"])))
-    log(callback,f"완료: 후보 {len(candidates)}개 → {output_path}")
+    if stop_event is not None and stop_event.is_set():
+        log(callback,f"중지됨: 현재까지의 후보 {len(candidates)}개를 저장했습니다 → {output_path}")
+    else:
+        log(callback,f"완료: 후보 {len(candidates)}개 → {output_path}")
     return len(candidates)
 
 
