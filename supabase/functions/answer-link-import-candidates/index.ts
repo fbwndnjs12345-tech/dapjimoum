@@ -32,7 +32,7 @@ Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (request.method !== 'POST') return json({ error: 'POST 요청만 허용됩니다.' }, 405);
 
-  const bearer = (request.headers.get('Authorization') ?? '').match(/^Bearer\\s+(.+)$/i)?.[1];
+  const bearer = (request.headers.get('Authorization') ?? '').match(/^Bearer\s+(.+)$/i)?.[1];
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const anonKey = readSupabaseKey('SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEYS');
   const serviceKey = readSupabaseKey('SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_SECRET_KEYS');
