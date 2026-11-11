@@ -244,7 +244,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                         "candidate_title": candidate_title or host,
                                         "url": candidate_url,
                                         "source_name": host,
-                                        "source_type": "official_domain_configured",
+                                        "source_type": "unknown",
                                         "snippet": snippet[:1200],
                                         "match_score": score,
                                         "match_status": status,
