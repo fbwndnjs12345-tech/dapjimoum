@@ -421,6 +421,7 @@ def self_test():
             raise RuntimeError("후보 판정 자체 테스트 실패")
         root = tk.Tk()
         root.withdraw()
+        FinderApp(root)
         root.update_idletasks()
         root.destroy()
         with sync_playwright() as playwright:
