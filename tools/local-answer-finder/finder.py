@@ -163,22 +163,50 @@ def search_google_page(page, query: str, limit: int = 10, allow_manual: bool = F
     return results
 
 
-def build_queries(book: dict[str, str], max_queries: int = 4) -> list[str]:
-    title=(book.get("title") or "").strip()
-    if not title: return []
-    series=(book.get("series") or "").strip()
-    metadata=" ".join(x for x in (series,book.get("subject",""),book.get("grade",""),book.get("semester","")) if x)
-    variants=[f'"{title}" "정답과 해설"',f'"{title}" 답지 OR 정답',
-              f'{metadata} "{series or title}" 답지'.strip() if metadata else f'"{title}" 정답 해설 PDF',
-              f'"{title}" (site:tistory.com OR site:blog.naver.com OR site:blogspot.com OR site:brunch.co.kr OR site:velog.io OR site:wordpress.com OR site:cafe.naver.com) 답지',
-              f'"{title}" 정답 해설 PDF']
-    result=[]
-    for q in variants:
-        q=" ".join(q.split())
-        if q and q not in result: result.append(q)
-        if len(result)>=max(1,max_queries): break
-    return result
+def build_queries(book: dict[str, str], max_queries: int = 8) -> list[str]:
+    """Build combined, book-specific queries rather than searching generic fragments."""
+    title = (book.get("title") or "").strip()
+    if not title:
+        return []
 
+    series = (book.get("series") or "").strip()
+    publisher = (book.get("publisher") or "").strip()
+    subject = (book.get("subject") or "").strip()
+    grade = (book.get("grade") or "").strip()
+    semester = (book.get("semester") or "").strip()
+
+    # Keep the edition in the query even when the CSV metadata is incomplete.
+    edition_match = re.search(r"(?<![0-9])([1-3])\\s*[-–]\\s*([12])(?![0-9])", title)
+    edition = f"{edition_match.group(1)}-{edition_match.group(2)}" if edition_match else ""
+    identity = [x for x in (series, subject, grade, semester, edition) if x]
+    identity = list(dict.fromkeys(identity))
+    full_identity = " ".join(identity) if identity else title
+    publisher_identity = " ".join(x for x in (publisher, *identity) if x)
+    platform_clause = "(site:tistory.com OR site:blog.naver.com OR site:blogspot.com OR site:brunch.co.kr OR site:velog.io OR site:wordpress.com OR site:cafe.naver.com)"
+
+    # Each query combines the distinctive book identity with answer intent.
+    # Platform-restricted searches are separate so one large OR expression
+    # cannot cause the search engine to silently ignore individual platforms.
+    variants = [
+        f'"{title}" "답지"',
+        f'"{title}" "정답과 해설"',
+        f'"{full_identity}" "답지"',
+        f'"{full_identity}" "정답" "해설"',
+        f'"{publisher_identity}" "답지"' if publisher else f'"{full_identity}" "해설"',
+        f'"{title}" {platform_clause} 답지',
+        f'"{full_identity}" site:tistory.com 답지',
+        f'"{full_identity}" site:blog.naver.com 답지',
+        f'"{full_identity}" site:blogspot.com 답지',
+        f'"{full_identity}" site:cafe.naver.com 답지',
+    ]
+    result = []
+    for query in variants:
+        query = " ".join(query.split())
+        if query and query not in result:
+            result.append(query)
+        if len(result) >= max(1, min(10, max_queries)):
+            break
+    return result
 
 def canonicalize_url(value: str) -> str:
     parts=urlsplit(value.strip())
@@ -323,7 +351,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     delay=max(1.0,float(config.get("request_delay_seconds",2.0))); timeout=int(config.get("page_timeout_ms",20000))
     limit=max_pages_override or int(config.get("max_sitemap_urls_per_source",500))
     search_limit=max(1,min(20,int(web_cfg.get("results_per_engine",8))))
-    query_limit=max(1,min(6,int(web_cfg.get("max_queries_per_book",4))))
+    query_limit=max(1,min(10,int(web_cfg.get("max_queries_per_book",8))))
     candidates={}; robots_cache={}
     log(callback,f"교재 {len(books)}권 · 공식 출처 {len(sources)}곳 · 공개 검색엔진 {', '.join(engines) if web_enabled else '사용 안 함'}")
     log(callback,f"검색 전략: 교재당 최대 {query_limit}개 검색어 · 엔진별 검색 결과 최대 {search_limit}개")
