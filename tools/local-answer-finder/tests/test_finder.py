@@ -3,8 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import HTTPError
 
-from finder import ALIASES, allowed_host, assess, norm, parse_sitemap, read_books, search_bing_rss
+from finder import ALIASES, allowed_host, assess, norm, parse_sitemap, read_books, robots_for, search_bing_rss, USER_AGENT
 
 
 class FinderUnitTests(unittest.TestCase):
@@ -56,6 +57,13 @@ class FinderUnitTests(unittest.TestCase):
         book = {"title": "오투 중등 과학 2-1"}
         _, status, _ = assess(book, "오투 과학 정답과 해설", "정답과 해설", ["정답과 해설"])
         self.assertIn(status, ("likely", "uncertain"))
+
+    def test_missing_robots_file_is_treated_as_no_published_rules(self):
+        error = HTTPError("https://example.com/robots.txt", 404, "Not Found", {}, None)
+        with patch("finder.fetch", side_effect=error):
+            parser, sitemaps = robots_for("https://example.com/resources")
+        self.assertEqual(sitemaps, [])
+        self.assertTrue(parser.can_fetch(USER_AGENT, "https://example.com/resources"))
 
     def test_bing_rss_search_result_parsing(self):
         rss = """<?xml version="1.0"?><rss><channel><item><title>오투 과학 정답과 해설</title><link>https://example.com/answer</link><description>정답과 해설 자료</description></item></channel></rss>""".encode("utf-8")
