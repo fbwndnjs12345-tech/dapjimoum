@@ -9,7 +9,7 @@
 3. 프로그램이 각 사이트의 `robots.txt`와 공개 sitemap을 확인합니다.
 4. robots 정책상 허용된 동일 사이트 페이지를 Playwright로 열어 제목·설명·본문을 확인합니다.
 5. 교재명과 답지 관련 단어가 함께 나타나는 페이지를 후보 CSV로 저장합니다.
-6. 후보 CSV를 관리자 검수에 사용합니다. **자동 승인이나 사이트 공개는 하지 않습니다.**
+6. 현재 버전은 CSV 생성까지 지원합니다. **사이트 관리자 후보 테이블로 자동 전송하거나 자동 승인하지 않습니다.** 후보를 관리자 페이지에 넣는 연동은 별도 작업입니다.
 
 ## 설치
 
@@ -45,11 +45,11 @@ python -m playwright install chromium
 }
 ```
 
-예시 도메인은 시작점일 뿐이며 실제 소유·운영 도메인인지 확인한 뒤 사용하세요. 가능하면 홈페이지 전체보다 공식 자료실 URL을 지정하세요.
+예시 설정에는 출처가 비어 있습니다. 실제로 공식 소유·운영 도메인인지 직접 확인한 주소만 추가하세요. 가능하면 홈페이지 전체보다 공식 자료실 URL을 지정하세요.
 
 ## 실행
 
-CSV에는 최소한 `title` 열이 필요합니다. 선택 열은 `publisher`, `subject`, `grade`, `semester`, `series`입니다. 한글 CSV(UTF-8 BOM 또는 CP949)를 지원합니다.
+CSV에는 최소한 `title` 열이 필요합니다. 선택 열은 `id`, `publisher`, `subject`, `grade`, `semester`, `series`입니다. 기존 Supabase `books.id`를 `id` 열로 함께 내보내면 결과 CSV에 `book_id`가 포함되어 추후 DB 연동에 사용할 수 있습니다. 한글 CSV(UTF-8 BOM 또는 CP949)를 지원합니다.
 
 ```bash
 python finder.py --input books.csv --output candidates.csv --config sources.json
@@ -69,3 +69,7 @@ python finder.py --input books.csv --output candidates.csv --config sources.json
 - sitemap에 없거나 검색엔진에만 노출된 페이지는 찾지 못할 수 있습니다.
 - 이 도구는 후보 발굴기입니다. 제목이 비슷해도 실제 교재의 정답지인지 사람 검수가 필요합니다.
 - 실행 중 요청 간격을 지키고, 페이지 수 제한을 낮게 시작하세요.
+
+## 현재 버전의 범위
+
+이 버전은 출판사 공식 사이트의 공개 sitemap 및 허용 페이지를 기반으로 후보를 CSV로 만드는 MVP입니다. 웹 전체를 검색하는 범용 검색 엔진이 아니며, 자료실이 sitemap에 포함되지 않으면 놓칠 수 있습니다. 관리자 페이지에 후보를 자동 등록하는 기능은 아직 포함하지 않았습니다.
