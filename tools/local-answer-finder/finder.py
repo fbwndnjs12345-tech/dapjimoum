@@ -25,6 +25,7 @@ from playwright.sync_api import sync_playwright
 
 USER_AGENT = "DapjiMoumLocalFinder/1.0 (+local user-run tool)"
 COLUMN_ALIASES = {
+    "id": ["id", "book_id", "교재 ID"],
     "title": ["title", "book_title", "교재명", "도서명", "책이름", "책 제목"],
     "publisher": ["publisher", "출판사", "발행사"],
     "subject": ["subject", "과목", "교과"],
@@ -270,6 +271,7 @@ def main() -> int:
                                 continue
                             host = urlparse(candidate_url).hostname or ""
                             candidates[key] = {
+                                "book_id": book.get("id", ""),
                                 "book_title": book.get("title", ""),
                                 "publisher": book.get("publisher", publisher),
                                 "subject": book.get("subject", ""),
@@ -298,7 +300,7 @@ def main() -> int:
         browser.close()
 
     fieldnames = [
-        "book_title", "publisher", "subject", "grade", "semester", "series",
+        "book_id", "book_title", "publisher", "subject", "grade", "semester", "series",
         "candidate_title", "url", "source_name", "source_type", "snippet",
         "match_score", "match_status", "matched_answer_terms", "link_type",
     ]
