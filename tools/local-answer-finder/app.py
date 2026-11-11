@@ -237,6 +237,9 @@ class FinderApp:
             results_per_engine = int(web_cfg.get("results_per_engine", 8))
             if results_per_engine < 1 or results_per_engine > 20:
                 raise ValueError("검색엔진별 결과 수는 1~20 사이여야 합니다.")
+            max_queries = int(web_cfg.get("max_queries_per_book", 4))
+            if max_queries < 1 or max_queries > 6:
+                raise ValueError("교재별 검색어 수는 1~6 사이여야 합니다.")
             seen = set()
             for index, source in enumerate(sources, 1):
                 if not isinstance(source, dict):
