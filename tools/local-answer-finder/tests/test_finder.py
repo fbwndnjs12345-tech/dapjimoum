@@ -2,8 +2,9 @@ import csv
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from finder import ALIASES, allowed_host, assess, norm, parse_sitemap, read_books
+from finder import ALIASES, allowed_host, assess, norm, parse_sitemap, read_books, search_bing_rss
 
 
 class FinderUnitTests(unittest.TestCase):
@@ -55,6 +56,15 @@ class FinderUnitTests(unittest.TestCase):
         book = {"title": "오투 중등 과학 2-1"}
         _, status, _ = assess(book, "오투 과학 정답과 해설", "정답과 해설", ["정답과 해설"])
         self.assertIn(status, ("likely", "uncertain"))
+
+    def test_bing_rss_search_result_parsing(self):
+        rss = b"""<?xml version="1.0"?><rss><channel><item><title>오투 과학 정답과 해설</title><link>https://example.com/answer</link><description>정답과 해설 자료</description></item></channel></rss>"""
+        with patch("finder.fetch", return_value=rss):
+            results = search_bing_rss("오투 과학 답지", 5)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["url"], "https://example.com/answer")
+        self.assertIn("정답과 해설", results[0]["title"])
+        self.assertIn("자료", results[0]["snippet"])
 
     def test_parse_sitemap_urlset(self):
         xml = b'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://example.com/a</loc></url></urlset>'
