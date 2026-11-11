@@ -1,12 +1,28 @@
 {
-  "sources": [],
+  "sources": [
+    {
+      "publisher": "비상교육",
+      "start_urls": [
+        "https://book.visang.com/resources?edu=296",
+        "https://book.visang.com/resources?edu=297",
+        "https://book.visang.com/resources?edu=298"
+      ]
+    },
+    {
+      "publisher": "지학사",
+      "start_urls": [
+        "https://www.jihak.co.kr/"
+      ]
+    }
+  ],
   "max_sitemap_urls_per_source": 500,
   "request_delay_seconds": 1.5,
   "page_timeout_ms": 20000,
   "answer_keywords": [
     "정답과 해설",
-    "정답 해설",
     "정답 및 해설",
+    "정답 해설",
+    "해답",
     "답지"
   ]
 }
