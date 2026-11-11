@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import os
 import sys
 import queue
@@ -244,8 +245,11 @@ class FinderApp:
             delay = float(config.get("request_delay_seconds", 1.5))
             timeout = int(config.get("page_timeout_ms", 20000))
             pages = int(config.get("max_sitemap_urls_per_source", 500))
-            if delay < 1 or timeout < 1000 or pages < 1:
+            terms = config.get("answer_keywords")
+            if not math.isfinite(delay) or delay < 1 or timeout < 1000 or pages < 1:
                 raise ValueError("요청 간격은 1초 이상, 페이지 시간 제한은 1000ms 이상, 최대 페이지는 1 이상이어야 합니다.")
+            if not isinstance(terms, list) or not terms or any(not isinstance(term, str) or not term.strip() for term in terms):
+                raise ValueError("answer_keywords는 비어 있지 않은 문자열 배열이어야 합니다.")
             DEFAULT_CONFIG.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             self.events.put(("status", f"설정 검사 및 저장 완료: 출처 {len(sources)}곳"))
             return True
