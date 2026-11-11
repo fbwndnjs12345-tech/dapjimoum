@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import re
 import sys
 import time
@@ -18,6 +19,9 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse, urljoin
 from urllib.request import Request, urlopen
+
+if getattr(sys, "frozen", False):
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(Path(sys.executable).resolve().parent / "ms-playwright")
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
