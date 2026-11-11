@@ -49,7 +49,7 @@ class FinderApp:
         self.email = tk.StringVar()
         self.password = tk.StringVar()
         self.status = tk.StringVar(value="Supabase에서 교재를 불러오거나 CSV 파일을 선택하세요.")
-        self.headed = tk.BooleanVar(value=False)
+        self.headed = tk.BooleanVar(value=True)
         self.max_pages = tk.StringVar(value="500")
         self._build()
         self.root.after(150, self._poll)
@@ -144,7 +144,7 @@ class FinderApp:
         options.pack(fill="x")
         ttk.Label(options, text="출처별 최대 페이지").pack(side="left")
         ttk.Entry(options, textvariable=self.max_pages, width=8).pack(side="left", padx=(8, 16))
-        ttk.Checkbutton(options, text="브라우저 창 표시", variable=self.headed).pack(side="left")
+        ttk.Checkbutton(options, text="브라우저 창 표시 (Google 직접 인증)", variable=self.headed).pack(side="left")
         self.run_button = ttk.Button(options, text="탐색 시작", command=self.run_finder, style="Accent.TButton")
         self.run_button.pack(side="right")
         ttk.Button(options, text="결과 CSV 열기", command=self.open_output).pack(side="right", padx=8)
@@ -153,14 +153,15 @@ class FinderApp:
         self.progress.pack(fill="x", pady=(0, 10))
         preview = ttk.LabelFrame(search, text="후보 미리보기", style="Card.TLabelframe", padding=10)
         preview.pack(fill="both", expand=True, pady=(0, 10))
-        columns = ("book", "candidate", "status", "score")
+        columns = ("book", "candidate", "status", "score", "url")
         self.results = ttk.Treeview(preview, columns=columns, show="headings", height=6)
-        for column, label, width in (("book", "교재", 240), ("candidate", "후보 페이지", 300), ("status", "판정", 90), ("score", "점수", 70)):
+        for column, label, width in (("book", "교재", 210), ("candidate", "후보 페이지", 250), ("status", "판정", 90), ("score", "점수", 70), ("url", "후보 주소 (더블클릭해 열기)", 360)):
             self.results.heading(column, text=label)
             self.results.column(column, width=width, anchor="w" if column in ("book", "candidate") else "center")
         result_scroll = ttk.Scrollbar(preview, orient="vertical", command=self.results.yview)
         self.results.configure(yscrollcommand=result_scroll.set)
         self.results.pack(side="left", fill="both", expand=True)
+        self.results.bind("<Double-1>", self.open_selected_result)
         result_scroll.pack(side="right", fill="y")
 
         logcard = ttk.LabelFrame(search, text="진행 상황 및 로그", style="Card.TLabelframe", padding=10)
@@ -275,7 +276,9 @@ class FinderApp:
         def worker():
             try:
                 if not all([base, key, email, password]):
-                    raise ValueError("Supabase URL, anon key, 이메일, 비밀번호를 모두 입력하세요.")
+                    self.events.put(("log", "[안내] Supabase 미연결: 로컬 CSV 탐색은 가능하며, 사이트 업로드만 비활성화됩니다."))
+                    self.events.put(("status", "로컬 CSV 탐색 모드 · Supabase 업로드를 사용하려면 관리자 로그인이 필요합니다."))
+                    return
                 auth = request_json(base + "/auth/v1/token?grant_type=password",
                     {"apikey": key, "Content-Type": "application/json"}, {"email": email, "password": password})
                 token = auth.get("access_token")
@@ -406,11 +409,20 @@ class FinderApp:
                     row.get("candidate_title", ""),
                     row.get("match_status", ""),
                     row.get("match_score", ""),
+                    row.get("url", ""),
                 ))
             if len(rows) > 500:
                 self.log_line(f"[안내] 후보 {len(rows)}개 중 처음 500개만 미리 표시합니다.")
         except Exception as exc:
             self.log_line(f"[결과 미리보기 오류] {exc}")
+
+    def open_selected_result(self, event=None):
+        selected = self.results.selection()
+        if not selected:
+            return
+        values = self.results.item(selected[0], "values")
+        if len(values) >= 5 and str(values[4]).startswith(("http://", "https://")):
+            webbrowser.open(str(values[4]))
 
     def open_output(self):
         if OUTPUT.exists():
