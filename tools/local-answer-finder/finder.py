@@ -204,6 +204,9 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                             response = page.goto(url, wait_until="domcontentloaded")
                             if response and response.status >= 400:
                                 continue
+                            if not allowed_host(page.url, host):
+                                log(callback, f"  외부 도메인 리디렉션 차단: {url}")
+                                continue
                             title, description, body = extract_page(page)
                             combined = " ".join([title, description, body])
                             resource_links = []
@@ -222,7 +225,12 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                     targets.append((target, link_text or "정답과 해설 PDF", description, body))
                                     continue
                                 try:
-                                    page.goto(target, wait_until="domcontentloaded")
+                                    target_response = page.goto(target, wait_until="domcontentloaded")
+                                    if target_response and target_response.status >= 400:
+                                        continue
+                                    if not allowed_host(page.url, host):
+                                        log(callback, f"  외부 도메인 링크 리디렉션 차단: {target}")
+                                        continue
                                     t, d, b = extract_page(page)
                                     targets.append((target, t or link_text, d, b))
                                 except Exception:
