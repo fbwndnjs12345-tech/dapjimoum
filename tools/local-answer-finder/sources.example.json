@@ -17,5 +17,13 @@
     "정답 및 해설",
     "정답 해설",
     "답지"
-  ]
+  ],
+  "web_search": {
+    "enabled": true,
+    "engines": [
+      "google",
+      "bing"
+    ],
+    "results_per_engine": 8
+  }
 }
