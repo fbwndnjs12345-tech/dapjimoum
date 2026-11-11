@@ -86,7 +86,14 @@ def robots_for(start_url: str):
     robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
     parser = urllib.robotparser.RobotFileParser()
     parser.set_url(robots_url)
-    text = fetch(robots_url).decode("utf-8", errors="replace")
+    try:
+        text = fetch(robots_url).decode("utf-8", errors="replace")
+    except HTTPError as exc:
+        if exc.code in (404, 410):
+            # RFC 9309: a missing robots file means no rules were published.
+            text = ""
+        else:
+            raise
     parser.parse(text.splitlines())
     sitemaps = re.findall(r"(?im)^\s*sitemap:\s*(\S+)", text)
     return parser, sitemaps
