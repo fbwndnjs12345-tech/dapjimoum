@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
 
-from finder import ALIASES, allowed_host, assess, norm, parse_sitemap, read_books, robots_for, search_bing_rss, USER_AGENT
+from finder import ALIASES, allowed_host, assess, build_queries, norm, parse_sitemap, read_books, robots_for, search_bing_rss, USER_AGENT
 
 
 class FinderUnitTests(unittest.TestCase):
@@ -57,6 +57,23 @@ class FinderUnitTests(unittest.TestCase):
         book = {"title": "오투 중등 과학 2-1"}
         _, status, _ = assess(book, "오투 과학 정답과 해설", "정답과 해설", ["정답과 해설"])
         self.assertIn(status, ("likely", "uncertain"))
+
+    def test_assess_rejects_wrong_edition(self):
+        book = {"title": "오투 중등 과학 1-2"}
+        _, status, _ = assess(book, "오투 중등 과학 2-1 정답과 해설", "정답과 해설", ["정답과 해설"])
+        self.assertEqual(status, "mismatch")
+
+    def test_assess_requires_answer_evidence(self):
+        book = {"title": "오투 중등 과학 1-2"}
+        _, status, _ = assess(book, "오투 중등 과학 1-2 목차", "교재 소개 및 목차", ["정답과 해설", "답지"])
+        self.assertEqual(status, "mismatch")
+
+    def test_build_queries_includes_blog_platforms(self):
+        book = {"title": "오투 중등 과학 1-2", "series": "오투", "subject": "과학",
+                "grade": "중1", "semester": "2학기"}
+        queries = build_queries(book, 5)
+        self.assertGreaterEqual(len(queries), 4)
+        self.assertTrue(any("tistory.com" in q and "blog.naver.com" in q for q in queries))
 
     def test_missing_robots_file_is_treated_as_no_published_rules(self):
         error = HTTPError("https://example.com/robots.txt", 404, "Not Found", {}, None)
