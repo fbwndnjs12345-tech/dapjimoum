@@ -35,7 +35,8 @@ jobs:
           python -m playwright install chromium
       - name: Compile and smoke test
         run: |
-          python -m compileall -q app.py finder.py
+          python -m compileall -q app.py finder.py tests
+          python -m unittest discover -s tests -v
           python -c "from pathlib import Path; from finder import read_books, assess; p=Path('smoke.csv'); p.write_text('id,title,publisher\\n1,테스트 수학,테스트 출판사\\n',encoding='utf-8-sig'); rows=read_books(p); assert rows[0]['id']=='1'; assert assess(rows[0], '테스트 수학 정답과 해설', '정답과 해설', ['정답과 해설'])[1]=='likely'; p.unlink()"
       - name: Build Windows application
         shell: pwsh
