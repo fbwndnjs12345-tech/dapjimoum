@@ -288,17 +288,17 @@ def assess(book, title, snippet, terms):
     grade_hit = bool(grade and grade in combined)
     semester_hit = bool(semester and semester in combined)
 
-    expected_pair = re.search(r"(?<![0-9])([1-3])\\s*[-–]\\s*([12])(?![0-9])", book.get("title", ""))
-    actual_pairs = set(re.findall(r"(?<![0-9])([1-3])\\s*[-–]\\s*([12])(?![0-9])", raw))
+    expected_pair = re.search(r"(?<![0-9])([1-3])\s*[-–]\s*([12])(?![0-9])", book.get("title", ""))
+    actual_pairs = set(re.findall(r"(?<![0-9])([1-3])\s*[-–]\s*([12])(?![0-9])", raw))
     edition_hit = bool(expected_pair and expected_pair.groups() in actual_pairs)
     edition_conflict = bool(expected_pair and actual_pairs and expected_pair.groups() not in actual_pairs)
 
-    expected_grade = re.search(r"중\\s*([1-3])", book.get("grade", ""))
-    actual_grades = set(re.findall(r"중\\s*([1-3])", raw))
+    expected_grade = re.search(r"중\s*([1-3])", book.get("grade", ""))
+    actual_grades = set(re.findall(r"중\s*([1-3])", raw))
     if expected_grade and actual_grades and expected_grade.group(1) not in actual_grades:
         edition_conflict = True
-    expected_semester = re.search(r"([12])\\s*학기", book.get("semester", ""))
-    actual_semesters = set(re.findall(r"([12])\\s*학기", raw))
+    expected_semester = re.search(r"([12])\s*학기", book.get("semester", ""))
+    actual_semesters = set(re.findall(r"([12])\s*학기", raw))
     if expected_semester and actual_semesters and expected_semester.group(1) not in actual_semesters:
         edition_conflict = True
 
