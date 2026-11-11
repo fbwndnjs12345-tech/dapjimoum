@@ -127,7 +127,12 @@ def search_google_page(page, query: str, limit: int = 10, allow_manual: bool = F
         try: return (page.locator("body").inner_text(timeout=3000) or "").lower()
         except Exception: return ""
     def challenged(text: str) -> bool:
-        return any(x in text for x in ("unusual traffic","자동화된 요청","비정상적인 트래픽","captcha","recaptcha","로봇이 아닙니다","verify you are human"))
+        text_hit = any(x in text for x in ("unusual traffic","자동화된 요청","비정상적인 트래픽","captcha","recaptcha","로봇이 아닙니다","verify you are human"))
+        try:
+            frame_hit = page.locator("iframe[src*=recaptcha], #captcha-form, form[action*=sorry]").count() > 0
+        except Exception:
+            frame_hit = False
+        return text_hit or frame_hit
     if challenged(page_text()):
         if not allow_manual:
             raise RuntimeError("Google이 인증을 요구합니다. '브라우저 창 표시'를 켜고 다시 실행하면 직접 인증할 수 있습니다.")
@@ -165,7 +170,7 @@ def build_queries(book: dict[str, str], max_queries: int = 4) -> list[str]:
     metadata=" ".join(x for x in (series,book.get("subject",""),book.get("grade",""),book.get("semester","")) if x)
     variants=[f'"{title}" "정답과 해설"',f'"{title}" 답지 OR 정답',
               f'{metadata} "{series or title}" 답지'.strip() if metadata else f'"{title}" 정답 해설 PDF',
-              f'"{title}" (site:tistory.com OR site:blog.naver.com) 답지',
+              f'"{title}" (site:tistory.com OR site:blog.naver.com OR site:blogspot.com OR site:brunch.co.kr OR site:velog.io OR site:wordpress.com OR site:cafe.naver.com) 답지',
               f'"{title}" 정답 해설 PDF']
     result=[]
     for q in variants:
@@ -295,7 +300,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
             target=canonicalize_url(target); score,status,matched=assess(book,title,snippet,terms)
             if status=="mismatch": return
             parsed=urlparse(target); host=(parsed.hostname or "").lower()
-            if any(d in host for d in ("tistory.com","blog.naver.com","blogspot.","brunch.co.kr")): source_label="blog-search"
+            if any(d in host for d in ("tistory.com","blog.naver.com","blogspot.","brunch.co.kr","velog.io","wordpress.com","cafe.naver.com")): source_label="blog-search"
             key=(book.get("id") or book["title"],target)
             row={"book_id":book.get("id",""),"book_title":book.get("title",""),"publisher":book.get("publisher",""),
                  "subject":book.get("subject",""),"grade":book.get("grade",""),"semester":book.get("semester",""),
