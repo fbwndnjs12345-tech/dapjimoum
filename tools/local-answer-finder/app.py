@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import csv
 import json
+import os
+import sys
 import queue
 import threading
 import urllib.error
@@ -12,7 +14,9 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+if getattr(sys, "frozen", False):
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(ROOT / "ms-playwright")
 DEFAULT_CONFIG = ROOT / "sources.json"
 OUTPUT = ROOT / "answer-link-candidates.csv"
 
