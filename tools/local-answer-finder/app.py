@@ -202,10 +202,32 @@ class FinderApp:
     def save_config(self):
         try:
             config = json.loads(self.config_text.get("1.0", "end"))
-            if not isinstance(config.get("sources"), list):
-                raise ValueError("sources는 배열이어야 합니다.")
+            sources = config.get("sources")
+            if not isinstance(sources, list) or not sources:
+                raise ValueError("sources 배열에 공식 자료실을 한 곳 이상 추가하세요.")
+            seen = set()
+            for index, source in enumerate(sources, 1):
+                if not isinstance(source, dict):
+                    raise ValueError(f"{index}번째 출처 형식이 올바르지 않습니다.")
+                publisher = str(source.get("publisher") or "").strip()
+                urls = source.get("start_urls")
+                if not publisher or not isinstance(urls, list) or not urls:
+                    raise ValueError(f"{index}번째 출처에 publisher와 start_urls가 필요합니다.")
+                for raw_url in urls:
+                    parsed = urllib.parse.urlparse(str(raw_url).strip())
+                    if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
+                        raise ValueError(f"올바르지 않은 HTTP(S) 자료실 주소: {raw_url}")
+                    normalized = parsed.geturl().rstrip("/")
+                    if normalized in seen:
+                        raise ValueError(f"중복된 자료실 주소: {normalized}")
+                    seen.add(normalized)
+            delay = float(config.get("request_delay_seconds", 1.5))
+            timeout = int(config.get("page_timeout_ms", 20000))
+            pages = int(config.get("max_sitemap_urls_per_source", 500))
+            if delay < 1 or timeout < 1000 or pages < 1:
+                raise ValueError("요청 간격은 1초 이상, 페이지 시간 제한은 1000ms 이상, 최대 페이지는 1 이상이어야 합니다.")
             DEFAULT_CONFIG.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            self.events.put(("status", f"설정 저장 완료: {DEFAULT_CONFIG}"))
+            self.events.put(("status", f"설정 검사 및 저장 완료: 출처 {len(sources)}곳"))
         except Exception as exc:
             messagebox.showerror("설정 오류", str(exc))
 
