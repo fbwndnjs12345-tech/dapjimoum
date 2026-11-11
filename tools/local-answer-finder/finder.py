@@ -176,7 +176,7 @@ def build_queries(book: dict[str, str], max_queries: int = 8) -> list[str]:
     semester = (book.get("semester") or "").strip()
 
     # Keep the edition in the query even when the CSV metadata is incomplete.
-    edition_match = re.search(r"(?<![0-9])([1-3])\\s*[-–]\\s*([12])(?![0-9])", title)
+    edition_match = re.search(r"(?<![0-9])([1-3])\s*[-–]\s*([12])(?![0-9])", title)
     edition = f"{edition_match.group(1)}-{edition_match.group(2)}" if edition_match else ""
     identity = [x for x in (series, subject, grade, semester, edition) if x]
     identity = list(dict.fromkeys(identity))
