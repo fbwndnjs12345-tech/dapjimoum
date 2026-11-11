@@ -79,7 +79,11 @@ class FinderApp:
         if DEFAULT_CONFIG.exists():
             self.config_text.insert("1.0", DEFAULT_CONFIG.read_text(encoding="utf-8"))
         else:
-            self.config_text.insert("1.0", json.dumps({"sources": [], "max_sitemap_urls_per_source": 500, "request_delay_seconds": 1.5, "page_timeout_ms": 20000, "answer_keywords": ["정답과 해설", "정답 해설", "답지"]}, ensure_ascii=False, indent=2))
+            example = ROOT / "sources.example.json"
+            if example.exists():
+                self.config_text.insert("1.0", example.read_text(encoding="utf-8"))
+            else:
+                self.config_text.insert("1.0", json.dumps({"sources": [], "max_sitemap_urls_per_source": 500, "request_delay_seconds": 1.5, "page_timeout_ms": 20000, "answer_keywords": ["정답과 해설", "정답 해설", "답지"]}, ensure_ascii=False, indent=2))
         cfgbuttons = ttk.Frame(cfg); cfgbuttons.pack(fill="x")
         ttk.Button(cfgbuttons, text="설정 저장", command=self.save_config).pack(side="left")
         ttk.Button(cfgbuttons, text="예시 설정 열기", command=lambda: webbrowser.open(str(ROOT / "README.md"))).pack(side="left", padx=8)
