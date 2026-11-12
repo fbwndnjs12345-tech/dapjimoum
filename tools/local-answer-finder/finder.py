@@ -159,7 +159,15 @@ def search_google_page(page, query: str, limit: int = 10, allow_manual: bool = F
                       callback: Callable[[str], None] = print, challenge_timeout: int = 180):
     """Read Google results. If visible, let the user solve a challenge manually."""
     url = "https://www.google.com/search?" + urlencode({"q": query, "num": str(limit), "hl": "ko"})
-    response = page.goto(url, wait_until="domcontentloaded")
+    log(callback, f"[Google 접속] {url}")
+    try:
+        response = page.goto(url, wait_until="domcontentloaded", timeout=45000)
+    except PlaywrightTimeoutError as exc:
+        raise RuntimeError(f"Google 페이지 이동 시간 초과: {page.url or 'about:blank'} ({exc})") from exc
+    except Exception as exc:
+        raise RuntimeError(f"Google 페이지 이동 실패: {type(exc).__name__}: {exc}; 현재 주소={page.url or 'about:blank'}") from exc
+    if page.url == "about:blank":
+        raise RuntimeError("Google 페이지 이동 후에도 about:blank입니다. Chromium 네트워크/프록시 설정을 확인하세요.")
     if response and response.status >= 400:
         raise RuntimeError(f"Google 검색 응답 HTTP {response.status}")
     def page_text():
@@ -406,11 +414,17 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
         browser=p.chromium.launch(headless=not headed); context=browser.new_context(user_agent=USER_AGENT,locale="ko-KR")
         page=context.new_page(); page.set_default_navigation_timeout(timeout)
         def guard_browser_request(route):
-            # Check every navigation, redirect and subresource before Chromium requests it.
-            if is_safe_public_url(route.request.url, resolve_dns=True):
+            # Chromium can use its own DNS/proxy configuration. Re-resolving every
+            # Google subresource through Python's socket resolver can reject valid
+            # requests on school networks, VPNs, or systems using a proxy and leave
+            # page.goto() on about:blank. Validate URL syntax/host here; untrusted
+            # result destinations are DNS-checked separately before navigation by
+            # robots_for_target()/fetch(), including redirect targets.
+            request_url = route.request.url
+            if is_safe_public_url(request_url, resolve_dns=False):
                 route.continue_()
             else:
-                log(callback, f"[비공개/로컬 네트워크 요청 차단] {route.request.url[:200]}")
+                log(callback, f"[비공개/로컬 네트워크 요청 차단] {request_url[:200]}")
                 route.abort("blockedbyclient")
         page.route("**/*", guard_browser_request)
         def robots_for_target(target):
