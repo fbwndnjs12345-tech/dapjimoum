@@ -1,11 +1,12 @@
 import csv
 import tempfile
+import socket
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
 
-from finder import ALIASES, allowed_host, assess, build_queries, is_safe_public_url, norm, parse_sitemap, read_books, robots_for, search_bing_rss, USER_AGENT
+from finder import ALIASES, SafeRedirectHandler, allowed_host, assess, build_queries, is_safe_public_url, norm, parse_sitemap, read_books, robots_for, search_bing_rss, USER_AGENT
 
 
 class FinderUnitTests(unittest.TestCase):
@@ -16,6 +17,28 @@ class FinderUnitTests(unittest.TestCase):
     def test_url_safety_accepts_public_web_hosts(self):
         self.assertTrue(is_safe_public_url("https://example.com/answer"))
         self.assertTrue(is_safe_public_url("https://blog.naver.com/post/1"))
+
+    @patch("finder.socket.getaddrinfo")
+    def test_dns_safety_rejects_private_and_mixed_dns_answers(self, getaddrinfo):
+        public = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))
+        private = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))
+        getaddrinfo.return_value = [private]
+        self.assertFalse(is_safe_public_url("https://attacker.example", resolve_dns=True))
+        getaddrinfo.return_value = [public, private]
+        self.assertFalse(is_safe_public_url("https://mixed.example", resolve_dns=True))
+        getaddrinfo.return_value = [public]
+        self.assertTrue(is_safe_public_url("https://public.example", resolve_dns=True))
+
+    @patch("finder.socket.getaddrinfo", side_effect=OSError("DNS unavailable"))
+    def test_dns_safety_fails_closed_when_resolution_fails(self, _getaddrinfo):
+        self.assertFalse(is_safe_public_url("https://unresolved.example", resolve_dns=True))
+
+    def test_redirect_handler_blocks_private_ip_redirect(self):
+        from urllib.request import Request
+        handler = SafeRedirectHandler()
+        request = Request("https://public.example/start")
+        with self.assertRaises(HTTPError):
+            handler.redirect_request(request, None, 302, "Found", {}, "http://127.0.0.1/admin")
 
     def test_normalization_ignores_spacing_and_punctuation(self):
         self.assertEqual(norm("오투 중등-과학 2·1"), norm("오투중등 과학 2-1"))
