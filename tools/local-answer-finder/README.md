@@ -38,5 +38,6 @@ supabase functions deploy answer-link-import-candidates
 - 검색 결과에서 발견한 각 사이트의 `robots.txt`를 확인합니다. robots.txt를 읽을 수 없거나 접근이 금지된 URL은 건너뜁니다.
 - 로그인, 유료 페이지, CAPTCHA, 접근 차단을 우회하지 않습니다.
 - 검색 결과는 후보일 뿐 실제 정답 자료인지 자동 확정하지 않습니다. 관리자 검수가 필요합니다.
-- PDF는 다운로드하지 않고 링크 후보로 기록합니다.
+- URL 안전 검사에서 file:, javascript:, localhost, 사설 IP, 자격 증명이 포함된 URL은 제외합니다. 블로그 출처 판정은 정확한 도메인 경계로 검사합니다.
+- PDF는 현재 다운로드·본문 검증하지 않으므로 검색 제목과 요약만으로 likely 판정을 받지 않습니다. 후보는 uncertain으로 내려 관리자 확인이 필요합니다.
 - 결과 수와 검색엔진 가용성을 보장하지 않습니다.
