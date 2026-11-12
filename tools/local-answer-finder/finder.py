@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import ipaddress
 import os
 import re
 import sys
@@ -49,7 +50,29 @@ def norm(value: str) -> str:
     return re.sub(r"[\s·ㆍ_\-–—()[\]{}:：,.]+", "", value or "").casefold()
 
 
+def is_safe_public_url(value: str) -> bool:
+    """Reject non-web schemes, credentials, local names and literal non-public IPs."""
+    try:
+        parsed = urlsplit(value.strip())
+        if parsed.scheme.lower() not in ("http", "https") or not parsed.hostname:
+            return False
+        if parsed.username or parsed.password:
+            return False
+        host = parsed.hostname.rstrip(".").lower()
+        if host == "localhost" or host.endswith((".localhost", ".local", ".internal")):
+            return False
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            return True
+        return address.is_global
+    except (ValueError, TypeError):
+        return False
+
+
 def fetch(url: str, timeout: int = 15) -> bytes:
+    if not is_safe_public_url(url):
+        raise ValueError("공개 HTTP(S) 주소만 요청할 수 있습니다.")
     req = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xml,text/xml,*/*"})
     with urlopen(req, timeout=timeout) as response:
         return response.read()
@@ -209,6 +232,8 @@ def build_queries(book: dict[str, str], max_queries: int = 8) -> list[str]:
     return result
 
 def canonicalize_url(value: str) -> str:
+    if not is_safe_public_url(value):
+        raise ValueError("안전하지 않은 URL은 후보로 등록할 수 없습니다.")
     parts=urlsplit(value.strip())
     query=[(k,v) for k,v in parse_qsl(parts.query,keep_blank_values=True)
            if not k.lower().startswith("utm_") and k.lower() not in {"fbclid","gclid","ref","ref_src"}]
@@ -375,7 +400,13 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
             target=canonicalize_url(target); score,status,matched=assess(book,title,snippet,terms)
             if status=="mismatch": return
             parsed=urlparse(target); host=(parsed.hostname or "").lower()
-            if any(d in host for d in ("tistory.com","blog.naver.com","blogspot.","brunch.co.kr","velog.io","wordpress.com","cafe.naver.com")): source_label="blog-search"
+            blog_domains = ("tistory.com", "blog.naver.com", "blogspot.com", "brunch.co.kr", "velog.io", "wordpress.com", "cafe.naver.com")
+            if any(host == domain or host.endswith("." + domain) for domain in blog_domains):
+                source_label = "blog-search"
+            # Search snippets do not prove PDF contents. Keep PDF hits review-only.
+            if parsed.path.lower().endswith(".pdf") and status == "likely":
+                status = "uncertain"
+                score = min(score, 59)
             key=(book.get("id") or book["title"],target)
             row={"book_id":book.get("id",""),"book_title":book.get("title",""),"publisher":book.get("publisher",""),
                  "subject":book.get("subject",""),"grade":book.get("grade",""),"semester":book.get("semester",""),
@@ -446,7 +477,8 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                         for item in results:
                             if stop_event is not None and stop_event.is_set(): break
                             raw=item.get("url","").strip(); parsed=urlparse(raw)
-                            if parsed.scheme not in ("http","https") or not parsed.hostname: continue
+                            if not is_safe_public_url(raw):
+                                log(callback, f"[안전하지 않은 URL 제외] {raw[:200]}"); continue
                             target=canonicalize_url(raw)
                             if target in seen_urls: continue
                             seen_urls.add(target); policy=robots_for_target(target)
