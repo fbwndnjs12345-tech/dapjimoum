@@ -411,7 +411,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     log(callback,f"교재 {len(books)}권 · 공식 출처 {len(sources)}곳 · 공개 검색엔진 {', '.join(engines) if web_enabled else '사용 안 함'}")
     log(callback,f"검색 전략: 교재당 최대 {query_limit}개 검색어 · 엔진별 검색 결과 최대 {search_limit}개")
     with sync_playwright() as p:
-        browser=p.chromium.launch(headless=not headed); context=browser.new_context(user_agent=USER_AGENT,locale="ko-KR")
+        browser=p.chromium.launch(headless=not headed); context=browser.new_context(locale="ko-KR")
         page=context.new_page(); page.set_default_navigation_timeout(timeout)
         def guard_browser_request(route):
             # Chromium can use its own DNS/proxy configuration. Re-resolving every
