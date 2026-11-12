@@ -1,0 +1,79 @@
+name: Build local answer finder
+on:
+  push:
+    branches:
+      - feat/local-answer-link-finder
+    paths:
+      - "tools/local-answer-finder/**"
+      - ".github/workflows/build-local-answer-finder.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "tools/local-answer-finder/**"
+      - ".github/workflows/build-local-answer-finder.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: tools/local-answer-finder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies and Chromium
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install chromium
+
+      - name: "QA 1/5 - Python syntax and bytecode compilation"
+        run: python -m compileall -q app.py finder.py tests
+
+      - name: "QA 2/5 - Unit regression suite"
+        run: python -m unittest discover -s tests -v
+
+      - name: "QA 3/5 - Dependency integrity"
+        run: python -m pip check
+
+      - name: "QA 4/5 - Source UI and Chromium smoke test"
+        run: python app.py --self-test
+
+      - name: Build Windows application
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --windowed --name DapjiMoumFinder --collect-all playwright --collect-all greenlet --collect-all pyee app.py
+          Copy-Item "$env:LOCALAPPDATA\ms-playwright" "dist\DapjiMoumFinder\ms-playwright" -Recurse
+          pyinstaller --noconfirm --clean --console --name DapjiMoumFinderTest --distpath test-dist --workpath test-build --specpath test-spec --collect-all playwright --collect-all greenlet --collect-all pyee app.py
+          Copy-Item "$env:LOCALAPPDATA\ms-playwright" "test-dist\DapjiMoumFinderTest\ms-playwright" -Recurse
+          Copy-Item sources.example.json -Destination "test-dist\DapjiMoumFinderTest"
+          Copy-Item README.md, sources.example.json -Destination "dist\DapjiMoumFinder"
+          Compress-Archive -Path "dist\DapjiMoumFinder\*" -DestinationPath "답지모음-로컬-탐색기-Windows.zip" -Force
+
+      - name: "QA 5/5 - Packaged EXE, Tk UI, and bundled Chromium"
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist\DapjiMoumFinder\DapjiMoumFinder.exe")) { throw "EXE not found" }
+          if (!(Test-Path "dist\DapjiMoumFinder\ms-playwright")) { throw "Bundled Chromium not found" }
+          if (!(Test-Path "test-dist\DapjiMoumFinderTest\DapjiMoumFinderTest.exe")) { throw "Console test EXE not found" }
+          & "test-dist\DapjiMoumFinderTest\DapjiMoumFinderTest.exe" --self-test
+          $selfTestExit = $LASTEXITCODE
+          if (Test-Path "test-dist\DapjiMoumFinderTest\self-test.log") { Get-Content "test-dist\DapjiMoumFinderTest\self-test.log" -Raw }
+          if ($selfTestExit -ne 0) { throw "Packaged executable self-test failed with exit code $selfTestExit" }
+          if (!(Test-Path "test-dist\DapjiMoumFinderTest\self-test.log")) { throw "Packaged self-test log not found" }
+          if ((Get-Content "test-dist\DapjiMoumFinderTest\self-test.log" -Raw) -notmatch "SELF-TEST PASSED") { throw "Packaged self-test did not report success" }
+          if (!(Test-Path "답지모음-로컬-탐색기-Windows.zip")) { throw "ZIP artifact not found" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 답지모음-로컬-탐색기-Windows
+          path: tools/local-answer-finder/답지모음-로컬-탐색기-Windows.zip
+          retention-days: 30
