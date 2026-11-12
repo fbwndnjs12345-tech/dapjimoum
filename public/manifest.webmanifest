@@ -1,0 +1,20 @@
+{
+  "name": "답지모음 - 답지 링크 자동 검색",
+  "short_name": "답지모음",
+  "lang": "ko-KR",
+  "start_url": "/admin/link-search",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "description": "아이폰에서 교재 답지 링크 검색과 관리자 검수를 실행합니다.",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
