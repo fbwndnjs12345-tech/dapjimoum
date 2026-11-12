@@ -36,9 +36,9 @@ def request_json(url: str, headers: dict[str, str], data: dict | None = None):
 class FinderApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        root.title("답지모음 · 로컬 링크 탐색기")
-        root.geometry("900x720")
-        root.minsize(760, 620)
+        root.title("답지모음 | 답지 링크 자동 탐색기")
+        root.geometry("1120x820")
+        root.minsize(900, 680)
         self.events: queue.Queue = queue.Queue()
         self.stop_event = None
         self.access_token: str | None = None
@@ -50,6 +50,7 @@ class FinderApp:
         self.anon_key = tk.StringVar()
         self.email = tk.StringVar()
         self.password = tk.StringVar()
+        self.password_visible = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value="Supabase에서 교재를 불러오거나 CSV 파일을 선택하세요.")
         self.headed = tk.BooleanVar(value=True)
         self.max_pages = tk.StringVar(value="500")
@@ -71,7 +72,8 @@ class FinderApp:
         style.configure("Title.TLabel", background="#f5f7fa", foreground="#111827", font=("Malgun Gothic", 19, "bold"))
         style.configure("Sub.TLabel", background="#f5f7fa", foreground="#64748b", font=("Malgun Gothic", 9))
         style.configure("TButton", font=("Malgun Gothic", 9), padding=(12, 7))
-        style.configure("Accent.TButton", font=("Malgun Gothic", 10, "bold"), padding=(16, 9))
+        style.configure("Accent.TButton", font=("Malgun Gothic", 10, "bold"), padding=(16, 10))
+        style.configure("Status.TLabel", background="#eef2ff", foreground="#3730a3", font=("Malgun Gothic", 9, "bold"), padding=(10, 8))
         style.configure("TNotebook", background="#f5f7fa", borderwidth=0)
         style.configure("TNotebook.Tab", padding=(18, 10), font=("Malgun Gothic", 9, "bold"))
         style.configure("Treeview", rowheight=27, font=("Malgun Gothic", 9))
@@ -81,8 +83,8 @@ class FinderApp:
         outer.pack(fill="both", expand=True)
         header = ttk.Frame(outer)
         header.pack(fill="x", pady=(0, 15))
-        ttk.Label(header, text="답지모음 로컬 탐색기", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(header, text="출판사 공식 공개 자료실에서 답지 링크 후보를 찾고, 관리자 검수 대기 목록으로 전달합니다.", style="Sub.TLabel").pack(anchor="w", pady=(4, 0))
+        ttk.Label(header, text="답지모음 링크 탐색기", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(header, text="교재별 공개 웹·블로그·출판사 자료실을 검색하고, 찾은 링크를 Supabase 검수 대기 목록으로 전달합니다.", style="Sub.TLabel").pack(anchor="w", pady=(4, 0))
 
         self.tabs = ttk.Notebook(outer)
         self.tabs.pack(fill="both", expand=True)
@@ -103,7 +105,8 @@ class FinderApp:
         row.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(10, 0))
         ttk.Button(row, text="로그인 및 교재 가져오기", command=self.fetch_books, style="Accent.TButton").pack(side="left")
         ttk.Button(row, text="검색 후보 사이트 등록", command=self.upload_candidates).pack(side="left", padx=8)
-        ttk.Label(supa, text="비밀번호는 파일에 저장하지 않습니다. 관리자 계정 권한이 필요합니다.", style="Sub.TLabel").grid(row=5, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Label(supa, text="Supabase Authentication 사용자이면서 admin_users에 등록된 관리자 계정이 필요합니다. 비밀번호와 토큰은 설정 파일에 저장하지 않습니다.", style="Sub.TLabel", wraplength=850).grid(row=5, column=0, columnspan=4, sticky="w", pady=(8, 0))
+        ttk.Label(account, text="권장 순서: ① 관리자 로그인 ② 서버 교재 가져오기 ③ 출처 설정 확인 ④ 탐색 시작 ⑤ 후보 검수", style="Sub.TLabel", wraplength=900).pack(anchor="w", pady=(12, 0))
 
         csvbox = ttk.LabelFrame(account, text="교재 CSV 직접 선택", style="Card.TLabelframe", padding=14)
         csvbox.pack(fill="x")
@@ -142,13 +145,14 @@ class FinderApp:
 
         runbox = ttk.LabelFrame(search, text="탐색 실행", style="Card.TLabelframe", padding=14)
         runbox.pack(fill="x", pady=(0, 12))
-        ttk.Label(runbox, text="교재 CSV와 출처 설정을 준비한 뒤 탐색을 시작하세요.").pack(anchor="w", pady=(0, 10))
+        ttk.Label(runbox, text="교재 목록과 출처 설정을 확인한 뒤 실행하세요. 로그인 상태에서는 완료된 후보가 자동으로 Supabase에 등록됩니다.", wraplength=900).pack(anchor="w", pady=(0, 10))
         options = ttk.Frame(runbox)
         options.pack(fill="x")
         ttk.Label(options, text="출처별 최대 페이지").pack(side="left")
         ttk.Entry(options, textvariable=self.max_pages, width=8).pack(side="left", padx=(8, 16))
         ttk.Checkbutton(options, text="브라우저 창 표시 (Google 직접 인증)", variable=self.headed).pack(side="left")
-        ttk.Checkbutton(runbox, text="검색이 끝나면 Supabase에 자동 업로드 (로그인 필요 · 검수 대기 상태로만 저장)", variable=self.auto_upload).pack(anchor="w", pady=(8, 0))
+        ttk.Checkbutton(runbox, text="검색 종료 후 Supabase 자동 업로드 (관리자 로그인 필요 · 사이트 자동 공개 안 함)", variable=self.auto_upload).pack(anchor="w", pady=(8, 0))
+        ttk.Label(runbox, text="자동 업로드를 끄면 CSV만 저장됩니다. 업로드된 링크는 관리자 승인 전까지 사이트에 공개되지 않습니다.", style="Sub.TLabel", wraplength=900).pack(anchor="w", pady=(4, 0))
         self.run_button = ttk.Button(options, text="탐색 시작", command=self.run_finder, style="Accent.TButton")
         self.run_button.pack(side="right")
         self.stop_button = ttk.Button(options, text="중지 및 결과 저장", command=self.stop_finder, state="disabled")
@@ -163,7 +167,7 @@ class FinderApp:
         self.results = ttk.Treeview(preview, columns=columns, show="headings", height=6)
         for column, label, width in (("book", "교재", 210), ("candidate", "후보 페이지", 250), ("status", "판정", 90), ("score", "점수", 70), ("url", "후보 주소 (더블클릭해 열기)", 360)):
             self.results.heading(column, text=label)
-            self.results.column(column, width=width, anchor="w" if column in ("book", "candidate") else "center")
+            self.results.column(column, width=width, minwidth=90, stretch=(column in ("book", "candidate", "url")), anchor="w" if column in ("book", "candidate", "url") else "center")
         result_scroll = ttk.Scrollbar(preview, orient="vertical", command=self.results.yview)
         self.results.configure(yscrollcommand=result_scroll.set)
         self.results.pack(side="left", fill="both", expand=True)
@@ -178,12 +182,17 @@ class FinderApp:
 
         footer = ttk.Frame(outer)
         footer.pack(fill="x", pady=(12, 0))
-        self.status_label = ttk.Label(footer, textvariable=self.status, style="Sub.TLabel", wraplength=900)
+        self.status_label = ttk.Label(footer, textvariable=self.status, style="Status.TLabel", wraplength=1050)
         self.status_label.pack(anchor="w")
 
     def _entry(self, parent, label, variable, row, show=None):
         ttk.Label(parent, text=label, width=22).grid(row=row, column=0, sticky="w", pady=3)
-        ttk.Entry(parent, textvariable=variable, show=show or "").grid(row=row, column=1, columnspan=2, sticky="ew", pady=3)
+        entry = ttk.Entry(parent, textvariable=variable, show=("•" if show and not self.password_visible.get() else ""))
+        entry.grid(row=row, column=1, sticky="ew", pady=3)
+        if show:
+            ttk.Checkbutton(parent, text="비밀번호 표시", variable=self.password_visible,
+                            command=lambda: entry.configure(show="" if self.password_visible.get() else "•")).grid(
+                                row=row, column=2, sticky="w", padx=(8, 0))
         parent.columnconfigure(1, weight=1)
 
     def log_line(self, text):
