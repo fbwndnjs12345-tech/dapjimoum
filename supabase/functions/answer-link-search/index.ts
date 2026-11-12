@@ -270,7 +270,7 @@ Deno.serve(async (request) => {
             url: candidateUrl,
             snippet,
             host: result.meta_url?.hostname ?? result.meta_url?.netloc ?? url.hostname,
-            query: resultQueries[resultIndex] ?? primaryQuery,
+            query: resultQueries[resultIndex] ?? '',
             match_status: matchAssessment(book, title, snippet).match_status,
             link_type: url.pathname.toLowerCase().endsWith('.pdf') ? 'PDF' : '웹페이지',
           });
