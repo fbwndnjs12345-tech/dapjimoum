@@ -1,15 +1,59 @@
 import csv
 import tempfile
+import queue
 import socket
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
 
+from app import FinderApp
 from finder import ALIASES, SafeRedirectHandler, allowed_host, assess, build_queries, is_safe_public_url, norm, parse_sitemap, read_books, robots_for, search_bing_rss, USER_AGENT
 
 
 class FinderUnitTests(unittest.TestCase):
+    @patch("app.request_json")
+    def test_supabase_upload_sends_batches_and_counts_duplicates(self, request):
+        import app
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "candidates.csv"
+            with path.open("w", encoding="utf-8-sig", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=["book_id", "candidate_title", "url", "snippet", "match_status", "link_type", "source_type", "search_query"])
+                writer.writeheader()
+                for index in range(101):
+                    writer.writerow({"book_id": "book-1", "candidate_title": f"후보 {index}", "url": f"https://example.com/{index}", "snippet": "정답과 해설", "match_status": "uncertain", "link_type": "웹페이지", "source_type": "web-search", "search_query": "교재 답지"})
+            fake = object.__new__(FinderApp)
+            fake.project_url = "https://project.supabase.co"
+            fake.anon_key_value = "public-test-key"
+            fake.access_token = "user-access-token"
+            fake.refresh_token = "refresh-token"
+            fake.events = queue.Queue()
+            with patch.object(app, "OUTPUT", path):
+                request.side_effect = [
+                    {"inserted": 98, "received": 100, "duplicates": 2},
+                    {"inserted": 1, "received": 1, "duplicates": 0},
+                ]
+                inserted, duplicates = fake._upload_candidate_file()
+            self.assertEqual((inserted, duplicates), (99, 2))
+            self.assertEqual(request.call_count, 2)
+            self.assertEqual(len(request.call_args_list[0].args[2]["candidates"]), 100)
+            self.assertEqual(len(request.call_args_list[1].args[2]["candidates"]), 1)
+
+    def test_supabase_upload_rejects_missing_book_ids_before_network(self):
+        import app
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "candidates.csv"
+            path.write_text("book_id,url\n,https://example.com/a\n", encoding="utf-8-sig")
+            fake = object.__new__(FinderApp)
+            fake.project_url = "https://project.supabase.co"
+            fake.anon_key_value = "public-test-key"
+            fake.access_token = "user-access-token"
+            fake.events = queue.Queue()
+            with patch.object(app, "OUTPUT", path), patch("app.request_json") as request:
+                with self.assertRaisesRegex(RuntimeError, "교재 ID"):
+                    fake._upload_candidate_file()
+                request.assert_not_called()
+
     def test_url_safety_rejects_non_web_and_local_targets(self):
         for url in ("file:///etc/passwd", "javascript:alert(1)", "http://localhost/a", "http://127.0.0.1/a", "http://192.168.1.1/a", "http://service.local/a", "https://user:pass@example.com/a"):
             self.assertFalse(is_safe_public_url(url), url)
