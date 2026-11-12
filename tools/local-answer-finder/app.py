@@ -378,7 +378,7 @@ class FinderApp:
                     self.events.put(("done", f"탐색 완료: 후보 {count}개\n저장 위치: {OUTPUT}{upload_summary}"))
             except Exception as exc:
                 self.events.put(("error", f"{exc}\n검색 CSV는 유지됩니다. 업로드가 일부 진행된 경우 같은 CSV를 다시 업로드해도 중복은 건너뜁니다."))
-        threading.Thread(target=worker, daemon=True).start())
+        threading.Thread(target=worker, daemon=True).start()
 
 
     def stop_finder(self):
