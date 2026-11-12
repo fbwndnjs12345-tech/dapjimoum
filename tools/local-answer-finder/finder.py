@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse, urljoin, urlencode, urlsplit, urlunsplit, parse_qsl
-from urllib.request import Request, urlopen
+from urllib.request import Request, HTTPRedirectHandler, build_opener
 from urllib.error import HTTPError
 
 if getattr(sys, "frozen", False):
@@ -74,11 +74,11 @@ def is_safe_public_url(value: str, resolve_dns: bool = False) -> bool:
             addresses = {ipaddress.ip_address(record[4][0].split("%", 1)[0]) for record in records}
             return bool(addresses) and all(address.is_global for address in addresses)
         return True
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OSError):
         return False
 
 
-class SafeRedirectHandler(__import__("urllib.request", fromlist=["HTTPRedirectHandler"]).HTTPRedirectHandler):
+class SafeRedirectHandler(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if not is_safe_public_url(newurl, resolve_dns=True):
             raise HTTPError(req.full_url, code, "Unsafe redirect target blocked", headers, fp)
@@ -89,7 +89,7 @@ def fetch(url: str, timeout: int = 15) -> bytes:
     if not is_safe_public_url(url, resolve_dns=True):
         raise ValueError("공개 HTTP(S) 주소만 요청할 수 있습니다.")
     req = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xml,text/xml,*/*"})
-    opener = __import__("urllib.request", fromlist=["build_opener"]).build_opener(SafeRedirectHandler())
+    opener = build_opener(SafeRedirectHandler())
     with opener.open(req, timeout=timeout) as response:
         return response.read()
 
