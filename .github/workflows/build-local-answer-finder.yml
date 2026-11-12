@@ -35,13 +35,13 @@ jobs:
           pip install -r requirements.txt
           python -m playwright install chromium
 
-      - name: "QA 1/5 - Python syntax and bytecode compilation"
+      - name: "QA 1/6 - Python syntax and bytecode compilation"
         run: python -m compileall -q app.py finder.py tests
 
-      - name: "QA 2/5 - Unit regression suite"
+      - name: "QA 2/6 - Unit regression suite"
         run: python -m unittest discover -s tests -v
 
-      - name: "QA 3/5 - Dependency integrity"
+      - name: "QA 3/6 - Dependency integrity"
         run: python -m pip check
 
       - name: "QA 4/6 - Source UI and Chromium smoke test"
