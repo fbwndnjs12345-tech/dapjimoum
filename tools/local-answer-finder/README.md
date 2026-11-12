@@ -19,8 +19,18 @@ Windows용 데스크톱 프로그램입니다. 교재명으로 Google 및 Bing�
 2. Supabase에서 가져오거나 id,title,publisher,subject,grade,semester,series 열이 있는 CSV를 선택합니다.
 3. 출처 설정 JSON에서 `web_search.enabled`를 true로 두면 Google 및 Bing 공개 검색을 사용합니다. 기본값은 두 검색엔진 모두 활성화입니다.
 4. 공식 자료실도 탐색하려면 `sources` 배열에 출판사명과 자료실 주소를 추가합니다. 공개 웹 검색만 사용할 경우 `sources`를 빈 배열로 둘 수 있습니다.
-5. 탐색 시작을 누르면 `answer-link-candidates.csv`에 결과가 저장됩니다.
-6. Supabase 로그인 상태에서 검색 후보를 사이트에 등록하면 관리자 검수 대기 목록에 등록됩니다. 후보는 자동 승인되지 않습니다.
+5. Supabase 로그인 상태라면 `검색이 끝나면 Supabase에 자동 업로드`가 기본으로 켜져 있습니다. 탐색 종료 또는 중지 후 결과 CSV를 100개씩 나누어 `answer-link-import-candidates` Edge Function으로 전송합니다. 로그인하지 않았다면 CSV만 저장되고 자동 업로드는 건너뜁니다.
+6. 업로드 결과는 `answer_link_candidates` 테이블의 `pending`(관리자 검수 대기) 상태로 저장됩니다. 중복 URL은 `book_id + url_identity` 기준으로 건너뛰므로 같은 CSV를 다시 올려도 후보가 중복 생성되지 않습니다.
+7. 관리자 페이지에서 후보를 검수해 승인해야 `answer_links`에 반영되어 사이트 이용자에게 노출됩니다. 자동 승인·자동 게시하지 않습니다.
+
+## Supabase 업로드 구조
+
+- 프로그램은 Supabase Auth의 이메일/비밀번호 로그인으로 사용자 Access Token과 Refresh Token을 메모리에 받습니다. 비밀번호와 토큰은 설정 파일이나 CSV에 기록하지 않습니다.
+- 교재는 `public.books`에서 페이지 단위로 읽어 `books.csv`로 저장합니다. 현재 연결된 프로젝트에는 교재 1,762권이 있습니다.
+- 후보 등록은 `POST /functions/v1/answer-link-import-candidates`로 전송하며, 100개 단위 배치와 만료 시 Refresh Token 갱신 후 재시도를 지원합니다.
+- Edge Function은 JWT를 검증하고 `public.admin_users`에 등록된 관리자만 허용합니다. `service_role` 키는 Edge Function 서버 환경에서만 사용하고 로컬 EXE에 넣지 않습니다.
+- 서버는 후보를 `pending` 상태로만 저장합니다. `answer_links`에 직접 쓰지 않으므로 검수 전에는 공개 답지 링크로 노출되지 않습니다.
+- 신규/중복 개수를 프로그램 로그와 완료 알림에 표시합니다. 일부 배치 실패 시 CSV가 보존되며 재업로드는 URL 고유키로 중복을 방지합니다.
 
 후보 등록을 위해 저장소 루트에서 최초 1회 다음 Edge Function을 올바른 Supabase 프로젝트에 배포해야 합니다:
 
