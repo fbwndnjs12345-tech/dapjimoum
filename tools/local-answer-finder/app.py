@@ -42,6 +42,7 @@ class FinderApp:
         self.events: queue.Queue = queue.Queue()
         self.stop_event = None
         self.access_token: str | None = None
+        self.refresh_token: str | None = None
         self.project_url: str = ''
         self.anon_key_value: str = ''
         self.books_path = tk.StringVar()
@@ -52,6 +53,7 @@ class FinderApp:
         self.status = tk.StringVar(value="Supabase에서 교재를 불러오거나 CSV 파일을 선택하세요.")
         self.headed = tk.BooleanVar(value=True)
         self.max_pages = tk.StringVar(value="500")
+        self.auto_upload = tk.BooleanVar(value=True)
         self._build()
         self.root.after(150, self._poll)
 
@@ -146,6 +148,7 @@ class FinderApp:
         ttk.Label(options, text="출처별 최대 페이지").pack(side="left")
         ttk.Entry(options, textvariable=self.max_pages, width=8).pack(side="left", padx=(8, 16))
         ttk.Checkbutton(options, text="브라우저 창 표시 (Google 직접 인증)", variable=self.headed).pack(side="left")
+        ttk.Checkbutton(runbox, text="검색이 끝나면 Supabase에 자동 업로드 (로그인 필요 · 검수 대기 상태로만 저장)", variable=self.auto_upload).pack(anchor="w", pady=(8, 0))
         self.run_button = ttk.Button(options, text="탐색 시작", command=self.run_finder, style="Accent.TButton")
         self.run_button.pack(side="right")
         self.stop_button = ttk.Button(options, text="중지 및 결과 저장", command=self.stop_finder, state="disabled")
@@ -298,6 +301,7 @@ class FinderApp:
                     {"apikey": key, "Content-Type": "application/json"}, {"email": email, "password": password})
                 token = auth.get("access_token")
                 self.access_token = token
+                self.refresh_token = auth.get("refresh_token")
                 self.project_url = base
                 self.anon_key_value = key
                 if not token:
@@ -354,18 +358,27 @@ class FinderApp:
         self.tabs.select(2)
         self.progress.start(12)
         self.log_line("[시작] 탐색 작업을 준비합니다.")
+        auto_upload = self.auto_upload.get()
         def worker():
             try:
                 from finder import run_search
                 count = run_search(csv_path, OUTPUT, DEFAULT_CONFIG, headed, max_pages,
                                    lambda line: self.events.put(("log", line)), self.stop_event)
-                if self.stop_event.is_set():
-                    self.events.put(("paused", f"검색을 중지했습니다. 후보 {count}개를 CSV에 저장했습니다.\n저장 위치: {OUTPUT}"))
+                stopped = self.stop_event.is_set()
+                upload_summary = ""
+                if auto_upload and self.access_token and self.project_url and self.anon_key_value:
+                    self.events.put(("status", "검색 결과를 저장했습니다. Supabase에 후보를 자동 등록하는 중입니다."))
+                    inserted, duplicates = self._upload_candidate_file()
+                    upload_summary = f"\nSupabase 업로드: 신규 {inserted}개 · 중복 {duplicates}개 (모두 관리자 검수 대기)"
+                elif auto_upload:
+                    upload_summary = "\nSupabase 자동 업로드는 로그인되지 않아 건너뛰었습니다. CSV는 저장되었습니다."
+                if stopped:
+                    self.events.put(("paused", f"검색을 중지했습니다. 후보 {count}개를 CSV에 저장했습니다.\n저장 위치: {OUTPUT}{upload_summary}"))
                 else:
-                    self.events.put(("done", f"탐색 완료: 후보 {count}개\n저장 위치: {OUTPUT}"))
+                    self.events.put(("done", f"탐색 완료: 후보 {count}개\n저장 위치: {OUTPUT}{upload_summary}"))
             except Exception as exc:
-                self.events.put(("error", str(exc)))
-        threading.Thread(target=worker, daemon=True).start()
+                self.events.put(("error", f"{exc}\n검색 CSV는 유지됩니다. 업로드가 일부 진행된 경우 같은 CSV를 다시 업로드해도 중복은 건너뜁니다."))
+        threading.Thread(target=worker, daemon=True).start())
 
 
     def stop_finder(self):
@@ -375,9 +388,70 @@ class FinderApp:
             self.status.set("중지 요청을 보냈습니다. 현재 페이지 요청이 끝나면 후보를 저장하고 알림을 표시합니다.")
             self.log_line("[중지 요청] 현재 처리 중인 요청이 끝나는 대로 검색을 멈춥니다.")
 
+    def _refresh_access_token(self):
+        if not self.refresh_token:
+            raise RuntimeError("로그인 토큰이 만료되었습니다. Supabase에 다시 로그인하세요.")
+        auth = request_json(
+            self.project_url + "/auth/v1/token?grant_type=refresh_token",
+            {"apikey": self.anon_key_value, "Content-Type": "application/json"},
+            {"refresh_token": self.refresh_token},
+        )
+        if not auth.get("access_token"):
+            raise RuntimeError("Supabase 세션 갱신에 실패했습니다. 다시 로그인하세요.")
+        self.access_token = auth["access_token"]
+        self.refresh_token = auth.get("refresh_token", self.refresh_token)
+
+    def _upload_candidate_file(self):
+        if not self.access_token or not self.project_url or not self.anon_key_value:
+            raise RuntimeError("Supabase 로그인이 필요합니다.")
+        if not OUTPUT.is_file():
+            raise RuntimeError("업로드할 후보 CSV가 없습니다.")
+        with OUTPUT.open("r", encoding="utf-8-sig", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        if not rows:
+            return 0, 0
+        invalid = [index + 2 for index, row in enumerate(rows) if not row.get("book_id") or not row.get("url")]
+        if invalid:
+            preview = ", ".join(map(str, invalid[:10]))
+            suffix = " 외" if len(invalid) > 10 else ""
+            raise RuntimeError(f"CSV {len(invalid)}개 행에 교재 ID 또는 URL이 없습니다. 누락 행: {preview}{suffix}. 교재 ID가 포함된 Supabase 교재 CSV를 사용하세요.")
+        endpoint = self.project_url + "/functions/v1/answer-link-import-candidates"
+        inserted = duplicates = sent = 0
+        for start in range(0, len(rows), 100):
+            batch = []
+            for row in rows[start:start + 100]:
+                batch.append({
+                    "book_id": row["book_id"],
+                    "title": row.get("candidate_title") or row.get("source_name") or "답지 후보",
+                    "url": row["url"],
+                    "snippet": row.get("snippet", ""),
+                    "match_status": row.get("match_status", "uncertain"),
+                    "link_type": row.get("link_type", "웹페이지"),
+                    "source_type": "official" if row.get("source_type") == "publisher" else "general",
+                    "query": row.get("search_query") or "local-search",
+                })
+            headers = {
+                "apikey": self.anon_key_value,
+                "Authorization": "Bearer " + self.access_token,
+                "Content-Type": "application/json",
+            }
+            try:
+                result = request_json(endpoint, headers, {"candidates": batch})
+            except RuntimeError as exc:
+                if "요청 실패 (401)" not in str(exc):
+                    raise
+                self._refresh_access_token()
+                headers["Authorization"] = "Bearer " + self.access_token
+                result = request_json(endpoint, headers, {"candidates": batch})
+            inserted += int(result.get("inserted", 0))
+            duplicates += int(result.get("duplicates", 0))
+            sent += len(batch)
+            self.events.put(("log", f"[Supabase 업로드] {sent}/{len(rows)}개 처리 · 신규 {inserted} · 중복 {duplicates}"))
+        return inserted, duplicates
+
     def upload_candidates(self):
         if not self.access_token or not self.project_url or not self.anon_key_value:
-            messagebox.showerror("로그인 필요", "먼저 Supabase URL, anon key, 관리자 이메일과 비밀번호를 입력하고 '로그인 후 교재 CSV 저장'을 누르세요.")
+            messagebox.showerror("로그인 필요", "먼저 Supabase URL, anon/publishable key, 관리자 이메일과 비밀번호로 로그인하세요.")
             return
         if not OUTPUT.is_file():
             messagebox.showerror("결과 없음", "먼저 후보 탐색을 실행하세요.")
@@ -386,40 +460,8 @@ class FinderApp:
             return
         def worker():
             try:
-                with OUTPUT.open("r", encoding="utf-8-sig", newline="") as handle:
-                    rows = list(csv.DictReader(handle))
-                if not rows:
-                    raise RuntimeError("등록할 후보가 없습니다.")
-                invalid = [index + 2 for index, row in enumerate(rows) if not row.get("book_id") or not row.get("url")]
-                if invalid:
-                    preview = ", ".join(map(str, invalid[:10]))
-                    suffix = " 외" if len(invalid) > 10 else ""
-                    raise RuntimeError(f"CSV {len(invalid)}개 행에 교재 ID 또는 URL이 없습니다. 누락 행: {preview}{suffix}. Supabase에서 교재 목록을 다시 가져오거나 CSV를 수정하세요.")
-                inserted = duplicates = 0
-                endpoint = self.project_url + "/functions/v1/answer-link-import-candidates"
-                headers = {"apikey": self.anon_key_value, "Authorization": "Bearer " + self.access_token, "Content-Type": "application/json"}
-                for start in range(0, len(rows), 100):
-                    batch = []
-                    for row in rows[start:start + 100]:
-                        if not row.get("book_id") or not row.get("url"):
-                            continue
-                        batch.append({
-                            "book_id": row.get("book_id"),
-                            "title": row.get("candidate_title") or row.get("source_name") or "답지 후보",
-                            "url": row.get("url"),
-                            "snippet": row.get("snippet", ""),
-                            "match_status": row.get("match_status", "uncertain"),
-                            "link_type": row.get("link_type", "웹페이지"),
-                            "source_type": "official" if row.get("source_type") == "publisher" else "general",
-                            "query": row.get("search_query") or "local-search",
-                        })
-                    if not batch:
-                        continue
-                    result = request_json(endpoint, headers, {"candidates": batch})
-                    inserted += int(result.get("inserted", 0))
-                    duplicates += int(result.get("duplicates", 0))
-                    self.events.put(("log", f"등록 처리 {min(start + 100, len(rows))}/{len(rows)}"))
-                self.events.put(("done", f"사이트 등록 완료: 신규 후보 {inserted}개, 기존 중복 {duplicates}개. 관리자 페이지에서 검수하세요."))
+                inserted, duplicates = self._upload_candidate_file()
+                self.events.put(("done", f"Supabase 등록 완료: 신규 후보 {inserted}개, 기존 중복 {duplicates}개. 모두 관리자 검수 대기 상태입니다."))
             except Exception as exc:
                 self.events.put(("error", str(exc)))
         threading.Thread(target=worker, daemon=True).start()
