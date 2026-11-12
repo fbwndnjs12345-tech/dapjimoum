@@ -9,6 +9,7 @@ import argparse
 import csv
 import json
 import ipaddress
+import socket
 import os
 import re
 import sys
@@ -50,8 +51,8 @@ def norm(value: str) -> str:
     return re.sub(r"[\s·ㆍ_\-–—()[\]{}:：,.]+", "", value or "").casefold()
 
 
-def is_safe_public_url(value: str) -> bool:
-    """Reject non-web schemes, credentials, local names and literal non-public IPs."""
+def is_safe_public_url(value: str, resolve_dns: bool = False) -> bool:
+    """Reject non-web schemes, credentials, local names and non-public DNS/IP targets."""
     try:
         parsed = urlsplit(value.strip())
         if parsed.scheme.lower() not in ("http", "https") or not parsed.hostname:
@@ -63,18 +64,33 @@ def is_safe_public_url(value: str) -> bool:
             return False
         try:
             address = ipaddress.ip_address(host)
+            return address.is_global
         except ValueError:
-            return True
-        return address.is_global
+            if not resolve_dns:
+                return True
+        if resolve_dns:
+            port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+            records = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+            addresses = {ipaddress.ip_address(record[4][0].split("%", 1)[0]) for record in records}
+            return bool(addresses) and all(address.is_global for address in addresses)
+        return True
     except (ValueError, TypeError):
         return False
 
 
+class SafeRedirectHandler(__import__("urllib.request", fromlist=["HTTPRedirectHandler"]).HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not is_safe_public_url(newurl, resolve_dns=True):
+            raise HTTPError(req.full_url, code, "Unsafe redirect target blocked", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def fetch(url: str, timeout: int = 15) -> bytes:
-    if not is_safe_public_url(url):
+    if not is_safe_public_url(url, resolve_dns=True):
         raise ValueError("공개 HTTP(S) 주소만 요청할 수 있습니다.")
     req = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xml,text/xml,*/*"})
-    with urlopen(req, timeout=timeout) as response:
+    opener = __import__("urllib.request", fromlist=["build_opener"]).build_opener(SafeRedirectHandler())
+    with opener.open(req, timeout=timeout) as response:
         return response.read()
 
 
@@ -389,6 +405,14 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     with sync_playwright() as p:
         browser=p.chromium.launch(headless=not headed); context=browser.new_context(user_agent=USER_AGENT,locale="ko-KR")
         page=context.new_page(); page.set_default_navigation_timeout(timeout)
+        def guard_browser_request(route):
+            # Check every navigation, redirect and subresource before Chromium requests it.
+            if is_safe_public_url(route.request.url, resolve_dns=True):
+                route.continue_()
+            else:
+                log(callback, f"[비공개/로컬 네트워크 요청 차단] {route.request.url[:200]}")
+                route.abort("blockedbyclient")
+        page.route("**/*", guard_browser_request)
         def robots_for_target(target):
             parsed=urlparse(target); key=(parsed.scheme,parsed.netloc)
             if key not in robots_cache:
@@ -421,7 +445,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                 publisher=(source.get("publisher") or "").strip()
                 for start_url in source.get("start_urls") or []:
                     parsed=urlparse(start_url)
-                    if parsed.scheme not in ("http","https") or not parsed.hostname:
+                    if not is_safe_public_url(start_url, resolve_dns=True):
                         log(callback,f"[건너뜀] 올바르지 않은 URL: {start_url}"); continue
                     host=parsed.hostname.lower()
                     try: robots,sitemaps=robots_for(start_url)
