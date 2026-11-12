@@ -5,10 +5,18 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
 
-from finder import ALIASES, allowed_host, assess, build_queries, norm, parse_sitemap, read_books, robots_for, search_bing_rss, USER_AGENT
+from finder import ALIASES, allowed_host, assess, build_queries, is_safe_public_url, norm, parse_sitemap, read_books, robots_for, search_bing_rss, USER_AGENT
 
 
 class FinderUnitTests(unittest.TestCase):
+    def test_url_safety_rejects_non_web_and_local_targets(self):
+        for url in ("file:///etc/passwd", "javascript:alert(1)", "http://localhost/a", "http://127.0.0.1/a", "http://192.168.1.1/a", "http://service.local/a", "https://user:pass@example.com/a"):
+            self.assertFalse(is_safe_public_url(url), url)
+
+    def test_url_safety_accepts_public_web_hosts(self):
+        self.assertTrue(is_safe_public_url("https://example.com/answer"))
+        self.assertTrue(is_safe_public_url("https://blog.naver.com/post/1"))
+
     def test_normalization_ignores_spacing_and_punctuation(self):
         self.assertEqual(norm("오투 중등-과학 2·1"), norm("오투중등 과학 2-1"))
 
