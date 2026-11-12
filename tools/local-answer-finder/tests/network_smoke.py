@@ -23,6 +23,10 @@ with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
     context = browser.new_context(locale="ko-KR")
     page = context.new_page()
+    browser_ua = page.evaluate("navigator.userAgent")
+    if "DapjiMoumLocalFinder" in browser_ua:
+        raise AssertionError("Chromium search context is still overriding the native browser user-agent")
+    log(f"[PASS] Chromium native browser user-agent active: {browser_ua[:100]}")
     def guard(route):
         from finder import is_safe_public_url
         if is_safe_public_url(route.request.url, resolve_dns=False):
