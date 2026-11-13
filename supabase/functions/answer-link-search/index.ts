@@ -75,7 +75,7 @@ function matchAssessment(book: BookRow, title: string, snippet: string) {
   return { match_status: likely ? 'likely' : titleRatio < 0.25 ? 'mismatch' : 'uncertain' };
 }
 
-type HtmlSearchResult = { title: string; url: string; description: string; meta_url: { hostname: string } };
+type HtmlSearchResult = { title: string; url: string; description: string; meta_url: { hostname: string }; provider?: string };
 
 function decodeHtml(value: string): string {
   return value
@@ -136,7 +136,7 @@ function parseSearchHtml(engine: string, html: string, base: string): HtmlSearch
       ? block.match(/<a\b[^>]*class=["'][^"']*result__snippet[^"']*["'][^>]*>([\s\S]*?)<\/a>|<div\b[^>]*class=["'][^"']*result__snippet[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)
       : block.match(/<(?:p|div)\b[^>]*class=["'][^"']*(?:b_caption|snippet|VwiC3b)[^"']*["'][^>]*>([\s\S]*?)<\/(?:p|div)>/i);
     const description = stripHtml(snippetMatch?.[1] ?? snippetMatch?.[2] ?? '');
-    results.push({ title, url, description, meta_url: { hostname: new URL(url).hostname } });
+    results.push({ title, url, description, meta_url: { hostname: new URL(url).hostname }, provider: `${engine}_html` });
   }
   return results.slice(0, 10);
 }
@@ -165,6 +165,74 @@ async function searchPublicHtml(engine: 'google' | 'bing' | 'duckduckgo', query:
   const results = parseSearchHtml(engine, html, endpoints[engine]);
   if (!results.length) throw new Error(`${engine} 검색 결과를 읽지 못했습니다.`);
   return results;
+}
+
+async function searchKakao(query: string, apiKey: string, signal: AbortSignal): Promise<HtmlSearchResult[]> {
+  const endpoints = [
+    { provider: 'kakao_blog', url: 'https://dapi.kakao.com/v2/search/blog' },
+    { provider: 'kakao_cafe', url: 'https://dapi.kakao.com/v2/search/cafe' },
+    { provider: 'kakao_web', url: 'https://dapi.kakao.com/v2/search/web' },
+  ] as const;
+  const settled = await Promise.allSettled(endpoints.map(async ({ provider, url }) => {
+    const endpoint = new URL(url);
+    endpoint.searchParams.set('query', query);
+    endpoint.searchParams.set('size', '10');
+    endpoint.searchParams.set('sort', 'accuracy');
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: { Authorization: `KakaoAK ${apiKey}`, Accept: 'application/json' },
+      signal,
+    });
+    if (!response.ok) {
+      const detail = response.status === 401 ? 'REST API 키 인증 실패' :
+        response.status === 429 ? '카카오 API 쿼터 초과 또는 요청 제한' :
+        `HTTP ${response.status}`;
+      throw new Error(`Daum ${provider} ${detail}`);
+    }
+    const body = await response.json() as { documents?: Array<{ title?: string; contents?: string; url?: string; blogname?: string; cafename?: string }> };
+    return (body.documents ?? []).flatMap((doc) => {
+      const url = doc.url?.trim() ?? '';
+      if (!url || !isSafeSearchUrl(url)) return [];
+      const host = new URL(url).hostname;
+      const label = doc.blogname ?? doc.cafename ?? host;
+      return [{
+        title: stripHtml(doc.title ?? ''),
+        url,
+        description: stripHtml(doc.contents ?? ''),
+        meta_url: { hostname: host },
+        provider,
+      }];
+    });
+  }));
+  const results: HtmlSearchResult[] = [];
+  const errors: string[] = [];
+  for (let i = 0; i < settled.length; i++) {
+    const item = settled[i];
+    if (item.status === 'fulfilled') results.push(...item.value);
+    else errors.push(item.reason instanceof Error ? item.reason.message : 'Daum 검색 실패');
+  }
+  if (!results.length && errors.length === endpoints.length) throw new Error(errors.join(' / ').slice(0, 1000));
+  return results;
+}
+
+async function searchWithProviders(query: string, signal: AbortSignal, kakaoKey?: string) {
+  const settled = await Promise.allSettled([
+    searchWithoutApi(query, signal),
+    ...(kakaoKey ? [searchKakao(query, kakaoKey, signal)] : []),
+  ]);
+  const results: HtmlSearchResult[] = [];
+  const errors: string[] = [];
+  for (const item of settled) {
+    if (item.status === 'fulfilled') results.push(...item.value);
+    else errors.push(item.reason instanceof Error ? item.reason.message : '검색 실패');
+  }
+  const unique = new Map<string, HtmlSearchResult>();
+  for (const item of results) {
+    const identity = canonicalUrl(item.url);
+    if (!unique.has(identity)) unique.set(identity, item);
+  }
+  if (!unique.size && errors.length) throw new Error(errors.join(' / ').slice(0, 1000));
+  return [...unique.values()];
 }
 
 async function searchWithoutApi(query: string, signal: AbortSignal) {
@@ -205,6 +273,7 @@ Deno.serve(async (request) => {
   let payload: { action?: string; runId?: string; selectedBookIds?: string[]; includeBooksWithLinks?: boolean; reason?: string };
   try { payload = await request.json(); } catch { return json({ error: '요청 본문이 올바르지 않습니다.' }, 400); }
   const action = payload.action;
+  const kakaoRestApiKey = Deno.env.get('KAKAO_REST_API_KEY')?.trim();
 
   if (action === 'start') {
     const selectedIds = Array.isArray(payload.selectedBookIds) ? [...new Set(payload.selectedBookIds.filter(id => typeof id === 'string'))] : [];
@@ -315,8 +384,8 @@ Deno.serve(async (request) => {
         const resultQueries: string[] = [];
         for (const query of queries) {
           await new Promise(resolve => setTimeout(resolve, 500));
-          apiRequests += 3;
-          const queryResults = await searchWithoutApi(query, controller.signal);
+          apiRequests += kakaoRestApiKey ? 6 : 3; // Three public HTML requests, plus three Kakao REST requests when configured.
+          const queryResults = await searchWithProviders(query, controller.signal, kakaoRestApiKey);
           for (const result of queryResults) {
             results.push(result);
             resultQueries.push(query);
@@ -361,7 +430,7 @@ Deno.serve(async (request) => {
             source_name: candidate.host,
             link_type: candidate.link_type,
             source_type: 'unknown',
-            query: candidate.query,
+            query: candidate.provider ? `[${candidate.provider}] ${candidate.query}` : candidate.query,
             snippet: candidate.snippet,
             match_status: candidate.match_status,
             status: isDuplicate ? 'duplicate' : 'pending',
