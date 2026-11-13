@@ -9,7 +9,7 @@ const corsHeaders = {
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: corsHeaders });
 const PAGE_SIZE = 1000;
-const BATCH_SIZE = 5;
+const BATCH_SIZE = 2;
 
 function readSupabaseKey(legacyName: string, keySetName: string): string | undefined {
   const legacyKey = Deno.env.get(legacyName);
@@ -50,12 +50,18 @@ function isSafeSearchUrl(value: string): boolean {
   } catch { return false; }
 }
 
-function queryFor(book: BookRow, extra = false): string {
+function queriesFor(book: BookRow): string[] {
   const details = [book.publisher, book.subject, book.grade, book.semester, book.series]
     .map(value => value?.trim()).filter(Boolean).join(' ');
-  return extra
-    ? `"${book.title}" ${details} 정답 해설 공식 자료실`
-    : `"${book.title}" ${details} 정답과 해설`;
+  const title = book.title.trim();
+  const queries = [
+    `"${title}" 답지 ${details}`,
+    `"${title}" 정답과 해설 ${details}`,
+    `"${title}" site:tistory.com 답지`,
+    `"${title}" site:blog.naver.com 답지`,
+    `"${title}" site:cafe.naver.com 답지`,
+  ];
+  return [...new Set(queries.map(value => value.replace(/\\s+/g, ' ').trim()))].slice(0, 3);
 }
 
 function matchAssessment(book: BookRow, title: string, snippet: string) {
@@ -69,22 +75,112 @@ function matchAssessment(book: BookRow, title: string, snippet: string) {
   return { match_status: likely ? 'likely' : titleRatio < 0.25 ? 'mismatch' : 'uncertain' };
 }
 
-async function searchBrave(query: string, apiKey: string, signal: AbortSignal) {
-  const url = new URL('https://api.search.brave.com/res/v1/web/search');
-  url.searchParams.set('q', query);
-  url.searchParams.set('count', '10');
-  url.searchParams.set('country', 'KR');
-  url.searchParams.set('search_lang', 'ko');
-  const response = await fetch(url, {
-    headers: { 'Accept': 'application/json', 'X-Subscription-Token': apiKey },
+type HtmlSearchResult = { title: string; url: string; description: string; meta_url: { hostname: string } };
+
+function decodeHtml(value: string): string {
+  return value
+    .replace(/&amp;/gi, '&').replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&#(\\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)));
+}
+
+function stripHtml(value: string): string {
+  return decodeHtml(value.replace(/<script[\\s\\S]*?<\\/script>/gi, ' ')
+    .replace(/<style[\\s\\S]*?<\\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ')).trim();
+}
+
+function extractHref(raw: string, base: string): string | null {
+  try {
+    const decoded = decodeHtml(raw.replace(/^['"]|['"]$/g, ''));
+    const parsed = new URL(decoded, base);
+    if (parsed.hostname.endsWith('google.com') && parsed.pathname === '/url') {
+      const target = parsed.searchParams.get('q') ?? parsed.searchParams.get('url');
+      if (target) return new URL(target).toString();
+    }
+    if (parsed.hostname.includes('duckduckgo.com') && parsed.pathname.includes('/l/')) {
+      const target = parsed.searchParams.get('uddg');
+      if (target) return new URL(target).toString();
+    }
+    return parsed.toString();
+  } catch { return null; }
+}
+
+function parseSearchHtml(engine: string, html: string, base: string): HtmlSearchResult[] {
+  const results: HtmlSearchResult[] = [];
+  const seen = new Set<string>();
+  const blocks: string[] = [];
+  if (engine === 'google') {
+    for (const match of html.matchAll(/<a\\b[^>]*href\\s*=\\s*["']([^"']+)["'][^>]*>([\\s\\S]*?<h3\\b[\\s\\S]*?<\\/h3>[\\s\\S]*?)<\\/a>/gi)) {
+      blocks.push(match[0]);
+    }
+  } else if (engine === 'bing') {
+    for (const match of html.matchAll(/<li\\b[^>]*class=["'][^"']*b_algo[^"']*["'][^>]*>[\\s\\S]*?<\\/li>/gi)) blocks.push(match[0]);
+  } else {
+    for (const match of html.matchAll(/<div\\b[^>]*class=["'][^"']*result[^"']*["'][^>]*>[\\s\\S]*?<\\/div>/gi)) blocks.push(match[0]);
+  }
+  for (const block of blocks) {
+    const anchor = engine === 'duckduckgo'
+      ? block.match(/<a\\b[^>]*class=["'][^"']*result__a[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/i)
+      : engine === 'bing'
+        ? block.match(/<h2\\b[^>]*>[\\s\\S]*?<a\\b[^>]*href=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>[\\s\\S]*?<\\/h2>/i)
+        : block.match(/<a\\b[^>]*href=["']([^"']+)["'][^>]*>[\\s\\S]*?<h3\\b[^>]*>([\\s\\S]*?)<\\/h3>[\\s\\S]*?<\\/a>/i);
+    if (!anchor) continue;
+    const url = extractHref(anchor[1], base);
+    if (!url || !isSafeSearchUrl(url)) continue;
+    const title = stripHtml(anchor[2]);
+    if (!title || seen.has(canonicalUrl(url))) continue;
+    seen.add(canonicalUrl(url));
+    const snippetMatch = engine === 'duckduckgo'
+      ? block.match(/<a\\b[^>]*class=["'][^"']*result__snippet[^"']*["'][^>]*>([\\s\\S]*?)<\\/a>|<div\\b[^>]*class=["'][^"']*result__snippet[^"']*["'][^>]*>([\\s\\S]*?)<\\/div>/i)
+      : block.match(/<(?:p|div)\\b[^>]*class=["'][^"']*(?:b_caption|snippet|VwiC3b)[^"']*["'][^>]*>([\\s\\S]*?)<\\/(?:p|div)>/i);
+    const description = stripHtml(snippetMatch?.[1] ?? snippetMatch?.[2] ?? '');
+    results.push({ title, url, description, meta_url: { hostname: new URL(url).hostname } });
+  }
+  return results.slice(0, 10);
+}
+
+async function searchPublicHtml(engine: 'google' | 'bing' | 'duckduckgo', query: string, signal: AbortSignal): Promise<HtmlSearchResult[]> {
+  const encoded = encodeURIComponent(query);
+  const endpoints: Record<typeof engine, string> = {
+    google: `https://www.google.com/search?q=${encoded}&num=10&hl=ko&gl=kr`,
+    bing: `https://www.bing.com/search?q=${encoded}&count=10&setlang=ko-KR`,
+    duckduckgo: `https://html.duckduckgo.com/html/?q=${encoded}`,
+  };
+  const response = await fetch(endpoints[engine], {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.7',
+    },
+    redirect: 'follow',
     signal,
   });
-  if (!response.ok) {
-    const message = response.status === 429 ? '검색 API 요청 한도에 도달했습니다.' : `Brave 검색 API 오류 (${response.status})`;
-    throw Object.assign(new Error(message), { status: response.status });
+  if (!response.ok) throw new Error(`${engine} 검색 페이지 응답 오류 (${response.status})`);
+  const html = await response.text();
+  if (/captcha|unusual traffic|자동화된 요청|verify you are human|robot check/i.test(html)) {
+    throw new Error(`${engine} 검색 페이지에서 자동 요청 확인이 발생했습니다.`);
   }
-  const body = await response.json();
-  return (body?.web?.results ?? []) as Array<{ title?: string; url?: string; description?: string; meta_url?: { hostname?: string; netloc?: string } }>;
+  const results = parseSearchHtml(engine, html, endpoints[engine]);
+  if (!results.length) throw new Error(`${engine} 검색 결과를 읽지 못했습니다.`);
+  return results;
+}
+
+async function searchWithoutApi(query: string, signal: AbortSignal) {
+  const engines = ['google', 'bing', 'duckduckgo'] as const;
+  const settled = await Promise.allSettled(engines.map(engine => searchPublicHtml(engine, query, signal)));
+  const results: HtmlSearchResult[] = [];
+  const errors: string[] = [];
+  for (let i = 0; i < settled.length; i++) {
+    const item = settled[i];
+    if (item.status === 'fulfilled') results.push(...item.value);
+    else errors.push(`${engines[i]}: ${item.reason instanceof Error ? item.reason.message : '검색 실패'}`);
+  }
+  const unique = new Map<string, HtmlSearchResult>();
+  for (const item of results) if (!unique.has(canonicalUrl(item.url))) unique.set(canonicalUrl(item.url), item);
+  if (!unique.size && errors.length) throw new Error(errors.join(' / ').slice(0, 1000));
+  return [...unique.values()];
 }
 
 Deno.serve(async (request) => {
@@ -184,8 +280,6 @@ Deno.serve(async (request) => {
     const { data: ownedRun, error: ownedRunError } = await admin.from('answer_link_search_runs').select('id').eq('id', payload.runId).eq('created_by', authData.user.id).maybeSingle();
     if (ownedRunError) return json({ error: ownedRunError.message }, 500);
     if (!ownedRun) return json({ error: '검색 작업을 찾을 수 없거나 접근 권한이 없습니다.' }, 404);
-    const apiKey = Deno.env.get('BRAVE_SEARCH_API_KEY');
-    if (!apiKey) return json({ error: 'BRAVE_SEARCH_API_KEY 서버 설정이 필요합니다.' }, 503);
     const lockToken = crypto.randomUUID();
     const { data: claim, error: claimError } = await admin.rpc('claim_answer_link_search_batch', { p_run_id: payload.runId, p_lock_token: lockToken, p_batch_size: BATCH_SIZE });
     if (claimError) return json({ error: `검색 배치를 가져오지 못했습니다: ${claimError.message}` }, 500);
@@ -202,7 +296,7 @@ Deno.serve(async (request) => {
     const bookById = new Map(((batchBooks ?? []) as BookRow[]).map(book => [book.id, book]));
     let processed = 0;
     let candidateCount = 0;
-    let apiRequests = 0;
+    let apiRequests = 0; // Legacy database column; counts public HTML search-page requests.
     const failedBookIds: string[] = [];
     const errors: string[] = [];
     let rateLimited = false;
@@ -216,19 +310,19 @@ Deno.serve(async (request) => {
       let timeout: ReturnType<typeof setTimeout> | undefined;
       try {
         const controller = new AbortController();
-        timeout = setTimeout(() => controller.abort(), 12_000);
-        const primaryQuery = queryFor(book);
-        await new Promise(resolve => setTimeout(resolve, 350));
-        apiRequests += 1;
-        let results = await searchBrave(primaryQuery, apiKey, controller.signal);
-        let resultQueries = results.map(() => primaryQuery);
-        if (results.length < 3) {
-          await new Promise(resolve => setTimeout(resolve, 350));
-          apiRequests += 1;
-          const extraQuery = queryFor(book, true);
-          const extraResults = await searchBrave(extraQuery, apiKey, controller.signal);
-          results = [...results, ...extraResults];
-          resultQueries = [...resultQueries, ...extraResults.map(() => extraQuery)];
+        timeout = setTimeout(() => controller.abort(), 25_000);
+        const queries = queriesFor(book);
+        const results: HtmlSearchResult[] = [];
+        const resultQueries: string[] = [];
+        for (const query of queries) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+          apiRequests += 3;
+          const queryResults = await searchWithoutApi(query, controller.signal);
+          for (const result of queryResults) {
+            results.push(result);
+            resultQueries.push(query);
+          }
+          if (results.length >= 12) break;
         }
         clearTimeout(timeout);
         timeout = undefined;
@@ -291,7 +385,7 @@ Deno.serve(async (request) => {
         failedBookIds.push(book.id);
         const message = error instanceof Error ? error.message : '검색 중 오류가 발생했습니다.';
         errors.push(`${book.title}: ${message}`);
-        if ((error as { status?: number }).status === 429) { rateLimited = true; break; }
+        
       }
       processed += 1;
     }
@@ -306,7 +400,7 @@ Deno.serve(async (request) => {
       p_error: errors.length ? errors.join(' | ').slice(0, 1500) : null,
     });
     if (finishError) return json({ error: `검색 결과를 저장하지 못했습니다: ${finishError.message}` }, 500);
-    return json({ processed, candidates: candidateCount, apiRequests, failed: failedBookIds.length, rateLimited, errors });
+    return json({ processed, candidates: candidateCount, searchRequests: apiRequests, failed: failedBookIds.length, errors });
   }
 
   return json({ error: '지원하지 않는 작업입니다.' }, 400);
