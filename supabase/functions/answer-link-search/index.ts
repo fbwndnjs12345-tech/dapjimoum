@@ -81,14 +81,14 @@ function decodeHtml(value: string): string {
   return value
     .replace(/&amp;/gi, '&').replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'")
     .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
-    .replace(/&#(\\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
     .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)));
 }
 
 function stripHtml(value: string): string {
-  return decodeHtml(value.replace(/<script[\\s\\S]*?<\\/script>/gi, ' ')
-    .replace(/<style[\\s\\S]*?<\\/style>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ')).trim();
+  return decodeHtml(value.replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')).trim();
 }
 
 function extractHref(raw: string, base: string): string | null {
@@ -112,20 +112,20 @@ function parseSearchHtml(engine: string, html: string, base: string): HtmlSearch
   const seen = new Set<string>();
   const blocks: string[] = [];
   if (engine === 'google') {
-    for (const match of html.matchAll(/<a\\b[^>]*href\\s*=\\s*["']([^"']+)["'][^>]*>([\\s\\S]*?<h3\\b[\\s\\S]*?<\\/h3>[\\s\\S]*?)<\\/a>/gi)) {
+    for (const match of html.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?<h3\b[\s\S]*?<\/h3>[\s\S]*?)<\/a>/gi)) {
       blocks.push(match[0]);
     }
   } else if (engine === 'bing') {
-    for (const match of html.matchAll(/<li\\b[^>]*class=["'][^"']*b_algo[^"']*["'][^>]*>[\\s\\S]*?<\\/li>/gi)) blocks.push(match[0]);
+    for (const match of html.matchAll(/<li\b[^>]*class=["'][^"']*b_algo[^"']*["'][^>]*>[\s\S]*?<\/li>/gi)) blocks.push(match[0]);
   } else {
-    for (const match of html.matchAll(/<div\\b[^>]*class=["'][^"']*result[^"']*["'][^>]*>[\\s\\S]*?<\\/div>/gi)) blocks.push(match[0]);
+    for (const match of html.matchAll(/<div\b[^>]*class=["'][^"']*result[^"']*["'][^>]*>[\s\S]*?<\/div>/gi)) blocks.push(match[0]);
   }
   for (const block of blocks) {
     const anchor = engine === 'duckduckgo'
-      ? block.match(/<a\\b[^>]*class=["'][^"']*result__a[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/i)
+      ? block.match(/<a\b[^>]*class=["'][^"']*result__a[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i)
       : engine === 'bing'
-        ? block.match(/<h2\\b[^>]*>[\\s\\S]*?<a\\b[^>]*href=["']([^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>[\\s\\S]*?<\\/h2>/i)
-        : block.match(/<a\\b[^>]*href=["']([^"']+)["'][^>]*>[\\s\\S]*?<h3\\b[^>]*>([\\s\\S]*?)<\\/h3>[\\s\\S]*?<\\/a>/i);
+        ? block.match(/<h2\b[^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/h2>/i)
+        : block.match(/<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<h3\b[^>]*>([\s\S]*?)<\/h3>[\s\S]*?<\/a>/i);
     if (!anchor) continue;
     const url = extractHref(anchor[1], base);
     if (!url || !isSafeSearchUrl(url)) continue;
@@ -133,8 +133,8 @@ function parseSearchHtml(engine: string, html: string, base: string): HtmlSearch
     if (!title || seen.has(canonicalUrl(url))) continue;
     seen.add(canonicalUrl(url));
     const snippetMatch = engine === 'duckduckgo'
-      ? block.match(/<a\\b[^>]*class=["'][^"']*result__snippet[^"']*["'][^>]*>([\\s\\S]*?)<\\/a>|<div\\b[^>]*class=["'][^"']*result__snippet[^"']*["'][^>]*>([\\s\\S]*?)<\\/div>/i)
-      : block.match(/<(?:p|div)\\b[^>]*class=["'][^"']*(?:b_caption|snippet|VwiC3b)[^"']*["'][^>]*>([\\s\\S]*?)<\\/(?:p|div)>/i);
+      ? block.match(/<a\b[^>]*class=["'][^"']*result__snippet[^"']*["'][^>]*>([\s\S]*?)<\/a>|<div\b[^>]*class=["'][^"']*result__snippet[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)
+      : block.match(/<(?:p|div)\b[^>]*class=["'][^"']*(?:b_caption|snippet|VwiC3b)[^"']*["'][^>]*>([\s\S]*?)<\/(?:p|div)>/i);
     const description = stripHtml(snippetMatch?.[1] ?? snippetMatch?.[2] ?? '');
     results.push({ title, url, description, meta_url: { hostname: new URL(url).hostname } });
   }
