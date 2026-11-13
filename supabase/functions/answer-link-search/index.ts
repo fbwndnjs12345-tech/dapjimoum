@@ -61,7 +61,7 @@ function queriesFor(book: BookRow): string[] {
     `"${title}" site:blog.naver.com 답지`,
     `"${title}" site:cafe.naver.com 답지`,
   ];
-  return [...new Set(queries.map(value => value.replace(/\\s+/g, ' ').trim()))].slice(0, 4);
+  return [...new Set(queries.map(value => value.replace(/\s+/g, ' ').trim()))].slice(0, 5);
 }
 
 function matchAssessment(book: BookRow, title: string, snippet: string) {
