@@ -86,9 +86,9 @@ class FinderEndToEndTests(unittest.TestCase):
                     }
                 }, ensure_ascii=False), encoding="utf-8")
                 output = root / "answer-link-candidates.csv"
-                with patch("finder.search_google_page", return_value=[search_result]) as google, \\
-                     patch("finder.search_bing_rss", return_value=[search_result]) as bing:
-                    count = run_search(books, output, config, False, 10, lambda _line: None)
+                with patch("finder.search_google_page", return_value=[search_result]) as google:
+                    with patch("finder.search_bing_rss", return_value=[search_result]) as bing:
+                        count = run_search(books, output, config, False, 10, lambda _line: None)
                 self.assertGreaterEqual(count, 1)
                 self.assertTrue(output.is_file())
                 with output.open("r", encoding="utf-8-sig", newline="") as handle:
