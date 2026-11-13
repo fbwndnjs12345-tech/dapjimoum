@@ -364,6 +364,21 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     with sync_playwright() as p:
         browser=p.chromium.launch(headless=not headed); context=browser.new_context(user_agent=USER_AGENT,locale="ko-KR")
         page=context.new_page(); page.set_default_navigation_timeout(timeout)
+        # A headed Playwright window starts at about:blank. Show a local status
+        # screen immediately, before sitemap/RSS requests can take time.
+        page.set_content("""<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>답지모음 탐색 진행 중</title>
+<style>
+body{font-family:Arial,'Malgun Gothic',sans-serif;background:#f8fafc;color:#172033;display:grid;place-items:center;min-height:90vh;margin:0}
+main{max-width:620px;padding:36px;background:white;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 12px 36px #0f172a12}
+h1{font-size:22px;margin:0 0 12px}p{line-height:1.7;color:#475569}small{color:#64748b}
+</style></head><body><main><h1>답지모음 링크 탐색기가 준비되었습니다.</h1>
+<p>교재별 공개 검색과 출판사 자료실 확인을 진행하고 있습니다.</p>
+<p>실제 검색이 시작되면 이 창에 Google 또는 확인 중인 웹페이지가 표시됩니다.</p>
+<small>이 화면은 오류가 아닌 탐색 대기 화면입니다. 진행 상황은 프로그램의 로그에서 확인할 수 있습니다.</small>
+</main></body></html>""", wait_until="domcontentloaded")
+        log(callback, "[브라우저 준비] 빈 about:blank 대신 탐색 상태 화면을 표시했습니다.")
         def robots_for_target(target):
             parsed=urlparse(target); key=(parsed.scheme,parsed.netloc)
             if key not in robots_cache:
