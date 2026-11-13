@@ -222,6 +222,8 @@ async function searchNaverApiHub(query: string, clientId: string, clientSecret: 
   const settled = await Promise.allSettled(endpoints.map(async ({ provider, path }) => {
     const endpoint = new URL(`https://naverapihub.apigw.ntruss.com${path}`);
     endpoint.searchParams.set('query', query);
+    endpoint.searchParams.set('display', '10');
+    endpoint.searchParams.set('format', 'json');
     const response = await fetch(endpoint, {
       method: 'GET',
       headers: {
