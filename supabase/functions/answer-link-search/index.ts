@@ -126,8 +126,28 @@ Deno.serve(async (request) => {
   if (authError || !authData.user) return json({ error: '로그인이 필요합니다.' }, 401);
 
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { data: adminRow, error: adminError } = await admin.from('admin_users').select('user_id').eq('user_id', authData.user.id).maybeSingle();
-  if (adminError || !adminRow) return json({ error: '관리자 권한이 필요합니다.' }, 403);
+  const verifiedEmail = authData.user.email?.trim().toLowerCase();
+  if (!verifiedEmail || !authData.user.email_confirmed_at) {
+    return json({ error: '관리자 계정의 인증된 이메일을 확인할 수 없습니다. 이메일 인증 후 다시 로그인해 주세요.' }, 403);
+  }
+
+  // UUID is the primary identity. A verified matching admin email can repair
+  // an outdated UUID mapping if the auth account was recreated.
+  const { data: adminById, error: adminIdError } = await admin
+    .from('admin_users').select('user_id,email').eq('user_id', authData.user.id).maybeSingle();
+  if (adminIdError) return json({ error: '관리자 권한 정보를 확인하지 못했습니다.' }, 500);
+
+  if (!adminById) {
+    const { data: adminByEmail, error: adminEmailError } = await admin
+      .from('admin_users').select('user_id,email').eq('email', verifiedEmail).maybeSingle();
+    if (adminEmailError) return json({ error: '관리자 이메일 권한을 확인하지 못했습니다.' }, 500);
+    if (!adminByEmail) return json({ error: '관리자 권한이 필요합니다.' }, 403);
+
+    const { error: repairError } = await admin.from('admin_users')
+      .update({ user_id: authData.user.id })
+      .eq('user_id', adminByEmail.user_id);
+    if (repairError) return json({ error: '관리자 계정 연결을 복구하지 못했습니다.' }, 500);
+  }
 
   let payload: { action?: string; runId?: string; selectedBookIds?: string[]; includeBooksWithLinks?: boolean; reason?: string };
   try { payload = await request.json(); } catch { return json({ error: '요청 본문이 올바르지 않습니다.' }, 400); }
