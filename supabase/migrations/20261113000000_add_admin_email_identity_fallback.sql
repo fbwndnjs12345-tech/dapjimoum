@@ -11,3 +11,5 @@ where auth_user.id = admin.user_id
 create unique index if not exists admin_users_email_lower_unique
   on public.admin_users (lower(email))
   where email is not null;
+
+grant select, update on table public.admin_users to service_role;
