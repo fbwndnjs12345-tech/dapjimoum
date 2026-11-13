@@ -1,0 +1,226 @@
+import csv
+import tempfile
+import queue
+import socket
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+from urllib.error import HTTPError
+
+from app import FinderApp
+from finder import ALIASES, SafeRedirectHandler, allowed_host, assess, build_queries, is_safe_public_url, norm, parse_sitemap, read_books, robots_for, search_bing_rss, USER_AGENT
+
+
+class FinderUnitTests(unittest.TestCase):
+    @patch("app.request_json")
+    def test_supabase_upload_sends_batches_and_counts_duplicates(self, request):
+        import app
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "candidates.csv"
+            with path.open("w", encoding="utf-8-sig", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=["book_id", "candidate_title", "url", "snippet", "match_status", "link_type", "source_type", "search_query"])
+                writer.writeheader()
+                for index in range(101):
+                    writer.writerow({"book_id": "book-1", "candidate_title": f"후보 {index}", "url": f"https://example.com/{index}", "snippet": "정답과 해설", "match_status": "uncertain", "link_type": "웹페이지", "source_type": "web-search", "search_query": "교재 답지"})
+            fake = object.__new__(FinderApp)
+            fake.project_url = "https://project.supabase.co"
+            fake.anon_key_value = "public-test-key"
+            fake.access_token = "user-access-token"
+            fake.refresh_token = "refresh-token"
+            fake.events = queue.Queue()
+            with patch.object(app, "OUTPUT", path):
+                request.side_effect = [
+                    {"inserted": 98, "received": 100, "duplicates": 2},
+                    {"inserted": 1, "received": 1, "duplicates": 0},
+                ]
+                inserted, duplicates = fake._upload_candidate_file()
+            self.assertEqual((inserted, duplicates), (99, 2))
+            self.assertEqual(request.call_count, 2)
+            self.assertEqual(len(request.call_args_list[0].args[2]["candidates"]), 100)
+            self.assertEqual(len(request.call_args_list[1].args[2]["candidates"]), 1)
+
+    def test_supabase_upload_rejects_missing_book_ids_before_network(self):
+        import app
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "candidates.csv"
+            path.write_text("book_id,url\n,https://example.com/a\n", encoding="utf-8-sig")
+            fake = object.__new__(FinderApp)
+            fake.project_url = "https://project.supabase.co"
+            fake.anon_key_value = "public-test-key"
+            fake.access_token = "user-access-token"
+            fake.events = queue.Queue()
+            with patch.object(app, "OUTPUT", path), patch("app.request_json") as request:
+                with self.assertRaisesRegex(RuntimeError, "교재 ID"):
+                    fake._upload_candidate_file()
+                request.assert_not_called()
+
+    def test_url_safety_rejects_non_web_and_local_targets(self):
+        for url in ("file:///etc/passwd", "javascript:alert(1)", "http://localhost/a", "http://127.0.0.1/a", "http://192.168.1.1/a", "http://service.local/a", "https://user:pass@example.com/a"):
+            self.assertFalse(is_safe_public_url(url), url)
+
+    def test_url_safety_accepts_public_web_hosts(self):
+        self.assertTrue(is_safe_public_url("https://example.com/answer"))
+        self.assertTrue(is_safe_public_url("https://blog.naver.com/post/1"))
+
+    @patch("finder.socket.getaddrinfo")
+    def test_dns_safety_rejects_private_and_mixed_dns_answers(self, getaddrinfo):
+        public = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))
+        private = (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))
+        getaddrinfo.return_value = [private]
+        self.assertFalse(is_safe_public_url("https://attacker.example", resolve_dns=True))
+        getaddrinfo.return_value = [public, private]
+        self.assertFalse(is_safe_public_url("https://mixed.example", resolve_dns=True))
+        getaddrinfo.return_value = [public]
+        self.assertTrue(is_safe_public_url("https://public.example", resolve_dns=True))
+
+    @patch("finder.socket.getaddrinfo", side_effect=OSError("DNS unavailable"))
+    def test_dns_safety_fails_closed_when_resolution_fails(self, _getaddrinfo):
+        self.assertFalse(is_safe_public_url("https://unresolved.example", resolve_dns=True))
+
+    def test_redirect_handler_blocks_private_ip_redirect(self):
+        from urllib.request import Request
+        handler = SafeRedirectHandler()
+        request = Request("https://public.example/start")
+        with self.assertRaises(HTTPError):
+            handler.redirect_request(request, None, 302, "Found", {}, "http://127.0.0.1/admin")
+
+    def test_normalization_ignores_spacing_and_punctuation(self):
+        self.assertEqual(norm("오투 중등-과학 2·1"), norm("오투중등 과학 2-1"))
+
+    def test_read_books_utf8_bom_and_korean_headers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "books.csv"
+            path.write_text("교재 ID,교재명,출판사\nB-01,오투 과학,비상교육\n", encoding="utf-8-sig")
+            rows = read_books(path)
+        self.assertEqual(rows[0]["id"], "B-01")
+        self.assertEqual(rows[0]["title"], "오투 과학")
+        self.assertEqual(rows[0]["publisher"], "비상교육")
+
+    def test_read_books_cp949(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "books.csv"
+            path.write_bytes("교재명,출판사\n오투 과학,비상교육\n".encode("cp949"))
+            rows = read_books(path)
+        self.assertEqual(rows[0]["title"], "오투 과학")
+
+    def test_read_books_rejects_missing_title_column(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "books.csv"
+            path.write_text("id,publisher\n1,비상교육\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "교재명"):
+                read_books(path)
+
+    def test_read_books_skips_blank_titles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "books.csv"
+            path.write_text("id,title\n1,오투 과학\n2,\n", encoding="utf-8")
+            self.assertEqual(len(read_books(path)), 1)
+
+    def test_assess_exact_answer_page_as_likely(self):
+        book = {"title": "오투 중등 과학 2-1"}
+        score, status, matched = assess(book, "오투 중등 과학 2-1 정답과 해설", "정답과 해설", ["정답과 해설"])
+        self.assertGreaterEqual(score, 90)
+        self.assertEqual(status, "likely")
+        self.assertIn("정답과 해설", matched)
+
+    def test_assess_unrelated_page_as_mismatch(self):
+        book = {"title": "오투 중등 과학 2-1"}
+        _, status, _ = assess(book, "개인 블로그 여행 후기", "맛집 방문기", ["정답과 해설", "답지"])
+        self.assertEqual(status, "mismatch")
+
+    def test_assess_partial_answer_match_as_uncertain(self):
+        book = {"title": "오투 중등 과학 2-1"}
+        _, status, _ = assess(book, "오투 과학 정답과 해설", "정답과 해설", ["정답과 해설"])
+        self.assertIn(status, ("likely", "uncertain"))
+
+    def test_assess_rejects_wrong_edition(self):
+        book = {"title": "오투 중등 과학 1-2"}
+        _, status, _ = assess(book, "오투 중등 과학 2-1 정답과 해설", "정답과 해설", ["정답과 해설"])
+        self.assertEqual(status, "mismatch")
+
+    def test_assess_requires_answer_evidence(self):
+        book = {"title": "오투 중등 과학 1-2"}
+        _, status, _ = assess(book, "오투 중등 과학 1-2 목차", "교재 소개 및 목차", ["정답과 해설", "답지"])
+        self.assertEqual(status, "mismatch")
+
+    def test_assess_rejects_check_icon_page_for_checkcheck_textbook(self):
+        book = {"title": "체크체크 중학 수학 2-1", "series": "체크체크",
+                "subject": "수학", "grade": "중2", "semester": "1학기"}
+        _, status, _ = assess(book, "체크 이모티콘 모음 - 체크 표시 아이콘",
+                              "각종 체크 표시와 정답 해설 아이콘을 제공합니다.", ["정답과 해설", "답지"])
+        self.assertEqual(status, "mismatch")
+
+    def test_assess_accepts_exact_checkcheck_answer_page(self):
+        book = {"title": "체크체크 중학 수학 2-1", "series": "체크체크",
+                "subject": "수학", "grade": "중2", "semester": "1학기"}
+        score, status, _ = assess(book, "체크체크 중학 수학 2-1 수학 정답과 해설",
+                                  "중2 1학기 체크체크 수학 답지", ["정답과 해설", "답지"])
+        self.assertGreaterEqual(score, 75)
+        self.assertEqual(status, "likely")
+
+    def test_assess_rejects_same_series_wrong_subject_or_edition(self):
+        book = {"title": "체크체크 중학 수학 2-1", "series": "체크체크",
+                "subject": "수학", "grade": "중2"}
+        _, status, _ = assess(book, "체크체크 중학 과학 2-1 정답과 해설",
+                              "체크체크 과학 답지", ["답지"])
+        self.assertEqual(status, "mismatch")
+
+    def test_build_queries_includes_blog_platforms(self):
+        book = {"title": "오투 중등 과학 1-2", "series": "오투", "subject": "과학",
+                "grade": "중1", "semester": "2학기"}
+        queries = build_queries(book, 8)
+        self.assertGreaterEqual(len(queries), 6)
+        self.assertTrue(any("tistory.com" in q for q in queries))
+        self.assertTrue(any("blog.naver.com" in q for q in queries))
+
+    def test_build_queries_combines_textbook_metadata_and_answer_intent(self):
+        book = {"title": "체크체크 중학 수학 2-1", "publisher": "천재교육",
+                "series": "체크체크", "subject": "수학", "grade": "중2",
+                "semester": "1학기"}
+        queries = build_queries(book, 8)
+        self.assertTrue(any('"체크체크 중학 수학 2-1" "답지"' in q for q in queries))
+        self.assertTrue(any('"체크체크 수학 중2 1학기 2-1" "답지"' in q for q in queries))
+        self.assertTrue(any('"천재교육 체크체크 수학 중2 1학기 2-1" "답지"' in q for q in queries))
+        self.assertTrue(any("site:tistory.com" in q for q in queries))
+        self.assertTrue(any("site:blog.naver.com" in q for q in queries))
+
+    def test_missing_robots_file_is_treated_as_no_published_rules(self):
+        error = HTTPError("https://example.com/robots.txt", 404, "Not Found", {}, None)
+        with patch("finder.fetch", side_effect=error):
+            parser, sitemaps = robots_for("https://example.com/resources")
+        self.assertEqual(sitemaps, [])
+        self.assertTrue(parser.can_fetch(USER_AGENT, "https://example.com/resources"))
+
+    def test_bing_rss_search_result_parsing(self):
+        rss = """<?xml version="1.0"?><rss><channel><item><title>오투 과학 정답과 해설</title><link>https://example.com/answer</link><description>정답과 해설 자료</description></item></channel></rss>""".encode("utf-8")
+        with patch("finder.fetch", return_value=rss):
+            results = search_bing_rss("오투 과학 답지", 5)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["url"], "https://example.com/answer")
+        self.assertIn("정답과 해설", results[0]["title"])
+        self.assertIn("자료", results[0]["snippet"])
+
+    def test_parse_sitemap_urlset(self):
+        xml = b'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://example.com/a</loc></url></urlset>'
+        kind, urls = parse_sitemap(xml)
+        self.assertEqual(kind, "urlset")
+        self.assertEqual(urls, ["https://example.com/a"])
+
+    def test_parse_sitemap_index(self):
+        xml = b'<sitemapindex><sitemap><loc>https://example.com/sitemap-a.xml</loc></sitemap></sitemapindex>'
+        kind, urls = parse_sitemap(xml)
+        self.assertEqual(kind, "sitemapindex")
+        self.assertEqual(len(urls), 1)
+
+    def test_same_host_check_rejects_subdomain_and_external_host(self):
+        self.assertTrue(allowed_host("https://example.com/a", "example.com"))
+        self.assertFalse(allowed_host("https://sub.example.com/a", "example.com"))
+        self.assertFalse(allowed_host("https://other.com/a", "example.com"))
+
+    def test_all_expected_alias_groups_have_entries(self):
+        for key in ("id", "title", "publisher", "subject", "grade", "semester", "series"):
+            self.assertTrue(ALIASES[key])
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

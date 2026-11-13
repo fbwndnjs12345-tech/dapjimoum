@@ -47,6 +47,19 @@ export function AdminLinkSearchPage() {
   const pumpGuard = useRef(false);
   const PAGE_SIZE = 25;
 
+  const requestStopNotifications = useCallback(async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (Notification.permission === 'default') {
+      try { await Notification.requestPermission(); } catch { /* In-page notices remain available. */ }
+    }
+  }, []);
+
+  const notifySearchStatus = useCallback((title: string, body: string) => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try { new Notification(title, { body }); } catch { /* Browser notification may be unavailable. */ }
+    }
+  }, []);
+
   const loadData = useCallback(async () => {
     setIsLoading(true);
     setError('');
@@ -115,6 +128,7 @@ export function AdminLinkSearchPage() {
         const current = latest as Run;
         if (current.status !== 'running') {
           setNotice(current.status === 'completed' ? '검색 작업이 완료되었습니다.' : '검색 작업이 중지되었습니다.');
+          notifySearchStatus(current.status === 'completed' ? '답지 검색 완료' : '답지 검색 중지', current.status === 'completed' ? `교재 ${current.processed_books}권 처리, 후보 ${current.candidate_count}개` : `진행 ${current.processed_books}/${current.book_ids.length}권`);
           break;
         }
         if (result.busy) {
@@ -125,6 +139,7 @@ export function AdminLinkSearchPage() {
         if (result.rateLimited) {
           await invoke({ action: 'pause', runId, reason: '검색 API 요청 한도 초과' });
           setNotice('검색 API 요청 한도에 도달해 작업을 중지했습니다. 제한이 풀린 뒤 실패 교재를 재시도해 주세요.');
+          notifySearchStatus('답지 검색 일시 중지', '검색 API 요청 한도에 도달했습니다. 관리자 페이지에서 실패 교재를 재시도할 수 있습니다.');
           break;
         }
         if (result.done || current.next_index >= current.book_ids.length) break;
@@ -134,6 +149,7 @@ export function AdminLinkSearchPage() {
     } catch (runError) {
       setError(errorText(runError));
       setNotice('검색이 중단되었습니다. 환경 설정을 확인한 뒤 이어서 실행하거나 실패 교재를 재시도할 수 있습니다.');
+      notifySearchStatus('답지 검색 중단', errorText(runError));
       try { await invoke({ action: 'pause', runId, reason: errorText(runError) }); } catch { /* A failed pause is shown in the saved run status on refresh. */ }
     } finally {
       pumpGuard.current = false;
@@ -141,10 +157,11 @@ export function AdminLinkSearchPage() {
       setActiveRunId(null);
       await loadData();
     }
-  }, [invoke, loadData, refreshCatalog]);
+  }, [invoke, loadData, notifySearchStatus, refreshCatalog]);
 
   const startSearch = async () => {
     if (busy) return;
+    await requestStopNotifications();
     setBusy(true);
     setError('');
     setNotice('');
@@ -162,12 +179,12 @@ export function AdminLinkSearchPage() {
   };
 
   const pauseSearch = async (runId: string) => {
-    try { await invoke({ action: 'pause', runId }); setNotice('검색 작업을 중지했습니다. 진행 상태는 저장되었습니다.'); await loadData(); }
+    try { await invoke({ action: 'pause', runId }); setNotice('검색 작업을 중지했습니다. 진행 상태는 저장되었습니다.'); notifySearchStatus('답지 검색 중지', '진행 상태가 저장되었습니다. 이어하기 버튼으로 재개할 수 있습니다.'); await loadData(); }
     catch (pauseError) { setError(errorText(pauseError)); }
   };
 
   const resumeSearch = async (run: Run) => {
-    try { await invoke({ action: 'resume', runId: run.id }); void runBatches(run.id); }
+    try { await requestStopNotifications(); await invoke({ action: 'resume', runId: run.id }); void runBatches(run.id); }
     catch (resumeError) { setError(errorText(resumeError)); }
   };
 

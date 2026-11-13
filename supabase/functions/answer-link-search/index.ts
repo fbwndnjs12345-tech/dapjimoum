@@ -50,23 +50,46 @@ function isSafeSearchUrl(value: string): boolean {
   } catch { return false; }
 }
 
-function queryFor(book: BookRow, extra = false): string {
-  const details = [book.publisher, book.subject, book.grade, book.semester, book.series]
+function queriesFor(book: BookRow): string[] {
+  const edition = book.title.match(/(?<![0-9])([1-3])\s*[-–]\s*([12])(?![0-9])/);
+  const editionText = edition ? `${edition[1]}-${edition[2]}` : '';
+  const identity = [book.series, book.subject, book.grade, book.semester, editionText]
     .map(value => value?.trim()).filter(Boolean).join(' ');
-  return extra
-    ? `"${book.title}" ${details} 정답 해설 공식 자료실`
-    : `"${book.title}" ${details} 정답과 해설`;
+  const publisherIdentity = [book.publisher, identity].filter(Boolean).join(' ');
+  const queries = [
+    `"${book.title}" "답지"`,
+    `"${book.title}" "정답과 해설"`,
+    `"${identity || book.title}" "답지"`,
+    `"${publisherIdentity || book.title}" "정답" "해설"`,
+    `"${book.title}" site:tistory.com 답지`,
+    `"${book.title}" site:blog.naver.com 답지`,
+    `"${book.title}" site:cafe.naver.com 답지`,
+  ];
+  return [...new Set(queries.map(query => query.replace(/\s+/g, ' ').trim()))].slice(0, 6);
 }
 
 function matchAssessment(book: BookRow, title: string, snippet: string) {
-  const source = `${title} ${snippet}`.toLocaleLowerCase('ko-KR');
-  const titleTokens = book.title.toLocaleLowerCase('ko-KR').split(/\s+/).filter(token => token.length > 1);
+  const raw = `${title} ${snippet}`;
+  const source = raw.toLocaleLowerCase('ko-KR');
+  const normalized = (value: string) => value.toLocaleLowerCase('ko-KR').replace(/[\s·ㆍ_\-–—()[\]{}:：,.]+/g, '');
+  const normalizedSource = normalized(raw);
+  const seriesHit = !book.series || normalizedSource.includes(normalized(book.series));
+  const subjectHit = !book.subject || normalizedSource.includes(normalized(book.subject));
+  const expectedEdition = book.title.match(/(?<![0-9])([1-3])\s*[-–]\s*([12])(?![0-9])/);
+  const actualEditions = [...raw.matchAll(/(?<![0-9])([1-3])\s*[-–]\s*([12])(?![0-9])/g)];
+  const editionConflict = Boolean(expectedEdition && actualEditions.length
+    && !actualEditions.some(match => match[1] === expectedEdition[1] && match[2] === expectedEdition[2]));
+  const editionHit = Boolean(expectedEdition && actualEditions.some(match => match[1] === expectedEdition[1] && match[2] === expectedEdition[2]));
+  const answerSignal = /정답|해설|답지/.test(source);
+  const titleTokens = book.title.toLocaleLowerCase('ko-KR').split(/\s+/).filter(token => token.length > 1 && !['중학', '중등', '중학교', '교재'].includes(token));
   const titleMatches = titleTokens.filter(token => source.includes(token)).length;
   const titleRatio = titleTokens.length ? titleMatches / titleTokens.length : 0;
-  const publisherMatches = Boolean(book.publisher && source.includes(book.publisher.toLocaleLowerCase('ko-KR')));
-  const gradeMatches = Boolean(book.grade && source.includes(book.grade.toLocaleLowerCase('ko-KR')));
-  const likely = titleRatio >= 0.8 && (publisherMatches || gradeMatches);
-  return { match_status: likely ? 'likely' : titleRatio < 0.25 ? 'mismatch' : 'uncertain' };
+  const exactTitle = normalizedSource.includes(normalized(book.title));
+  const identityStrong = seriesHit && subjectHit && (!expectedEdition || editionHit);
+  if (editionConflict || !answerSignal || !seriesHit || !subjectHit) return { match_status: 'mismatch' as const };
+  if (identityStrong && (exactTitle || titleRatio >= 0.8)) return { match_status: 'likely' as const };
+  if (titleMatches >= 2 && titleRatio >= 0.4) return { match_status: 'uncertain' as const };
+  return { match_status: 'mismatch' as const };
 }
 
 async function searchBrave(query: string, apiKey: string, signal: AbortSignal) {
@@ -103,8 +126,28 @@ Deno.serve(async (request) => {
   if (authError || !authData.user) return json({ error: '로그인이 필요합니다.' }, 401);
 
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { data: adminRow, error: adminError } = await admin.from('admin_users').select('user_id').eq('user_id', authData.user.id).maybeSingle();
-  if (adminError || !adminRow) return json({ error: '관리자 권한이 필요합니다.' }, 403);
+  const verifiedEmail = authData.user.email?.trim().toLowerCase();
+  if (!verifiedEmail || !authData.user.email_confirmed_at) {
+    return json({ error: '관리자 계정의 인증된 이메일을 확인할 수 없습니다. 이메일 인증 후 다시 로그인해 주세요.' }, 403);
+  }
+
+  // UUID is the primary identity. A verified matching admin email can repair
+  // an outdated UUID mapping if the auth account was recreated.
+  const { data: adminById, error: adminIdError } = await admin
+    .from('admin_users').select('user_id,email').eq('user_id', authData.user.id).maybeSingle();
+  if (adminIdError) return json({ error: '관리자 권한 정보를 확인하지 못했습니다.' }, 500);
+
+  if (!adminById) {
+    const { data: adminByEmail, error: adminEmailError } = await admin
+      .from('admin_users').select('user_id,email').eq('email', verifiedEmail).maybeSingle();
+    if (adminEmailError) return json({ error: '관리자 이메일 권한을 확인하지 못했습니다.' }, 500);
+    if (!adminByEmail) return json({ error: '관리자 권한이 필요합니다.' }, 403);
+
+    const { error: repairError } = await admin.from('admin_users')
+      .update({ user_id: authData.user.id })
+      .eq('user_id', adminByEmail.user_id);
+    if (repairError) return json({ error: '관리자 계정 연결을 복구하지 못했습니다.' }, 500);
+  }
 
   let payload: { action?: string; runId?: string; selectedBookIds?: string[]; includeBooksWithLinks?: boolean; reason?: string };
   try { payload = await request.json(); } catch { return json({ error: '요청 본문이 올바르지 않습니다.' }, 400); }
@@ -216,19 +259,16 @@ Deno.serve(async (request) => {
       let timeout: ReturnType<typeof setTimeout> | undefined;
       try {
         const controller = new AbortController();
-        timeout = setTimeout(() => controller.abort(), 12_000);
-        const primaryQuery = queryFor(book);
-        await new Promise(resolve => setTimeout(resolve, 350));
-        apiRequests += 1;
-        let results = await searchBrave(primaryQuery, apiKey, controller.signal);
-        let resultQueries = results.map(() => primaryQuery);
-        if (results.length < 3) {
+        timeout = setTimeout(() => controller.abort(), 35_000);
+        const queries = queriesFor(book);
+        let results: Awaited<ReturnType<typeof searchBrave>> = [];
+        let resultQueries: string[] = [];
+        for (const query of queries) {
           await new Promise(resolve => setTimeout(resolve, 350));
           apiRequests += 1;
-          const extraQuery = queryFor(book, true);
-          const extraResults = await searchBrave(extraQuery, apiKey, controller.signal);
-          results = [...results, ...extraResults];
-          resultQueries = [...resultQueries, ...extraResults.map(() => extraQuery)];
+          const queryResults = await searchBrave(query, apiKey, controller.signal);
+          results = [...results, ...queryResults];
+          resultQueries = [...resultQueries, ...queryResults.map(() => query)];
         }
         clearTimeout(timeout);
         timeout = undefined;
@@ -250,7 +290,7 @@ Deno.serve(async (request) => {
             url: candidateUrl,
             snippet,
             host: result.meta_url?.hostname ?? result.meta_url?.netloc ?? url.hostname,
-            query: resultQueries[resultIndex] ?? primaryQuery,
+            query: resultQueries[resultIndex] ?? '',
             match_status: matchAssessment(book, title, snippet).match_status,
             link_type: url.pathname.toLowerCase().endsWith('.pdf') ? 'PDF' : '웹페이지',
           });
