@@ -299,7 +299,6 @@ Deno.serve(async (request) => {
     let apiRequests = 0; // Legacy database column; counts public HTML search-page requests.
     const failedBookIds: string[] = [];
     const errors: string[] = [];
-    let rateLimited = false;
     for (const bookId of bookIds) {
       const book = bookById.get(bookId);
       if (!book) {
@@ -385,7 +384,6 @@ Deno.serve(async (request) => {
         failedBookIds.push(book.id);
         const message = error instanceof Error ? error.message : '검색 중 오류가 발생했습니다.';
         errors.push(`${book.title}: ${message}`);
-        
       }
       processed += 1;
     }
