@@ -30,5 +30,11 @@ jobs:
         run: npm ci
       - name: Check production dependency vulnerabilities
         run: npm audit --omit=dev --audit-level=high
+      - name: Set up Deno for Supabase Edge Function checks
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check Supabase Edge Function
+        run: deno check --no-lock supabase/functions/answer-link-search/index.ts
       - name: Type-check and build
         run: npm run build
