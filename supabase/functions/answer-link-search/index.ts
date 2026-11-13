@@ -214,10 +214,56 @@ async function searchKakao(query: string, apiKey: string, signal: AbortSignal): 
   return results;
 }
 
-async function searchWithProviders(query: string, signal: AbortSignal, kakaoKey?: string) {
+async function searchNaverApiHub(query: string, clientId: string, clientSecret: string, signal: AbortSignal): Promise<HtmlSearchResult[]> {
+  const endpoints = [
+    { provider: 'naver_blog', path: '/search/v1/blog' },
+    { provider: 'naver_cafe', path: '/search/v1/cafearticle' },
+  ] as const;
+  const settled = await Promise.allSettled(endpoints.map(async ({ provider, path }) => {
+    const endpoint = new URL(`https://naverapihub.apigw.ntruss.com${path}`);
+    endpoint.searchParams.set('query', query);
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        'X-NCP-APIGW-API-KEY-ID': clientId,
+        'X-NCP-APIGW-API-KEY': clientSecret,
+        Accept: 'application/json',
+      },
+      signal,
+    });
+    if (!response.ok) {
+      const detail = response.status === 401 || response.status === 403 ? '인증 또는 API 권한 확인 필요' :
+        response.status === 429 ? '월 호출 한도 또는 초당 요청 제한' : `HTTP ${response.status}`;
+      throw new Error(`NAVER API HUB ${provider}: ${detail}`);
+    }
+    const body = await response.json() as { items?: Array<{ title?: string; link?: string; description?: string }> };
+    return (body.items ?? []).flatMap(item => {
+      const url = item.link?.trim() ?? '';
+      if (!url || !isSafeSearchUrl(url)) return [];
+      return [{
+        title: stripHtml(item.title ?? ''),
+        url,
+        description: stripHtml(item.description ?? ''),
+        meta_url: { hostname: new URL(url).hostname },
+        provider,
+      }];
+    });
+  }));
+  const results: HtmlSearchResult[] = [];
+  const errors: string[] = [];
+  for (const item of settled) {
+    if (item.status === 'fulfilled') results.push(...item.value);
+    else errors.push(item.reason instanceof Error ? item.reason.message : 'NAVER API HUB 검색 실패');
+  }
+  if (!results.length && errors.length === endpoints.length) throw new Error(errors.join(' / ').slice(0, 1000));
+  return results;
+}
+
+async function searchWithProviders(query: string, signal: AbortSignal, kakaoKey?: string, naverCredentials?: { clientId: string; clientSecret: string }) {
   const settled = await Promise.allSettled([
     searchWithoutApi(query, signal),
     ...(kakaoKey ? [searchKakao(query, kakaoKey, signal)] : []),
+    ...(naverCredentials ? [searchNaverApiHub(query, naverCredentials.clientId, naverCredentials.clientSecret, signal)] : []),
   ]);
   const results: HtmlSearchResult[] = [];
   const errors: string[] = [];
@@ -273,6 +319,9 @@ Deno.serve(async (request) => {
   try { payload = await request.json(); } catch { return json({ error: '요청 본문이 올바르지 않습니다.' }, 400); }
   const action = payload.action;
   const kakaoRestApiKey = Deno.env.get('KAKAO_REST_API_KEY')?.trim();
+  const naverClientId = Deno.env.get('NAVER_API_HUB_CLIENT_ID')?.trim();
+  const naverClientSecret = Deno.env.get('NAVER_API_HUB_CLIENT_SECRET')?.trim();
+  const naverCredentials = naverClientId && naverClientSecret ? { clientId: naverClientId, clientSecret: naverClientSecret } : undefined;
 
   if (action === 'start') {
     const selectedIds = Array.isArray(payload.selectedBookIds) ? [...new Set(payload.selectedBookIds.filter(id => typeof id === 'string'))] : [];
@@ -383,8 +432,8 @@ Deno.serve(async (request) => {
         const resultQueries: string[] = [];
         for (const query of queries) {
           await new Promise(resolve => setTimeout(resolve, 500));
-          apiRequests += kakaoRestApiKey ? 6 : 3; // Three public HTML requests, plus three Kakao REST requests when configured.
-          const queryResults = await searchWithProviders(query, controller.signal, kakaoRestApiKey);
+          apiRequests += 3 + (kakaoRestApiKey ? 3 : 0) + (naverCredentials ? 2 : 0); // Legacy counter: public HTML, Kakao, and NAVER API HUB requests.
+          const queryResults = await searchWithProviders(query, controller.signal, kakaoRestApiKey, naverCredentials);
           for (const result of queryResults) {
             results.push(result);
             resultQueries.push(query);
