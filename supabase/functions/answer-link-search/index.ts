@@ -342,8 +342,8 @@ Deno.serve(async (request) => {
             title: title || url.hostname,
             url: candidateUrl,
             snippet,
-            host: result.meta_url?.hostname ?? result.meta_url?.netloc ?? url.hostname,
-            query: resultQueries[resultIndex] ?? primaryQuery,
+            host: result.meta_url?.hostname ?? url.hostname,
+            query: resultQueries[resultIndex] ?? '',
             match_status: matchAssessment(book, title, snippet).match_status,
             link_type: url.pathname.toLowerCase().endsWith('.pdf') ? 'PDF' : '웹페이지',
           });
