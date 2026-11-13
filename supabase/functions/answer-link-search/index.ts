@@ -194,7 +194,6 @@ async function searchKakao(query: string, apiKey: string, signal: AbortSignal): 
       const url = doc.url?.trim() ?? '';
       if (!url || !isSafeSearchUrl(url)) return [];
       const host = new URL(url).hostname;
-      const label = doc.blogname ?? doc.cafename ?? host;
       return [{
         title: stripHtml(doc.title ?? ''),
         url,
