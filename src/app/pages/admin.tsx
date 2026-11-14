@@ -201,7 +201,8 @@ export function renderAdminLayout(content: React.ReactNode) {
           </nav>
         </header>
 
-        <AdminSharedSearchStatus currentRoute={currentRoute} navigateTo={navigateTo} />\n        {content}
+        <AdminSharedSearchStatus currentRoute={currentRoute} navigateTo={navigateTo} />
+        {content}
       </div>
     );
 }
