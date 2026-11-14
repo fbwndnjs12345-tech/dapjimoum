@@ -9,6 +9,7 @@ import { updateSeoMetadata } from './lib/seo';
 import { SiteInfoPage } from './app/pages/siteInfo';
 
 const AdminLinkSearchPage = lazy(() => import('./app/pages/adminLinkSearch').then(module => ({ default: module.AdminLinkSearchPage })));
+const AdminSiteContentPage = lazy(() => import('./app/pages/adminSiteContent').then(module => ({ default: module.AdminSiteContentPage })));
 
 function loadSavedBookmarks(): string[] {
   try {
@@ -492,7 +493,7 @@ export default function App() {
         ? 'edit'
         : null;
 
-  const isKnownRoute = ['/', '/search', '/bookmarks', '/login', '/admin', '/admin/books', '/admin/books/new', '/admin/links', '/admin/import', '/admin/link-search', '/about', '/privacy', '/terms', '/copyright', '/contact'].includes(currentRoute)
+  const isKnownRoute = ['/', '/search', '/bookmarks', '/login', '/admin', '/admin/books', '/admin/books/new', '/admin/links', '/admin/import', '/admin/link-search', '/admin/inbox', '/admin/site-content', '/about', '/privacy', '/terms', '/copyright', '/contact'].includes(currentRoute)
     || currentRoute.startsWith('/books/')
     || currentRoute.startsWith('/go/')
     || (currentRoute.startsWith('/admin/books/') && currentRoute !== '/admin/books/new');
@@ -513,12 +514,13 @@ export default function App() {
           {currentRoute.startsWith('/go/') && <RedirectPage />}
           {currentRoute === '/login' && <LoginPage />}
           {currentRoute.startsWith('/admin') && isAuthLoading && <div className="py-16 text-center text-xs text-[#8B95A1]">로그인 상태를 확인하고 있습니다.</div>}
-          {!isAuthLoading && isAdminLoggedIn && currentRoute === '/admin' && <AdminDashboard />}
+          {!isAuthLoading && isAdminLoggedIn && (currentRoute === '/admin' || currentRoute === '/admin/inbox') && <AdminDashboard />}
           {!isAuthLoading && isAdminLoggedIn && adminBookScreen === 'list' && <AdminBooksList />}
           {!isAuthLoading && isAdminLoggedIn && adminBookScreen === 'create' && <AdminBookForm mode="create" />}
           {!isAuthLoading && isAdminLoggedIn && adminBookScreen === 'edit' && <AdminBookForm mode="edit" />}
           {!isAuthLoading && isAdminLoggedIn && currentRoute === '/admin/import' && <AdminCsvImport />}
           {!isAuthLoading && isAdminLoggedIn && currentRoute === '/admin/link-search' && <Suspense fallback={<div role="status" className="py-16 text-center text-xs text-[#8B95A1]">자동 검색 화면을 불러오고 있습니다.</div>}><AdminLinkSearchPage /></Suspense>}
+          {!isAuthLoading && isAdminLoggedIn && currentRoute === '/admin/site-content' && <Suspense fallback={<div role="status" className="py-16 text-center text-sm text-[#667085]">사이트 문서를 불러오고 있습니다.</div>}><AdminSiteContentPage /></Suspense>}
           {!isKnownRoute && <section className="max-w-xl mx-auto px-5 py-20 text-center space-y-3"><h1 className="text-xl font-bold text-[#191F28]">페이지를 찾을 수 없습니다</h1><p className="text-sm text-[#8B95A1]">주소가 변경되었거나 페이지가 존재하지 않습니다.</p><a href="/" onClick={event => { event.preventDefault(); navigateTo('/'); }} className="inline-flex mt-3 px-5 py-2.5 bg-[#191F28] text-white text-xs font-bold rounded-2xl">홈으로</a></section>}
         </main>
       </div>
