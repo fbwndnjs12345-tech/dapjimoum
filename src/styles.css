@@ -4,3 +4,9 @@
 
 html { min-width: 320px; background: #fff; }
 body { margin: 0; }
+
+
+/* iPhone safe-area support for the home-screen web app. */
+html, body, #root { min-height: 100%; }
+body { padding-bottom: env(safe-area-inset-bottom); }
+button, input, select, textarea { touch-action: manipulation; }
