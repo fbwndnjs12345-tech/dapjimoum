@@ -460,36 +460,25 @@ Deno.serve(async (request) => {
       if (!selectedIds.length) return json({ queued: false, message: '처리할 자동 검색 대기 항목이 없습니다.' });
       queueReason = queued?.some(row => row.reason === 'user_request') ? 'user_request' : queued?.some(row => row.reason === 'link_health') ? 'link_health' : 'new_book';
     }
-    const books: BookRow[] = [];
-    if (selectedIds.length) {
-      for (let offset = 0; offset < selectedIds.length; offset += PAGE_SIZE) {
-        const ids = selectedIds.slice(offset, offset + PAGE_SIZE);
-        const { data, error } = await admin.from('books').select('id,title,publisher,subject,grade,semester,series').in('id', ids);
-        if (error) return json({ error: `교재 목록 조회 실패: ${error.message}` }, 500);
-        books.push(...(data ?? []) as BookRow[]);
-      }
-    } else {
-      for (let offset = 0; ; offset += PAGE_SIZE) {
-        const { data, error } = await admin.from('books').select('id,title,publisher,subject,grade,semester,series').order('created_at', { ascending: false }).range(offset, offset + PAGE_SIZE - 1);
-        if (error) return json({ error: `교재 목록 조회 실패: ${error.message}` }, 500);
-        const page = (data ?? []) as BookRow[];
-        books.push(...page);
-        if (page.length < PAGE_SIZE) break;
+    if (!selectedIds.length) {
+      const { data: prioritized, error: priorityError } = await admin.rpc('get_answer_link_search_priorities', {
+        p_include_books_with_links: Boolean(payload.includeBooksWithLinks),
+      });
+      if (priorityError) return json({ error: '검색 우선순위 계산 실패: ' + priorityError.message }, 500);
+      selectedIds = (prioritized ?? []).map(row => row.book_id);
+      if (action === 'scheduled_start' && prioritized?.length) {
+        queuePriority = Number(prioritized[0].priority_score ?? 50);
       }
     }
 
-    let targets = books;
-    if (!selectedIds.length && !payload.includeBooksWithLinks) {
-      const linkedIds = new Set<string>();
-      for (let offset = 0; ; offset += PAGE_SIZE) {
-        const { data, error } = await admin.from('answer_links').select('book_id').range(offset, offset + PAGE_SIZE - 1);
-        if (error) return json({ error: `기존 답지 링크 조회 실패: ${error.message}` }, 500);
-        const page = data ?? [];
-        page.forEach(row => linkedIds.add(row.book_id));
-        if (page.length < PAGE_SIZE) break;
-      }
-      targets = books.filter(book => !linkedIds.has(book.id));
+    const books: BookRow[] = [];
+    for (let offset = 0; offset < selectedIds.length; offset += PAGE_SIZE) {
+      const ids = selectedIds.slice(offset, offset + PAGE_SIZE);
+      const { data, error } = await admin.from('books').select('id,title,publisher,subject,grade,semester,series').in('id', ids);
+      if (error) return json({ error: `교재 목록 조회 실패: ${error.message}` }, 500);
+      books.push(...(data ?? []) as BookRow[]);
     }
+    const targets = books;
 
     if (!targets.length) return json({ run: null, queued: false, message: '검색할 교재가 없습니다.' });
     const triggerSource = action === 'scheduled_start' ? 'daily_schedule' : action === 'scheduled_queue_start' ? queueReason : 'manual';
