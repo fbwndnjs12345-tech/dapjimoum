@@ -74,10 +74,10 @@ export function AdminSearchSettingsPage() {
         </div>}
       </section>
       <section className="rounded-2xl border border-[#E5E8EB] bg-white p-4 sm:p-5">
-        <h3 className="font-bold text-[#191F28]">검색 성능 및 복구</h3>
+        <h3 className="font-bold text-[#191F28]">검색 처리량 및 복구</h3>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="space-y-1"><span className="block text-xs font-semibold text-[#475467]">기본 검색 출처</span><select value={settings.provider_mode} onChange={event => setSettings(current => ({ ...current, provider_mode: event.target.value as SearchSettings['provider_mode'] }))} className={fieldClass}><option value="combined">통합 검색 (공개 웹 + 설정된 API)</option><option value="web">공개 웹 검색</option><option value="naver">네이버 API</option><option value="kakao">카카오 API</option></select></label>
-          <label className="space-y-1"><span className="block text-xs font-semibold text-[#475467]">동시 처리 교재 수 (1–5)</span><input type="number" min="1" max="5" value={settings.max_concurrency} onChange={event => setSettings(current => ({ ...current, max_concurrency: Math.max(1, Math.min(5, Number(event.target.value) || 1)) }))} className={fieldClass} /></label>
+          <label className="space-y-1"><span className="block text-xs font-semibold text-[#475467]">한 번에 처리할 교재 수 (1–5)</span><input type="number" min="1" max="5" value={settings.max_concurrency} onChange={event => setSettings(current => ({ ...current, max_concurrency: Math.max(1, Math.min(5, Number(event.target.value) || 1)) }))} className={fieldClass} /></label>
           <label className="space-y-1"><span className="block text-xs font-semibold text-[#475467]">분당 요청 목표 (1–300)</span><input type="number" min="1" max="300" value={settings.requests_per_minute} onChange={event => setSettings(current => ({ ...current, requests_per_minute: Math.max(1, Math.min(300, Number(event.target.value) || 1)) }))} className={fieldClass} /></label>
           <label className="space-y-1"><span className="block text-xs font-semibold text-[#475467]">실패 재시도 횟수 (0–5)</span><input type="number" min="0" max="5" value={settings.retry_limit} onChange={event => setSettings(current => ({ ...current, retry_limit: Math.max(0, Math.min(5, Number(event.target.value) || 0)) }))} className={fieldClass} /></label>
         </div>
