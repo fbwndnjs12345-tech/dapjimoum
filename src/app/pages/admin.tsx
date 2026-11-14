@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../../lib/supabase/client';
 import { AlertCircle, Lock, Globe, Plus, Search, BookOpen, LayoutDashboard, RefreshCw, FileSpreadsheet, ScanSearch, Inbox } from 'lucide-react';
 import { useAppContext } from '../../state/useAppContext';
@@ -127,12 +127,32 @@ function AdminSharedSearchStatus({ currentRoute, navigateTo }: { currentRoute: s
   const [run, setRun] = useState<SharedSearchRun | null>(null);
   useEffect(() => {
     let alive = true;
+    let workerRunning = false;
+    const delay = (ms: number) => new Promise(resolve => window.setTimeout(resolve, ms));
+    const runSharedBatches = async (runId: string) => {
+      if (workerRunning || currentRoute === '/admin/link-search') return;
+      workerRunning = true;
+      try {
+        while (alive) {
+          const { data: batch, error: batchError } = await supabase.functions.invoke('answer-link-search', { body: { action: 'batch', runId } });
+          if (batchError) { await delay(1500); continue; }
+          const { data: latest, error: readError } = await supabase.from('answer_link_search_runs')
+            .select('status,next_index,book_ids').eq('id', runId).maybeSingle();
+          if (readError || !latest || latest.status !== 'running' || batch?.done) break;
+          if (batch?.busy) await delay(1000);
+        }
+      } finally {
+        workerRunning = false;
+        if (alive) void sync();
+      }
+    };
     const sync = async () => {
       const { data, error } = await supabase.from('answer_link_search_runs')
         .select('id,status,book_ids,processed_books,candidate_count,api_requests,provider_mode')
         .eq('status', 'running').order('started_at', { ascending: false }).limit(1).maybeSingle();
       if (!alive || error) return;
       setRun(data as SharedSearchRun | null);
+      if (data && currentRoute !== '/admin/link-search') void runSharedBatches(data.id);
     };
     void sync();
     const timer = window.setInterval(() => { void sync(); }, 3000);
@@ -144,7 +164,7 @@ function AdminSharedSearchStatus({ currentRoute, navigateTo }: { currentRoute: s
       window.clearInterval(timer);
       void supabase.removeChannel(channel);
     };
-  }, []);
+  }, [currentRoute]);
   if (!run || currentRoute === '/admin/link-search') return null;
   const total = Math.max(1, run.book_ids.length);
   const progress = Math.min(100, Math.round(run.processed_books / total * 100));
