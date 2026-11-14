@@ -84,7 +84,7 @@ export function SearchFilters({ books, dataStatus, searchQuery, setSearchQuery, 
                 className="w-full px-3.5 py-2.5 text-xs bg-[#F9FAFB] border border-[#E5E8EB] rounded-2xl font-semibold text-[#191F28] outline-none focus:border-[#3182F6]"
               >
                 {publishers.map(p => (
-                  <option key={p} value={p}>{p === '전체' ? `전체 (${countFor(p, facets.publishers)})` : `${p} (${countFor(p, book => book.publisher)})`}</option>
+                  <option key={p} value={p}>{p === '전체' ? `전체 (${countFor(p, facets.publishers)})` : `${p} (${countFor(p, facets.publishers)})`}</option>
                 ))}
               </select>
             </div>
@@ -103,7 +103,7 @@ export function SearchFilters({ books, dataStatus, searchQuery, setSearchQuery, 
                         : 'bg-[#F2F4F6] text-[#4E5968] hover:bg-[#E5E8EB]'
                     }`}
                   >
-                    {s === '전체' ? `전체 (${countFor(s, facets.subjects)})` : `${s} (${countFor(s, book => book.subject)})`}
+                    {s === '전체' ? `전체 (${countFor(s, facets.subjects)})` : `${s} (${countFor(s, facets.subjects)})`}
                   </button>
                 ))}
               </div>
@@ -123,7 +123,7 @@ export function SearchFilters({ books, dataStatus, searchQuery, setSearchQuery, 
                         : 'bg-[#F2F4F6] text-[#4E5968] hover:bg-[#E5E8EB]'
                     }`}
                   >
-                    {g === '전체' ? `전체 (${countFor(g, facets.grades)})` : `${g} (${countFor(g, book => book.grade)})`}
+                    {g === '전체' ? `전체 (${countFor(g, facets.grades)})` : `${g} (${countFor(g, facets.grades)})`}
                   </button>
                 ))}
               </div>
@@ -143,7 +143,7 @@ export function SearchFilters({ books, dataStatus, searchQuery, setSearchQuery, 
                         : 'bg-[#F2F4F6] text-[#4E5968] hover:bg-[#E5E8EB]'
                     }`}
                   >
-                    {sem === '전체' ? `전체 (${countFor(sem, facets.semesters)})` : `${sem} (${countFor(sem, book => book.semester)})`}
+                    {sem === '전체' ? `전체 (${countFor(sem, facets.semesters)})` : `${sem} (${countFor(sem, facets.semesters)})`}
                   </button>
                 ))}
               </div>
