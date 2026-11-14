@@ -257,7 +257,7 @@ begin
       review_note = nullif(left(btrim(coalesce(p_review_note, '')), 1000), ''),
       reviewed_by = (select auth.uid()),
       reviewed_at = now()
-  where id = p_candidate_id and status = 'pending';
+  where id = p_candidate_id and status in ('pending', 'unverified');
   if not found then
     raise exception 'Candidate is missing or is no longer pending.' using errcode = 'P0002';
   end if;
