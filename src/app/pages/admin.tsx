@@ -236,6 +236,8 @@ export function AdminDashboard() {
     });
     const [recentAdminActivity, setRecentAdminActivity] = useState<Array<{ id: string; action: string; entity_type: string; entity_id: string; actor_email: string | null; created_at: string }>>([]);
     const [metricsLoading, setMetricsLoading] = useState(false);
+    const [metricsSchemaReady, setMetricsSchemaReady] = useState(false);
+    const [metricsWarning, setMetricsWarning] = useState('');
     const loadSubmissions = async () => {
       setSubmissionLoading(true);
       setSubmissionError('');
@@ -267,6 +269,9 @@ export function AdminDashboard() {
           supabase.rpc('admin_list_activity_events'),
         ]);
         if (!alive) return;
+        const schemaReady = !broken.error && !queue.error;
+        setMetricsSchemaReady(schemaReady);
+        setMetricsWarning(schemaReady ? '' : '검색 진단·대기열 마이그레이션 적용 전입니다. 기존 통계는 보존되며 새 지표는 스키마 적용 후 표시됩니다.');
         const runRows = runs.data ?? [];
         const completed = runRows.filter(row => row.status === 'completed').length;
         const failed = runRows.filter(row => row.status === 'failed').length;
@@ -337,13 +342,14 @@ export function AdminDashboard() {
 
         <section className="space-y-3">
           <div className="flex items-center justify-between gap-2"><div><h3 className="font-bold text-[#191F28]">검색·데이터 품질 현황</h3><p className="mt-1 text-xs text-[#667085]">최근 30일 실행과 현재 검수 대기 현황 · {metricsLoading ? '갱신 중' : '30초마다 자동 갱신'}</p></div><button type="button" onClick={() => navigateTo('/admin/search-history')} className="text-xs font-semibold text-[#344054] underline">상세 기록</button></div>
+          {metricsWarning && <p role="status" className="rounded-xl border border-[#D0D5DD] bg-[#F9FAFB] p-3 text-xs text-[#475467]">{metricsWarning}</p>}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">검색 진행 중</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{operationMetrics.running}</p></div>
             <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">검색 성공률</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{operationMetrics.successRate}%</p></div>
-            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">미검수 후보</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{operationMetrics.pendingCandidates}</p></div>
-            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">중복 후보</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{operationMetrics.duplicateCandidates}</p></div>
-            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">링크 오류</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{operationMetrics.brokenLinks}</p></div>
-            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">자동 검색 대기</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{operationMetrics.queuedBooks}</p></div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">미검수 후보</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{metricsSchemaReady ? operationMetrics.pendingCandidates : '—'}</p></div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">중복 후보</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{metricsSchemaReady ? operationMetrics.duplicateCandidates : '—'}</p></div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">링크 오류</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{metricsSchemaReady ? operationMetrics.brokenLinks : '—'}</p></div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">자동 검색 대기</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{metricsSchemaReady ? operationMetrics.queuedBooks : '—'}</p></div>
             <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">사용자 요청 대기</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{operationMetrics.pendingRequests}</p></div>
             <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">최근 검색 실패</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{operationMetrics.failed}</p></div>
           </div>
