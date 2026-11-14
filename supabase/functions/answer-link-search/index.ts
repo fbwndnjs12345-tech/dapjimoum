@@ -67,14 +67,13 @@ function cleanBookTitle(book: BookRow): string {
 
 function queriesFor(book: BookRow): string[] {
   const title = cleanBookTitle(book);
+  const identity = [book.publisher, book.grade, book.semester, book.series].filter(Boolean).join(' ');
   const variants = [
-    `"${title}" 답지`,
+    `"${title}" ${identity} 정답과 해설`,
     `"${title}" 답지 PDF`,
-    `"${title}" site:tistory.com 답지`,
-    `"${title}" site:blog.naver.com OR site:cafe.naver.com 답지`,
-    `"${title}" ${[book.publisher, book.grade, book.semester].filter(Boolean).join(' ')} 정답과 해설`,
+    `"${title}" site:tistory.com OR site:blog.naver.com OR site:cafe.naver.com 답지`,
   ];
-  return [...new Set(variants.map(value => value.replace(/\s+/g, ' ').trim()))].slice(0, 5);
+  return [...new Set(variants.map(value => value.replace(/\s+/g, ' ').trim()))];
 }
 
 function matchAssessment(book: BookRow, title: string, snippet: string, url: string) {
@@ -509,18 +508,23 @@ Deno.serve(async (request) => {
         const results: HtmlSearchResult[] = [];
         const resultQueries: string[] = [];
         const providerWarnings: string[] = [];
-        for (const query of queries) {
-          await new Promise(resolve => setTimeout(resolve, 250));
+        const queryResults = await Promise.allSettled(queries.map(async query => {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 12_000);
           try {
-            const queryResults = await searchWithProviders(query, controller.signal, runProviderMode, kakaoRestApiKey, naverCredentials);
-            results.push(...queryResults.results);
-            resultQueries.push(...queryResults.results.map(() => query));
-            providerWarnings.push(...queryResults.warnings);
+            return { query, result: await searchWithProviders(query, controller.signal, runProviderMode, kakaoRestApiKey, naverCredentials) };
           } finally { clearTimeout(timeout); }
-          apiRequests += runProviderMode === 'web' ? 3 : runProviderMode === 'kakao' ? 3 : runProviderMode === 'naver' ? 2 : 3 + (kakaoRestApiKey ? 3 : 0) + (naverCredentials ? 2 : 0);
+        }));
+        for (const item of queryResults) {
+          if (item.status === 'rejected') {
+            providerWarnings.push(item.reason instanceof Error ? item.reason.message : '검색 실패');
+            continue;
+          }
+          results.push(...item.value.result.results);
+          resultQueries.push(...item.value.result.results.map(() => item.value.query));
+          providerWarnings.push(...item.value.result.warnings);
         }
+        apiRequests += queries.length * (runProviderMode === 'web' ? 3 : runProviderMode === 'kakao' ? 3 : runProviderMode === 'naver' ? 2 : 3 + (kakaoRestApiKey ? 3 : 0) + (naverCredentials ? 2 : 0));
         if (providerWarnings.length) errors.push(`${book.title}: 일부 검색 경로 실패 - ${[...new Set(providerWarnings)].join(' / ').slice(0, 800)}`);
 
         const { data: existingLinks, error: linksError } = await admin.from('answer_links').select('url').eq('book_id', book.id);
