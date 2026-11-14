@@ -268,9 +268,9 @@ class FinderApp:
                     if normalized in seen:
                         raise ValueError(f"중복된 자료실 주소: {normalized}")
                     seen.add(normalized)
-            delay = float(config.get("request_delay_seconds", 1.5))
+            delay = float(config.get("request_delay_seconds", 1.0))
             timeout = int(config.get("page_timeout_ms", 20000))
-            pages = int(config.get("max_sitemap_urls_per_source", 500))
+            pages = int(config.get("max_sitemap_urls_per_source", 80))
             terms = config.get("answer_keywords")
             if not math.isfinite(delay) or delay < 1 or timeout < 1000 or pages < 1:
                 raise ValueError("요청 간격은 1초 이상, 페이지 시간 제한은 1000ms 이상, 최대 페이지는 1 이상이어야 합니다.")
