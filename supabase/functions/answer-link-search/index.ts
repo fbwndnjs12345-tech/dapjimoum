@@ -213,13 +213,14 @@ function parseSearchHtml(engine: string, html: string, base: string): HtmlSearch
   return results.slice(0, 10);
 }
 
-async function searchPublicHtml(engine: 'google' | 'bing' | 'duckduckgo', query: string, signal: AbortSignal): Promise<HtmlSearchResult[]> {
+async function searchPublicHtml(engine: 'google' | 'bing' | 'duckduckgo', query: string, signal: AbortSignal, reserveSlot: () => Promise<void>): Promise<HtmlSearchResult[]> {
   const encoded = encodeURIComponent(query);
   const endpoints: Record<typeof engine, string> = {
     google: `https://www.google.com/search?q=${encoded}&num=10&hl=ko&gl=kr`,
     bing: `https://www.bing.com/search?q=${encoded}&count=10&setlang=ko-KR`,
     duckduckgo: `https://html.duckduckgo.com/html/?q=${encoded}`,
   };
+  await reserveSlot();
   const response = await fetch(endpoints[engine], {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -239,7 +240,7 @@ async function searchPublicHtml(engine: 'google' | 'bing' | 'duckduckgo', query:
   return results;
 }
 
-async function searchKakao(query: string, apiKey: string, signal: AbortSignal): Promise<SearchResultBatch> {
+async function searchKakao(query: string, apiKey: string, signal: AbortSignal, reserveSlot: () => Promise<void>): Promise<SearchResultBatch> {
   const endpoints = [
     { provider: 'kakao_blog', url: 'https://dapi.kakao.com/v2/search/blog' },
     { provider: 'kakao_cafe', url: 'https://dapi.kakao.com/v2/search/cafe' },
@@ -250,6 +251,7 @@ async function searchKakao(query: string, apiKey: string, signal: AbortSignal): 
     endpoint.searchParams.set('query', query);
     endpoint.searchParams.set('size', '10');
     endpoint.searchParams.set('sort', 'accuracy');
+    await reserveSlot();
     const response = await fetch(endpoint, {
       method: 'GET',
       headers: { Authorization: `KakaoAK ${apiKey}`, Accept: 'application/json' },
@@ -286,7 +288,7 @@ async function searchKakao(query: string, apiKey: string, signal: AbortSignal): 
   return attachSearchWarnings(results, errors);
 }
 
-async function searchNaverApiHub(query: string, clientId: string, clientSecret: string, signal: AbortSignal): Promise<SearchResultBatch> {
+async function searchNaverApiHub(query: string, clientId: string, clientSecret: string, signal: AbortSignal, reserveSlot: () => Promise<void>): Promise<SearchResultBatch> {
   const endpoints = [
     { provider: 'naver_blog', path: '/search/v1/blog' },
     { provider: 'naver_cafe', path: '/search/v1/cafearticle' },
@@ -296,6 +298,7 @@ async function searchNaverApiHub(query: string, clientId: string, clientSecret: 
     endpoint.searchParams.set('query', query);
     endpoint.searchParams.set('display', '10');
     endpoint.searchParams.set('format', 'json');
+    await reserveSlot();
     const response = await fetch(endpoint, {
       method: 'GET',
       headers: {
