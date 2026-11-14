@@ -136,7 +136,7 @@ function csvCell(value: unknown) {
 }
 
 export function AdminSearchHistoryPage() {
-  const { refreshCatalog, navigateTo } = useAppContext();
+  const { refreshCatalog } = useAppContext();
   const [runs, setRuns] = useState<Run[]>([]);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
