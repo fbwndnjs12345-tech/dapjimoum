@@ -131,8 +131,8 @@ export function AdminLinkSearchPage() {
     setNotice('');
     try {
       if (providerMode === 'local') {
-        window.open('https://github.com/fbwndnjs12345-tech/dapjimoum/actions/workflows/build-local-answer-finder.yml', '_blank', 'noopener,noreferrer');
-        setNotice('Windows용 로컬 답지 탐색기 빌드 페이지를 열었습니다. 로컬 프로그램에서 수집한 후보는 관리자 검수함에서 확인할 수 있습니다.');
+        window.open('https://github.com/fbwndnjs12345-tech/dapjimoum/actions/runs/43584387790', '_blank', 'noopener,noreferrer');
+        setNotice('Windows 로컬 탐색기 다운로드 기록을 열었습니다. 실행 기록의 Artifacts에서 '답지모음-로컬-탐색기-Windows'를 내려받으세요. 수집 후보는 관리자 검수함에서 확인할 수 있습니다.');
         setBusy(false);
         return;
       }
@@ -223,7 +223,7 @@ export function AdminLinkSearchPage() {
             { value: 'web', label: '공개 웹 검색', detail: 'Google·Bing·DuckDuckGo 공개 검색 결과' },
             { value: 'naver', label: '네이버 API', detail: '네이버 블로그·카페 검색' },
             { value: 'kakao', label: '카카오 API', detail: '카카오 블로그·카페·웹 검색' },
-            { value: 'local', label: 'Windows 로컬 탐색기', detail: '로컬 프로그램 빌드 및 수집 후보 등록' },
+            { value: 'local', label: 'Windows 로컬 탐색기', detail: '현재 배포된 Windows 프로그램 다운로드' },
           ].map(option => <button key={option.value} type="button" onClick={() => setProviderMode(option.value as typeof providerMode)} className={'rounded-xl border p-3 text-left ' + (providerMode === option.value ? 'border-[#344054] bg-[#F2F4F6]' : 'border-[#EAECF0] bg-white hover:bg-[#F9FAFB]')}><p className="text-sm font-bold text-[#344054]">{option.label}</p><p className="mt-1 text-xs leading-5 text-[#667085]">{option.detail}</p></button>)}
         </div>
         <p className="mt-3 rounded-xl bg-[#F9FAFB] p-3 text-xs leading-5 text-[#667085]">검색 서비스의 API 키·호출 한도·접근 제한에 따라 결과가 달라질 수 있습니다. 통합 검색은 설정된 경로가 실패해도 나머지 경로를 계속 사용하고, 실패 원인을 실행 진단에 기록합니다.</p>
