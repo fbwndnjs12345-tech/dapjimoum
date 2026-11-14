@@ -10,7 +10,7 @@ type ActivityEvent = {
 
 const actionLabel: Record<string, string> = {
   insert: '등록', update: '수정', delete: '삭제', role_change: '권한 변경',
-  admin_page_view: '관리자 페이지 접근',
+  admin_page_view: '관리자 페이지 접근', admin_login: '관리자 대시보드 진입',
 };
 
 export function AdminActivityPage() {
