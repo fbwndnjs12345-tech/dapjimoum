@@ -61,7 +61,9 @@ on conflict (user_id) do nothing;
 alter table public.admin_roles enable row level security;
 alter table public.admin_role_permissions enable row level security;
 alter table public.admin_user_roles enable row level security;
-grant select, insert, update, delete on public.admin_roles, public.admin_role_permissions, public.admin_user_roles to authenticated;
+grant select, insert, update, delete on public.admin_roles, public.admin_role_permissions to authenticated;
+grant select on public.admin_user_roles to authenticated;
+revoke insert, update, delete on public.admin_user_roles from authenticated;
 
 create or replace function public.has_admin_permission(p_permission text)
 returns boolean
@@ -400,6 +402,7 @@ begin
   end if;
   select role_key into previous_role from public.admin_user_roles where user_id = p_user_id;
   if previous_role = 'super_admin' and p_role_key <> 'super_admin' then
+    perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('dapjimoum-super-admin-guard', 0));
     select count(*) into super_admin_count from public.admin_user_roles where role_key = 'super_admin';
     if super_admin_count <= 1 then
       raise exception 'At least one super administrator must remain.' using errcode = '22023';
