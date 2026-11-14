@@ -341,8 +341,8 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     if not sources and not web_enabled: raise ValueError("공식 자료실 또는 공개 웹 검색 중 하나 이상을 활성화하세요.")
     terms=config.get("answer_keywords") or ["정답과 해설","정답 해설","정답 및 해설","답지"]
     delay=max(1.0,float(config.get("request_delay_seconds",2.0))); timeout=int(config.get("page_timeout_ms",20000))
-    limit=max_pages_override or int(config.get("max_sitemap_urls_per_source",500))
-    search_limit=max(1,min(10,int(web_cfg.get("results_per_engine",5))))
+    limit=max(1, min(100, max_pages_override or int(config.get("max_sitemap_urls_per_source",80))))
+    search_limit=max(1,min(5,int(web_cfg.get("results_per_engine",5))))
     query_limit=max(1,min(3,int(web_cfg.get("max_queries_per_book",3))))
     candidate_limit=max(1,min(10,int(web_cfg.get("max_candidates_per_book",5))))
     candidates={}; robots_cache={}
