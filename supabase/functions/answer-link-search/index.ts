@@ -125,6 +125,10 @@ function classifySource(hostname: string, publisher: string | null): 'official' 
 }
 
 type HtmlSearchResult = { title: string; url: string; description: string; meta_url: { hostname: string }; provider?: string };
+type SearchResultBatch = HtmlSearchResult[] & { warnings?: string[] };
+function attachSearchWarnings(results: HtmlSearchResult[], warnings: string[]): SearchResultBatch {
+  return Object.assign(results, { warnings });
+}
 
 function decodeHtml(value: string): string {
   return value
@@ -236,7 +240,7 @@ async function searchPublicHtml(engine: 'google' | 'bing' | 'duckduckgo', query:
   return results;
 }
 
-async function searchKakao(query: string, apiKey: string, signal: AbortSignal): Promise<HtmlSearchResult[]> {
+async function searchKakao(query: string, apiKey: string, signal: AbortSignal): Promise<SearchResultBatch> {
   const endpoints = [
     { provider: 'kakao_blog', url: 'https://dapi.kakao.com/v2/search/blog' },
     { provider: 'kakao_cafe', url: 'https://dapi.kakao.com/v2/search/cafe' },
@@ -280,10 +284,10 @@ async function searchKakao(query: string, apiKey: string, signal: AbortSignal): 
     else errors.push(item.reason instanceof Error ? item.reason.message : 'Daum 검색 실패');
   }
   if (!results.length && errors.length === endpoints.length) throw new Error(errors.join(' / ').slice(0, 1000));
-  return results;
+  return attachSearchWarnings(results, errors);
 }
 
-async function searchNaverApiHub(query: string, clientId: string, clientSecret: string, signal: AbortSignal): Promise<HtmlSearchResult[]> {
+async function searchNaverApiHub(query: string, clientId: string, clientSecret: string, signal: AbortSignal): Promise<SearchResultBatch> {
   const endpoints = [
     { provider: 'naver_blog', path: '/search/v1/blog' },
     { provider: 'naver_cafe', path: '/search/v1/cafearticle' },
@@ -327,11 +331,11 @@ async function searchNaverApiHub(query: string, clientId: string, clientSecret: 
     else errors.push(item.reason instanceof Error ? item.reason.message : 'NAVER API HUB 검색 실패');
   }
   if (!results.length && errors.length === endpoints.length) throw new Error(errors.join(' / ').slice(0, 1000));
-  return results;
+  return attachSearchWarnings(results, errors);
 }
 
 async function searchWithProviders(query: string, signal: AbortSignal, mode: 'naver' | 'kakao' | 'web' | 'combined', kakaoKey?: string, naverCredentials?: { clientId: string; clientSecret: string }) {
-  const tasks: Array<Promise<HtmlSearchResult[]>> = [];
+  const tasks: Array<Promise<SearchResultBatch>> = [];
   if (mode === 'web' || mode === 'combined') tasks.push(searchWithoutApi(query, signal));
   if ((mode === 'kakao' || mode === 'combined') && kakaoKey) tasks.push(searchKakao(query, kakaoKey, signal));
   if ((mode === 'naver' || mode === 'combined') && naverCredentials) tasks.push(searchNaverApiHub(query, naverCredentials.clientId, naverCredentials.clientSecret, signal));
@@ -340,8 +344,10 @@ async function searchWithProviders(query: string, signal: AbortSignal, mode: 'na
   const results: HtmlSearchResult[] = [];
   const errors: string[] = [];
   for (const item of settled) {
-    if (item.status === 'fulfilled') results.push(...item.value);
-    else errors.push(item.reason instanceof Error ? item.reason.message : '검색 실패');
+    if (item.status === 'fulfilled') {
+      results.push(...item.value);
+      errors.push(...(item.value.warnings ?? []));
+    } else errors.push(item.reason instanceof Error ? item.reason.message : '검색 실패');
   }
   const unique = new Map<string, HtmlSearchResult>();
   for (const item of results) {
@@ -352,7 +358,7 @@ async function searchWithProviders(query: string, signal: AbortSignal, mode: 'na
   return { results: [...unique.values()], warnings: errors };
 }
 
-async function searchWithoutApi(query: string, signal: AbortSignal) {
+async function searchWithoutApi(query: string, signal: AbortSignal): Promise<SearchResultBatch> {
   const engines = ['google', 'bing', 'duckduckgo'] as const;
   const settled = await Promise.allSettled(engines.map(engine => searchPublicHtml(engine, query, signal)));
   const results: HtmlSearchResult[] = [];
@@ -365,7 +371,7 @@ async function searchWithoutApi(query: string, signal: AbortSignal) {
   const unique = new Map<string, HtmlSearchResult>();
   for (const item of results) if (!unique.has(canonicalUrl(item.url))) unique.set(canonicalUrl(item.url), item);
   if (!unique.size && errors.length) throw new Error(errors.join(' / ').slice(0, 1000));
-  return [...unique.values()];
+  return attachSearchWarnings([...unique.values()], errors);
 }
 
 Deno.serve(async (request) => {
