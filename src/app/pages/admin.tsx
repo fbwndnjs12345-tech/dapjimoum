@@ -125,14 +125,19 @@ type SharedSearchRun = {
 
 function AdminSharedSearchStatus({ currentRoute, navigateTo }: { currentRoute: string; navigateTo: (path: string) => void }) {
   const [run, setRun] = useState<SharedSearchRun | null>(null);
+  const [schedulerConfigured, setSchedulerConfigured] = useState(false);
   useEffect(() => {
     let alive = true;
     const sync = async () => {
-      const { data, error } = await supabase.from('answer_link_search_runs')
-        .select('id,status,book_ids,processed_books,candidate_count,api_requests,provider_mode')
-        .eq('status', 'running').order('started_at', { ascending: false }).limit(1).maybeSingle();
-      if (!alive || error) return;
-      setRun(data as SharedSearchRun | null);
+      const [runResponse, settingsResponse] = await Promise.all([
+        supabase.from('answer_link_search_runs')
+          .select('id,status,book_ids,processed_books,candidate_count,api_requests,provider_mode')
+          .eq('status', 'running').order('started_at', { ascending: false }).limit(1).maybeSingle(),
+        supabase.from('answer_link_search_settings').select('scheduler_configured').eq('singleton', true).maybeSingle(),
+      ]);
+      if (!alive) return;
+      if (!runResponse.error) setRun(runResponse.data as SharedSearchRun | null);
+      if (!settingsResponse.error) setSchedulerConfigured(Boolean(settingsResponse.data?.scheduler_configured));
     };
     void sync();
     const timer = window.setInterval(() => { void sync(); }, 5000);
@@ -150,7 +155,7 @@ function AdminSharedSearchStatus({ currentRoute, navigateTo }: { currentRoute: s
   const progress = Math.min(100, Math.round(run.processed_books / total * 100));
   return <section role="status" className="rounded-2xl border border-[#D0D5DD] bg-[#F9FAFB] p-3 sm:p-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <div><p className="text-sm font-bold text-[#191F28]">공용 답지 자동 검색 실행 중</p><p className="mt-1 text-xs text-[#667085]">서버 작업자가 진행 상황을 처리하고 있습니다. 브라우저를 닫아도 실행 기록은 유지됩니다.</p></div>
+      <div><p className="text-sm font-bold text-[#191F28]">공용 답지 자동 검색 실행 중</p><p className="mt-1 text-xs text-[#667085]">{schedulerConfigured ? '서버 작업자가 진행 상황을 처리합니다. 브라우저를 닫아도 실행은 이어집니다.' : '서버 예약 인증 설정 전입니다. 검색 실행 화면을 열어두어야 작업이 계속 진행됩니다.'}</p></div>
       <button type="button" onClick={() => navigateTo('/admin/link-search')} className="min-h-10 rounded-lg bg-[#191F28] px-3 py-2 text-xs font-bold text-white">검색 현황 보기</button>
     </div>
     <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#EAECF0]"><div className="h-full rounded-full bg-[#344054] transition-all" style={{ width: progress + '%' }} /></div>
