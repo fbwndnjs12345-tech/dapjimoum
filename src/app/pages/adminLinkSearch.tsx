@@ -45,6 +45,9 @@ export function AdminLinkSearchPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [busyCandidateId, setBusyCandidateId] = useState<string | null>(null);
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [busyRunActionId, setBusyRunActionId] = useState<string | null>(null);
   const pumpGuard = useRef(false);
   const PAGE_SIZE = 25;
 
@@ -81,18 +84,6 @@ export function AdminLinkSearchPage() {
   }, []);
 
   useEffect(() => { void loadData(); }, [loadData]);
-
-  // 진행 중인 검색은 후보 목록 전체를 재조회하지 않고 작업 행만 2초마다 갱신한다.
-  useEffect(() => {
-    if (!activeRunId || !busy) return;
-    const timer = window.setInterval(async () => {
-      const { data, error: statusError } = await supabase.from('answer_link_search_runs').select('*').eq('id', activeRunId).maybeSingle();
-      if (statusError || !data) return;
-      setRuns(current => [data as Run, ...current.filter(run => run.id !== activeRunId)].slice(0, 20));
-    }, 2000);
-    return () => window.clearInterval(timer);
-  }, [activeRunId, busy]);
-
   const invoke = useCallback(async (body: Record<string, unknown>) => {
     const { data, error: invokeError } = await supabase.functions.invoke('answer-link-search', { body });
     if (invokeError) {
@@ -150,6 +141,30 @@ export function AdminLinkSearchPage() {
     }
   }, [invoke, loadData, refreshCatalog]);
 
+  useEffect(() => {
+    let alive = true;
+    const syncRuns = async () => {
+      const { data, error: syncError } = await supabase.from('answer_link_search_runs').select('*').order('started_at', { ascending: false }).limit(20);
+      if (!alive || syncError || !data) return;
+      setRuns(data as Run[]);
+      const active = (data as Run[]).find(run => run.status === 'running');
+      if (active && !pumpGuard.current) void runBatches(active.id);
+    };
+    void syncRuns();
+    const timer = window.setInterval(() => { void syncRuns(); }, 2500);
+    const channel = supabase.channel('admin-shared-answer-search')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'answer_link_search_runs' }, () => { void syncRuns(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'answer_link_candidates' }, () => { void loadData(); })
+      .subscribe();
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      void supabase.removeChannel(channel);
+    };
+  }, [loadData, runBatches]);
+
+
+
   const startSearch = async () => {
     if (busy) return;
     setBusy(true);
@@ -175,13 +190,17 @@ export function AdminLinkSearchPage() {
   };
 
   const pauseSearch = async (runId: string) => {
-    try { await invoke({ action: 'pause', runId }); setNotice('검색 작업을 중지했습니다. 진행 상태는 저장되었습니다.'); await loadData(); }
+    setBusyRunActionId(runId);
+    try { await invoke({ action: 'pause', runId }); setNotice('공용 검색 작업을 중지했습니다. 모든 관리자 화면에 반영됩니다.'); await loadData(); }
     catch (pauseError) { setError(errorText(pauseError)); }
+    finally { setBusyRunActionId(null); }
   };
 
   const resumeSearch = async (run: Run) => {
-    try { await invoke({ action: 'resume', runId: run.id }); void runBatches(run.id); }
+    setBusyRunActionId(run.id);
+    try { await invoke({ action: 'resume', runId: run.id }); setNotice('검색을 이어서 실행합니다.'); await loadData(); void runBatches(run.id); }
     catch (resumeError) { setError(errorText(resumeError)); }
+    finally { setBusyRunActionId(null); }
   };
 
   const continueSearch = async (run: Run) => {
@@ -202,12 +221,22 @@ export function AdminLinkSearchPage() {
     if (status === 'approved' && candidate.match_status !== 'likely' && !window.confirm('교재 일치 여부가 불확실한 후보입니다. 링크를 검토한 뒤 승인하시겠습니까?')) return;
     const reviewNote = null;
     setError('');
+    setBusyCandidateId(candidate.id);
     try {
       if (status === 'approved') {
         const { data, error: approvalError } = await supabase.rpc('approve_answer_link_candidate', { p_candidate_id: candidate.id });
         if (approvalError) throw approvalError;
-        setNotice(data === 'duplicate' ? '이미 등록된 URL이라 중복 후보로 표시했습니다.' : '후보를 승인해 답지 링크에 등록했습니다. 실제 URL 검증 상태는 미검증으로 유지됩니다.');
-        await refreshCatalog();
+        if (data === 'duplicate') {
+          setCandidates(current => current.map(item => item.id === candidate.id ? { ...item, status: 'duplicate' } : item));
+          setNotice('이미 등록된 URL이라 중복으로 처리했습니다.');
+        } else {
+          const { data: savedLink, error: verifyError } = await supabase.from('answer_links').select('id').eq('book_id', candidate.book_id).eq('url', candidate.url).maybeSingle();
+          if (verifyError) throw verifyError;
+          if (!savedLink) throw new Error('승인 함수는 성공했지만 답지 링크 테이블에서 등록 결과를 확인하지 못했습니다.');
+          setCandidates(current => current.map(item => item.id === candidate.id ? { ...item, status: 'approved' } : item));
+          setNotice('답지 링크 등록 완료. 공개 교재 데이터를 갱신했습니다.');
+          await refreshCatalog();
+        }
       } else {
         const { error: rejectError } = await supabase.rpc('reject_answer_link_candidate', { p_candidate_id: candidate.id, p_review_note: reviewNote });
         if (rejectError) throw rejectError;
@@ -215,6 +244,7 @@ export function AdminLinkSearchPage() {
       }
       await loadData();
     } catch (updateError) { setError(errorText(updateError)); }
+    finally { setBusyCandidateId(null); }
   };
 
   const updateSourceType = async (candidate: Candidate, sourceType: Candidate['source_type']) => {
@@ -229,7 +259,7 @@ export function AdminLinkSearchPage() {
     const selected = candidates.filter(candidate => selectedCandidateIds.includes(candidate.id) && candidate.status === 'pending' && candidate.match_status === 'likely');
     if (!selected.length) { setError('일치 가능성이 높은 검토 대기 후보를 선택해 주세요.'); return; }
     if (!window.confirm(`${selected.length}개 후보를 승인합니다. 기존 URL 중복은 승인 단계에서 다시 확인됩니다. 진행할까요?`)) return;
-    setBusy(true);
+    setReviewBusy(true);
     setError('');
     let approved = 0;
     let duplicate = 0;
@@ -240,7 +270,7 @@ export function AdminLinkSearchPage() {
       else if (data === 'duplicate') duplicate += 1;
       else approved += 1;
     }
-    setBusy(false);
+    setReviewBusy(false);
     setSelectedCandidateIds([]);
     setNotice(`일괄 처리: ${approved}개 승인, ${duplicate}개 중복 처리${failures.length ? `, ${failures.length}개 실패` : ''}`);
     if (failures.length) setError(failures.join('\n'));
@@ -252,7 +282,7 @@ export function AdminLinkSearchPage() {
     const eligible = candidates.filter(candidate => candidate.status === 'pending' && candidate.match_status === 'likely');
     if (!eligible.length) { setNotice('일괄 승인할 후보가 없습니다.'); return; }
     if (!window.confirm(`일치 가능성이 높은 후보 ${eligible.length}개를 모두 답지 링크로 등록합니다. 중복 URL은 자동 제외됩니다. 진행할까요?`)) return;
-    setBusy(true);
+    setReviewBusy(true);
     setError('');
     setNotice('후보를 승인하고 있습니다. 창을 닫지 마세요.');
     let approved = 0;
@@ -279,7 +309,7 @@ export function AdminLinkSearchPage() {
     } catch (approvalError) {
       setError(errorText(approvalError));
     } finally {
-      setBusy(false);
+      setReviewBusy(false);
     }
   };
 
@@ -304,7 +334,7 @@ export function AdminLinkSearchPage() {
   const pendingCount = candidates.filter(candidate => candidate.status === 'pending').length;
   const liveRun = activeRunId ? runs.find(run => run.id === activeRunId) : runs.find(run => run.status === 'running');
   const liveProgress = liveRun ? Math.min(100, Math.round((liveRun.processed_books / Math.max(1, liveRun.book_ids.length)) * 100)) : 0;
-  const liveBookId = liveRun && liveRun.book_ids.length ? liveRun.book_ids[Math.min(Math.max(0, liveRun.next_index - 1), liveRun.book_ids.length - 1)] : null;
+  const liveBookId = liveRun && liveRun.book_ids.length ? liveRun.book_ids[Math.min(liveRun.processed_books, liveRun.book_ids.length - 1)] : null;
   const liveBook = liveBookId ? books.find(book => book.id === liveBookId) : null;
 
   const content = <div className="space-y-6">
@@ -338,7 +368,7 @@ export function AdminLinkSearchPage() {
         <div className="flex flex-col justify-end gap-3">
           <label className="flex items-start gap-2 text-xs text-[#475467]"><input type="checkbox" checked={includeBooksWithLinks} onChange={event => setIncludeBooksWithLinks(event.target.checked)} className="mt-0.5 accent-[#191F28]" />이미 답지 링크가 있는 교재도 재검색</label>
           <p className="text-xs text-[#667085]">선택된 교재가 있으면 선택 교재만 검색합니다. 없으면 {includeBooksWithLinks ? '전체 교재' : '답지 링크 미등록 교재'}를 검색합니다.</p>
-          <button type="button" onClick={() => void startSearch()} disabled={busy || isLoading} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#191F28] px-4 py-3 text-sm font-bold text-white hover:bg-[#333D4B] disabled:opacity-50"><Play className="h-4 w-4" />{providerMode === 'local' ? '로컬 프로그램 열기' : '검색 시작'}</button>
+          <button type="button" onClick={() => void startSearch()} disabled={busy || isLoading || runs.some(run => run.status === 'running')} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#191F28] px-4 py-3 text-sm font-bold text-white hover:bg-[#333D4B] disabled:opacity-50"><Play className="h-4 w-4" />{providerMode === 'local' ? '로컬 프로그램 열기' : runs.some(run => run.status === 'running') ? '공용 검색 작업 실행 중' : busy ? '시작 요청 중…' : '검색 시작'}</button>
         </div>
       </div>
     </section>
@@ -360,8 +390,8 @@ export function AdminLinkSearchPage() {
 
     <section className="rounded-2xl border border-[#E5E8EB] bg-white p-4 sm:p-5 space-y-3">
       <div className="flex items-center justify-between gap-3"><div><h3 className="font-bold text-[#191F28]">검색 작업 기록</h3><p className="mt-1 text-xs text-[#667085]">최근 20개 작업 · 최근 검색 페이지 요청 {runs.reduce((sum, run) => sum + run.api_requests, 0).toLocaleString()}회 · 검토 대기 후보 {pendingCount}개 · 최근 후보 최대 500개 표시</p></div></div>
-      {runs.length === 0 ? <p className="rounded-xl border border-[#EAECF0] bg-[#F9FAFB] p-5 text-center text-sm text-[#667085]">검색 작업 기록이 없습니다.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="border-b border-[#EAECF0] text-[#667085]"><tr><th className="px-3 py-2">시작 시각</th><th className="px-3 py-2">상태</th><th className="px-3 py-2">진행</th><th className="px-3 py-2">후보/검색 요청/실패</th><th className="px-3 py-2 text-right">작업</th></tr></thead><tbody className="divide-y divide-[#F2F4F6]">{runs.map(run => <tr key={run.id}><td className="px-3 py-3">{new Date(run.started_at).toLocaleString('ko-KR')}</td><td className="px-3 py-3">{run.status === 'running' ? '진행 중' : run.status === 'paused' ? '중지됨' : run.status === 'completed' ? '완료' : '오류'}</td><td className="px-3 py-3">{run.processed_books}/{run.book_ids.length}</td><td className="px-3 py-3">{run.candidate_count} / {run.api_requests} / {run.error_count}<p className="mt-1 text-[10px] text-[#667085]">{run.provider_mode === 'naver' ? '네이버 API' : run.provider_mode === 'kakao' ? '카카오 API' : run.provider_mode === 'web' ? '공개 웹' : '통합'}</p></td><td className="px-3 py-3 text-right space-x-2">{run.status === 'running' && <><button type="button" onClick={() => void continueSearch(run)} disabled={busy} className="rounded-lg border border-[#D0D5DD] px-2.5 py-1.5 font-semibold disabled:opacity-50">배치 실행/이어하기</button><button type="button" onClick={() => void pauseSearch(run.id)} className="rounded-lg border border-[#D0D5DD] px-2.5 py-1.5 font-semibold">중지</button></>}{run.status === 'paused' && <button type="button" onClick={() => void continueSearch(run)} disabled={busy} className="rounded-lg border border-[#D0D5DD] px-2.5 py-1.5 font-semibold disabled:opacity-50">이어하기</button>}{run.failed_book_ids.length > 0 && <button type="button" onClick={() => void retryFailed(run)} disabled={busy} className="rounded-lg border border-[#D0D5DD] px-2.5 py-1.5 font-semibold disabled:opacity-50">실패 재시도</button>}</td></tr>)}</tbody></table></div>}
-      {activeRunId && busy && <div role="status" className="flex items-center gap-2 text-xs text-[#475467]"><LoaderCircle className="h-4 w-4 animate-spin" />현재 검색 작업은 페이지를 열어 둔 동안 자동으로 다음 배치를 요청합니다.</div>}
+      {runs.length === 0 ? <p className="rounded-xl border border-[#EAECF0] bg-[#F9FAFB] p-5 text-center text-sm text-[#667085]">검색 작업 기록이 없습니다.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="border-b border-[#EAECF0] text-[#667085]"><tr><th className="px-3 py-2">시작 시각</th><th className="px-3 py-2">상태</th><th className="px-3 py-2">진행</th><th className="px-3 py-2">후보/검색 요청/실패</th><th className="px-3 py-2 text-right">작업</th></tr></thead><tbody className="divide-y divide-[#F2F4F6]">{runs.map(run => <tr key={run.id}><td className="px-3 py-3">{new Date(run.started_at).toLocaleString('ko-KR')}</td><td className="px-3 py-3">{run.status === 'running' ? '진행 중' : run.status === 'paused' ? '중지됨' : run.status === 'completed' ? '완료' : '오류'}</td><td className="px-3 py-3">{run.processed_books}/{run.book_ids.length}</td><td className="px-3 py-3">{run.candidate_count} / {run.api_requests} / {run.error_count}<p className="mt-1 text-[10px] text-[#667085]">{run.provider_mode === 'naver' ? '네이버 API' : run.provider_mode === 'kakao' ? '카카오 API' : run.provider_mode === 'web' ? '공개 웹' : '통합'}</p></td><td className="px-3 py-3 text-right space-x-2">{run.status === 'running' && <><button type="button" onClick={() => void continueSearch(run)} disabled={busy || busyRunActionId === run.id} className="rounded-lg border border-[#D0D5DD] px-2.5 py-1.5 font-semibold disabled:opacity-50">배치 실행/이어하기</button><button type="button" onClick={() => void pauseSearch(run.id)} disabled={busyRunActionId === run.id} className="rounded-lg disabled:opacity-50 border border-[#D0D5DD] px-2.5 py-1.5 font-semibold">중지</button></>}{run.status === 'paused' && <button type="button" onClick={() => void continueSearch(run)} disabled={busy} className="rounded-lg border border-[#D0D5DD] px-2.5 py-1.5 font-semibold disabled:opacity-50">이어하기</button>}{run.failed_book_ids.length > 0 && <button type="button" onClick={() => void retryFailed(run)} disabled={busy || busyRunActionId === run.id} className="rounded-lg border border-[#D0D5DD] px-2.5 py-1.5 font-semibold disabled:opacity-50">실패 재시도</button>}</td></tr>)}</tbody></table></div>}
+      {activeRunId && busy && <div role="status" className="flex items-center gap-2 text-xs text-[#475467]"><LoaderCircle className="h-4 w-4 animate-spin" />공용 검색 작업입니다. 이 탭이 닫혀도 다른 관리자 탭이 잠금 만료 후 이어받습니다.</div>}
     </section>
 
     <section className="rounded-2xl border border-[#E5E8EB] bg-white p-4 sm:p-5 space-y-4">
@@ -372,8 +402,16 @@ export function AdminLinkSearchPage() {
         <select value={subjectFilter} onChange={event => { setSubjectFilter(event.target.value); setPage(0); }} className="min-h-10 rounded-lg border border-[#D0D5DD] px-2 text-xs"><option>전체</option>{uniqueValues('subject').map(value => <option key={value}>{value}</option>)}</select>
         <select value={gradeFilter} onChange={event => { setGradeFilter(event.target.value); setPage(0); }} className="min-h-10 rounded-lg border border-[#D0D5DD] px-2 text-xs"><option value="전체">전체 학년</option>{uniqueValues('grade').map(value => <option key={value}>{value}</option>)}</select>
       </div></div>
-      {pendingCount > 0 && <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#F8FAFC] p-3"><div className="text-xs text-[#475467]">검토 대기 {pendingCount}개 · 일치 가능성 높음 {candidates.filter(candidate => candidate.status === 'pending' && candidate.match_status === 'likely').length}개</div><div className="flex flex-wrap gap-2"><label className="flex items-center gap-2 text-xs text-[#475467]"><input type="checkbox" checked={pageEligibleCandidates.length > 0 && pageEligibleCandidates.every(candidate => selectedCandidateIds.includes(candidate.id))} onChange={event => setSelectedCandidateIds(current => event.target.checked ? [...new Set([...current, ...pageEligibleCandidates.map(candidate => candidate.id)])] : current.filter(id => !pageEligibleCandidates.some(candidate => candidate.id === id)))} className="accent-[#191F28]" />현재 페이지 선택</label><button type="button" onClick={() => void approveSelected()} disabled={busy || selectedCandidateIds.length === 0} className="min-h-10 rounded-xl border border-[#D0D5DD] bg-white px-3 py-2 text-xs font-bold text-[#344054] disabled:opacity-40">선택 승인 ({selectedCandidateIds.filter(id => candidates.some(candidate => candidate.id === id && candidate.status === 'pending' && candidate.match_status === 'likely')).length})</button><button type="button" onClick={() => void approveAllLikely()} disabled={busy || !candidates.some(candidate => candidate.status === 'pending' && candidate.match_status === 'likely')} className="min-h-10 rounded-xl bg-[#191F28] px-4 py-2 text-xs font-bold text-white disabled:opacity-40">일치 가능 후보 전체 승인</button></div></div>}
-      {isLoading ? <p role="status" className="p-8 text-center text-sm text-[#667085]">검색 결과를 불러오는 중입니다.</p> : pageRows.length === 0 ? <p className="rounded-xl border border-[#EAECF0] bg-[#F9FAFB] p-8 text-center text-sm text-[#667085]">조건에 맞는 후보가 없습니다.</p> : <div className="overflow-x-auto rounded-xl border border-[#EAECF0]"><table className="w-full min-w-[1000px] text-left text-xs"><thead className="bg-[#F9FAFB] text-[#475467]"><tr><th className="w-10 px-3 py-3">선택</th><th className="px-3 py-3">교재</th><th className="px-3 py-3">검색 후보</th><th className="px-3 py-3">출처·유형</th><th className="px-3 py-3">교재 일치</th><th className="px-3 py-3">상태</th><th className="px-3 py-3">검색 쿼리</th><th className="px-3 py-3">검토</th></tr></thead><tbody className="divide-y divide-[#EAECF0]">{pageRows.map(candidate => <tr key={candidate.id} className="align-top"><td className="px-3 py-3">{candidate.status === 'pending' && candidate.match_status === 'likely' && <input type="checkbox" aria-label={`${candidate.title} 선택`} checked={selectedCandidateIds.includes(candidate.id)} onChange={event => setSelectedCandidateIds(ids => event.target.checked ? [...new Set([...ids, candidate.id])] : ids.filter(id => id !== candidate.id))} className="accent-[#191F28]" />}</td><td className="max-w-56 break-words px-3 py-3"><strong className="text-[#191F28]">{candidate.books?.title ?? '교재 없음'}</strong><p className="mt-1 text-[#667085]">{[candidate.books?.publisher, candidate.books?.subject, candidate.books?.grade, candidate.books?.semester].filter(Boolean).join(' · ')}</p></td><td className="max-w-[340px] break-words px-3 py-3"><a href={candidate.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-semibold text-[#191F28] underline">{candidate.title}<ExternalLink className="h-3 w-3 shrink-0" /></a><p className="mt-1 break-all text-[#667085]">{candidate.url}</p>{candidate.snippet && <p className="mt-2 line-clamp-3 leading-5 text-[#475467]">{candidate.snippet}</p>}</td><td className="max-w-40 break-words px-3 py-3">{candidate.source_name || '출처 미확인'}<p className="mt-1 text-[#667085]">{candidate.source_type === 'official' ? '공식 출처' : candidate.source_type === 'general' ? '일반 출처' : '출처 미분류'} · {candidate.link_type}</p>{candidate.status === 'pending' && <select aria-label="출처 유형 분류" value={candidate.source_type} onChange={event => void updateSourceType(candidate, event.target.value as Candidate['source_type'])} className="mt-2 rounded-md border border-[#D0D5DD] px-2 py-1 text-[11px]"><option value="unknown">미분류</option><option value="official">공식 출처 확인</option><option value="general">일반 출처 확인</option></select>}</td><td className="px-3 py-3">{candidate.match_status === 'likely' ? <span className="inline-flex items-center gap-1 font-semibold text-[#027A48]"><ShieldCheck className="h-3.5 w-3.5" />일치 가능성 높음</span> : candidate.match_status === 'mismatch' ? '불일치 가능' : '관리자 확인 필요'}</td><td className="px-3 py-3">{candidate.status === 'pending' ? '검토 대기' : candidate.status === 'approved' ? '승인' : candidate.status === 'rejected' ? '거절' : candidate.status === 'duplicate' ? '중복' : '확인 불가'}{candidate.reviewed_by && <p className="mt-1 break-all text-[10px] text-[#667085]">관리자 {candidate.reviewed_by.slice(0, 8)} · {candidate.reviewed_at ? new Date(candidate.reviewed_at).toLocaleString('ko-KR') : '시간 미등록'}</p>}{candidate.review_note && <p className="mt-1 whitespace-normal text-[10px] text-[#667085]">사유: {candidate.review_note}</p>}</td><td className="max-w-56 break-words px-3 py-3 text-[#667085]">{candidate.query}</td><td className="whitespace-nowrap px-3 py-3">{candidate.status === 'pending' && <div className="flex gap-1.5"><button type="button" onClick={() => void updateCandidateStatus(candidate, 'approved')} className="inline-flex items-center gap-1 rounded-lg bg-[#191F28] px-2.5 py-2 font-bold text-white"><Check className="h-3.5 w-3.5" />승인</button><button type="button" onClick={() => void updateCandidateStatus(candidate, 'rejected')} className="inline-flex items-center gap-1 rounded-lg border border-[#D0D5DD] px-2.5 py-2 font-bold text-[#344054]"><X className="h-3.5 w-3.5" />거절</button></div>}</td></tr>)}</tbody></table></div>}
+      {pendingCount > 0 && <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#F8FAFC] p-3"><div className="text-xs text-[#475467]">검토 대기 {pendingCount}개 · 일치 가능성 높음 {candidates.filter(candidate => candidate.status === 'pending' && candidate.match_status === 'likely').length}개</div><div className="flex flex-wrap gap-2"><label className="flex items-center gap-2 text-xs text-[#475467]"><input type="checkbox" checked={pageEligibleCandidates.length > 0 && pageEligibleCandidates.every(candidate => selectedCandidateIds.includes(candidate.id))} onChange={event => setSelectedCandidateIds(current => event.target.checked ? [...new Set([...current, ...pageEligibleCandidates.map(candidate => candidate.id)])] : current.filter(id => !pageEligibleCandidates.some(candidate => candidate.id === id)))} className="accent-[#191F28]" />현재 페이지 선택</label><button type="button" onClick={() => void approveSelected()} disabled={reviewBusy || selectedCandidateIds.length === 0} className="min-h-10 rounded-xl border border-[#D0D5DD] bg-white px-3 py-2 text-xs font-bold text-[#344054] disabled:opacity-40">선택 승인 ({selectedCandidateIds.filter(id => candidates.some(candidate => candidate.id === id && candidate.status === 'pending' && candidate.match_status === 'likely')).length})</button><button type="button" onClick={() => void approveAllLikely()} disabled={reviewBusy || !candidates.some(candidate => candidate.status === 'pending' && candidate.match_status === 'likely')} className="min-h-10 rounded-xl bg-[#191F28] px-4 py-2 text-xs font-bold text-white disabled:opacity-40">일치 가능 후보 전체 승인</button></div></div>}
+      {isLoading ? <p role="status" className="p-8 text-center text-sm text-[#667085]">검색 결과를 불러오는 중입니다.</p> : pageRows.length === 0 ? <p className="rounded-xl border border-[#EAECF0] bg-[#F9FAFB] p-8 text-center text-sm text-[#667085]">조건에 맞는 후보가 없습니다.</p> : <><div className="space-y-3 sm:hidden">{pageRows.map(candidate => <article key={candidate.id} className="space-y-3 rounded-xl border border-[#EAECF0] bg-white p-3">
+        <div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="break-words text-sm font-bold text-[#191F28]">{candidate.books?.title ?? '교재 없음'}</p><p className="mt-1 text-xs text-[#667085]">{[candidate.books?.publisher,candidate.books?.subject,candidate.books?.grade,candidate.books?.semester].filter(Boolean).join(' · ')}</p></div><span className="shrink-0 rounded-full bg-[#F2F4F6] px-2 py-1 text-xs font-semibold text-[#475467]">{candidate.status === 'pending' ? '검토 대기' : candidate.status === 'approved' ? '승인' : candidate.status === 'rejected' ? '거절' : candidate.status === 'duplicate' ? '중복' : '확인 불가'}</span></div>
+        <a href={candidate.url} target="_blank" rel="noopener noreferrer" className="block break-all text-sm font-semibold text-[#191F28] underline">{candidate.title} <ExternalLink className="inline h-3 w-3" /></a>
+        <p className="break-all text-xs text-[#667085]">{candidate.url}</p>
+        {candidate.snippet && <p className="text-xs leading-5 text-[#475467]">{candidate.snippet}</p>}
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs"><span>{candidate.match_status === 'likely' ? '일치 가능성 높음' : candidate.match_status === 'mismatch' ? '불일치 가능' : '관리자 확인 필요'}</span><span className="text-[#667085]">{candidate.source_name || '출처 미확인'}</span></div>
+        <p className="break-words text-xs text-[#667085]">검색어: {candidate.query}</p>
+        {candidate.status === 'pending' && <div className="flex gap-2"><button type="button" onClick={() => void updateCandidateStatus(candidate, 'approved')} disabled={busyCandidateId === candidate.id} className="min-h-11 flex-1 rounded-lg bg-[#191F28] px-3 text-sm font-bold text-white disabled:opacity-50">{busyCandidateId === candidate.id ? '등록 중…' : '수락하고 사이트에 등록'}</button><button type="button" onClick={() => void updateCandidateStatus(candidate, 'rejected')} disabled={busyCandidateId === candidate.id || busy} className="min-h-11 rounded-lg border border-[#D0D5DD] px-4 text-sm font-semibold text-[#344054] disabled:opacity-50">거절</button></div>}
+      </article>)}</div><div className="hidden overflow-x-auto rounded-xl border border-[#EAECF0] sm:block"><table className="w-full min-w-[1000px] text-left text-xs"><thead className="bg-[#F9FAFB] text-[#475467]"><tr><th className="w-10 px-3 py-3">선택</th><th className="px-3 py-3">교재</th><th className="px-3 py-3">검색 후보</th><th className="px-3 py-3">출처·유형</th><th className="px-3 py-3">교재 일치</th><th className="px-3 py-3">상태</th><th className="px-3 py-3">검색 쿼리</th><th className="px-3 py-3">검토</th></tr></thead><tbody className="divide-y divide-[#EAECF0]">{pageRows.map(candidate => <tr key={candidate.id} className="align-top"><td className="px-3 py-3">{candidate.status === 'pending' && candidate.match_status === 'likely' && <input type="checkbox" aria-label={`${candidate.title} 선택`} checked={selectedCandidateIds.includes(candidate.id)} onChange={event => setSelectedCandidateIds(ids => event.target.checked ? [...new Set([...ids, candidate.id])] : ids.filter(id => id !== candidate.id))} className="accent-[#191F28]" />}</td><td className="max-w-56 break-words px-3 py-3"><strong className="text-[#191F28]">{candidate.books?.title ?? '교재 없음'}</strong><p className="mt-1 text-[#667085]">{[candidate.books?.publisher, candidate.books?.subject, candidate.books?.grade, candidate.books?.semester].filter(Boolean).join(' · ')}</p></td><td className="max-w-[340px] break-words px-3 py-3"><a href={candidate.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-semibold text-[#191F28] underline">{candidate.title}<ExternalLink className="h-3 w-3 shrink-0" /></a><p className="mt-1 break-all text-[#667085]">{candidate.url}</p>{candidate.snippet && <p className="mt-2 line-clamp-3 leading-5 text-[#475467]">{candidate.snippet}</p>}</td><td className="max-w-40 break-words px-3 py-3">{candidate.source_name || '출처 미확인'}<p className="mt-1 text-[#667085]">{candidate.source_type === 'official' ? '공식 출처' : candidate.source_type === 'general' ? '일반 출처' : '출처 미분류'} · {candidate.link_type}</p>{candidate.status === 'pending' && <select aria-label="출처 유형 분류" value={candidate.source_type} onChange={event => void updateSourceType(candidate, event.target.value as Candidate['source_type'])} className="mt-2 rounded-md border border-[#D0D5DD] px-2 py-1 text-[11px]"><option value="unknown">미분류</option><option value="official">공식 출처 확인</option><option value="general">일반 출처 확인</option></select>}</td><td className="px-3 py-3">{candidate.match_status === 'likely' ? <span className="inline-flex items-center gap-1 font-semibold text-[#027A48]"><ShieldCheck className="h-3.5 w-3.5" />일치 가능성 높음</span> : candidate.match_status === 'mismatch' ? '불일치 가능' : '관리자 확인 필요'}</td><td className="px-3 py-3">{candidate.status === 'pending' ? '검토 대기' : candidate.status === 'approved' ? '승인' : candidate.status === 'rejected' ? '거절' : candidate.status === 'duplicate' ? '중복' : '확인 불가'}{candidate.reviewed_by && <p className="mt-1 break-all text-[10px] text-[#667085]">관리자 {candidate.reviewed_by.slice(0, 8)} · {candidate.reviewed_at ? new Date(candidate.reviewed_at).toLocaleString('ko-KR') : '시간 미등록'}</p>}{candidate.review_note && <p className="mt-1 whitespace-normal text-[10px] text-[#667085]">사유: {candidate.review_note}</p>}</td><td className="max-w-56 break-words px-3 py-3 text-[#667085]">{candidate.query}</td><td className="whitespace-nowrap px-3 py-3">{candidate.status === 'pending' && <div className="flex gap-1.5"><button type="button" onClick={() => void updateCandidateStatus(candidate, 'approved')} disabled={busyCandidateId === candidate.id || busy} className="inline-flex disabled:opacity-50 items-center gap-1 rounded-lg bg-[#191F28] px-2.5 py-2 font-bold text-white">{busyCandidateId === candidate.id ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}{busyCandidateId === candidate.id ? '등록 중…' : '수락·등록'}</button><button type="button" onClick={() => void updateCandidateStatus(candidate, 'rejected')} disabled={busyCandidateId === candidate.id || busy} className="inline-flex disabled:opacity-50 items-center gap-1 rounded-lg border border-[#D0D5DD] px-2.5 py-2 font-bold text-[#344054]"><X className="h-3.5 w-3.5" />거절</button></div>}</td></tr>)}</tbody></table></div></>}
       <div className="flex items-center justify-between"><button type="button" onClick={() => setPage(value => Math.max(0, value - 1))} disabled={page === 0} className="rounded-lg border border-[#D0D5DD] px-3 py-2 text-xs font-semibold disabled:opacity-40">이전</button><span className="text-xs text-[#667085]">{pageRows.length ? page * PAGE_SIZE + 1 : 0}–{Math.min((page + 1) * PAGE_SIZE, filteredCandidates.length)} / {filteredCandidates.length}</span><button type="button" onClick={() => setPage(value => Math.min(totalPages - 1, value + 1))} disabled={page + 1 >= totalPages} className="rounded-lg border border-[#D0D5DD] px-3 py-2 text-xs font-semibold disabled:opacity-40">다음</button></div>
     </section>
 

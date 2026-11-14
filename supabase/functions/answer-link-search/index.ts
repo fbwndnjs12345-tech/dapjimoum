@@ -398,6 +398,9 @@ Deno.serve(async (request) => {
   if (!['naver', 'kakao', 'web', 'combined'].includes(providerMode)) return json({ error: '지원하지 않는 검색 경로입니다.' }, 400);
 
   if (action === 'start') {
+    const { data: activeRuns, error: activeRunsError } = await admin.from('answer_link_search_runs').select('id,status,book_ids,processed_books,candidate_count,api_requests,provider_mode,started_at').eq('status','running').order('started_at',{ascending:false}).limit(1);
+    if (activeRunsError) return json({ error: '기존 검색 작업 확인 실패: ' + activeRunsError.message }, 500);
+    if (activeRuns?.length) return json({ error: '이미 공용 검색 작업이 실행 중입니다. 모든 관리자에게 표시되는 기존 작업을 이어서 관리해 주세요.', activeRun: activeRuns[0] }, 409);
     if (providerMode === 'naver' && !naverCredentials) return json({ error: '네이버 API가 선택되었지만 Client ID 또는 Client Secret이 설정되지 않았습니다. Supabase Edge Function Secrets를 확인하세요.' }, 400);
     if (providerMode === 'kakao' && !kakaoRestApiKey) return json({ error: '카카오 API가 선택되었지만 REST API 키가 설정되지 않았습니다. Supabase Edge Function Secrets를 확인하세요.' }, 400);
     const selectedIds = Array.isArray(payload.selectedBookIds) ? [...new Set(payload.selectedBookIds.filter(id => typeof id === 'string'))] : [];
@@ -438,7 +441,11 @@ Deno.serve(async (request) => {
       provider_mode: providerMode,
       book_ids: targets.map(book => book.id),
     }).select('id,status,book_ids,started_at,provider_mode').single();
-    if (error) return json({ error: `검색 작업을 만들지 못했습니다: ${error.message}` }, 500);
+    if (error?.code === '23505') {
+      const { data: activeRun } = await admin.from('answer_link_search_runs').select('id,status,book_ids,processed_books,candidate_count,api_requests,provider_mode,started_at').eq('status','running').maybeSingle();
+      return json({ error: '다른 관리자가 먼저 검색 작업을 시작했습니다. 기존 공용 작업을 확인해 주세요.', activeRun }, 409);
+    }
+    if (error) return json({ error: '검색 작업을 만들지 못했습니다: ' + error.message }, 500);
     return json({ run });
   }
 
@@ -447,31 +454,32 @@ Deno.serve(async (request) => {
     const status = action === 'pause' ? 'paused' : 'running';
     const { data, error } = await admin.from('answer_link_search_runs').update({
       status,
-      lock_token: null,
-      locked_until: null,
+      // Do not steal an in-flight batch on pause/resume. Its lease is released by
+      // finish_answer_link_search_batch, or expires after two minutes if its tab dies.
       finished_at: action === 'pause' ? new Date().toISOString() : null,
       ...(action === 'pause' && typeof payload.reason === 'string' ? { last_error: payload.reason.slice(0, 1500) } : {}),
-    }).eq('id', payload.runId).eq('created_by', authData.user.id).select('id,status').maybeSingle();
+    }).eq('id', payload.runId).select('id,status').maybeSingle();
     if (error) return json({ error: error.message }, 500);
-    if (!data) return json({ error: '검색 작업을 찾을 수 없거나 접근 권한이 없습니다.' }, 404);
+    if (!data) return json({ error: '검색 작업을 찾을 수 없습니다.' }, 404);
     return json({ run: data });
   }
 
   if (action === 'retry') {
     if (!payload.runId) return json({ error: '검색 작업 ID가 필요합니다.' }, 400);
-    const { data: previous, error: previousError } = await admin.from('answer_link_search_runs').select('failed_book_ids,provider_mode').eq('id', payload.runId).eq('created_by', authData.user.id).maybeSingle();
+    const { data: previous, error: previousError } = await admin.from('answer_link_search_runs').select('failed_book_ids,provider_mode').eq('id', payload.runId).maybeSingle();
     if (previousError) return json({ error: previousError.message }, 500);
     if (!previous) return json({ error: '검색 작업을 찾을 수 없거나 접근 권한이 없습니다.' }, 404);
     const failedIds = previous.failed_book_ids ?? [];
     if (failedIds.length === 0) return json({ error: '재시도할 실패 교재가 없습니다.' }, 400);
     const { data: run, error } = await admin.from('answer_link_search_runs').insert({ created_by: authData.user.id, status: 'running', provider_mode: previous.provider_mode ?? 'combined', book_ids: failedIds }).select('id,status,book_ids,started_at,provider_mode').single();
+    if (error?.code === '23505') return json({ error: '이미 다른 검색 작업이 실행 중입니다. 기존 작업을 먼저 확인해 주세요.' }, 409);
     if (error) return json({ error: error.message }, 500);
     return json({ run });
   }
 
   if (action === 'batch') {
     if (!payload.runId) return json({ error: '검색 작업 ID가 필요합니다.' }, 400);
-    const { data: ownedRun, error: ownedRunError } = await admin.from('answer_link_search_runs').select('id,provider_mode').eq('id', payload.runId).eq('created_by', authData.user.id).maybeSingle();
+    const { data: ownedRun, error: ownedRunError } = await admin.from('answer_link_search_runs').select('id,provider_mode').eq('id', payload.runId).maybeSingle();
     if (ownedRunError) return json({ error: ownedRunError.message }, 500);
     if (!ownedRun) return json({ error: '검색 작업을 찾을 수 없거나 접근 권한이 없습니다.' }, 404);
     const runProviderMode = (ownedRun.provider_mode ?? 'combined') as 'naver' | 'kakao' | 'web' | 'combined';

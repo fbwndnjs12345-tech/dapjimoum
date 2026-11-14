@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { supabase } from '../../lib/supabase/client';
 import { AlertCircle, Lock, Globe, Plus, Search, BookOpen, LayoutDashboard, RefreshCw, FileSpreadsheet, ScanSearch, Inbox } from 'lucide-react';
 import { useAppContext } from '../../state/useAppContext';
 import type { AnswerLink, Book } from '../../types/book';
@@ -112,6 +113,76 @@ export function LoginPage() {
     );
 }
 
+type SharedSearchRun = {
+  id: string;
+  status: 'running';
+  book_ids: string[];
+  processed_books: number;
+  candidate_count: number;
+  api_requests: number;
+  provider_mode: string;
+};
+
+function AdminSharedSearchStatus({ currentRoute, navigateTo }: { currentRoute: string; navigateTo: (path: string) => void }) {
+  const [run, setRun] = useState<SharedSearchRun | null>(null);
+  useEffect(() => {
+    let alive = true;
+    let workerRunning = false;
+    const delay = (ms: number) => new Promise(resolve => window.setTimeout(resolve, ms));
+    const runSharedBatches = async (runId: string) => {
+      if (workerRunning || currentRoute === '/admin/link-search') return;
+      workerRunning = true;
+      try {
+        while (alive) {
+          const { data: batch, error: batchError } = await supabase.functions.invoke('answer-link-search', { body: { action: 'batch', runId } });
+          if (batchError) {
+            await delay(1500);
+            const { data: state } = await supabase.from('answer_link_search_runs').select('status').eq('id', runId).maybeSingle();
+            if (!state || state.status !== 'running') break;
+            continue;
+          }
+          const { data: latest, error: readError } = await supabase.from('answer_link_search_runs')
+            .select('status,next_index,book_ids').eq('id', runId).maybeSingle();
+          if (readError || !latest || latest.status !== 'running' || batch?.done) break;
+          if (batch?.busy) await delay(1000);
+        }
+      } finally {
+        workerRunning = false;
+        if (alive) void sync();
+      }
+    };
+    const sync = async () => {
+      const { data, error } = await supabase.from('answer_link_search_runs')
+        .select('id,status,book_ids,processed_books,candidate_count,api_requests,provider_mode')
+        .eq('status', 'running').order('started_at', { ascending: false }).limit(1).maybeSingle();
+      if (!alive || error) return;
+      setRun(data as SharedSearchRun | null);
+      if (data && currentRoute !== '/admin/link-search') void runSharedBatches(data.id);
+    };
+    void sync();
+    const timer = window.setInterval(() => { void sync(); }, 3000);
+    const channel = supabase.channel('admin-global-search-status')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'answer_link_search_runs' }, () => { void sync(); })
+      .subscribe();
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      void supabase.removeChannel(channel);
+    };
+  }, [currentRoute]);
+  if (!run || currentRoute === '/admin/link-search') return null;
+  const total = Math.max(1, run.book_ids.length);
+  const progress = Math.min(100, Math.round(run.processed_books / total * 100));
+  return <section role="status" className="rounded-2xl border border-[#D0D5DD] bg-[#F9FAFB] p-3 sm:p-4">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div><p className="text-sm font-bold text-[#191F28]">공용 답지 자동 검색 실행 중</p><p className="mt-1 text-xs text-[#667085]">다른 관리자 화면에서도 진행 중인 작업을 공유하고 있습니다.</p></div>
+      <button type="button" onClick={() => navigateTo('/admin/link-search')} className="min-h-10 rounded-lg bg-[#191F28] px-3 py-2 text-xs font-bold text-white">검색 현황 보기</button>
+    </div>
+    <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#EAECF0]"><div className="h-full rounded-full bg-[#344054] transition-all" style={{ width: progress + '%' }} /></div>
+    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#475467]"><span>진행 {progress}% ({run.processed_books}/{run.book_ids.length})</span><span>후보 {run.candidate_count}개</span><span>검색 요청 {run.api_requests}회</span></div>
+  </section>;
+}
+
 export function renderAdminLayout(content: React.ReactNode) {
     const {isAdminLoggedIn, navigateTo, books, currentRoute, catalogStatus} = useAppContext();
     if (!isAdminLoggedIn) {
@@ -137,12 +208,14 @@ export function renderAdminLayout(content: React.ReactNode) {
             <p className="text-[11px] font-bold tracking-wide text-[#8B95A1]">답지모음 관리자</p>
             <h1 className="mt-1 text-lg sm:text-xl font-extrabold text-[#191F28]">콘텐츠 관리</h1>
           </div>
-          <nav aria-label="관리 메뉴" className="grid grid-cols-2 sm:grid-cols-4 gap-2 border-t border-[#F2F4F6] pt-4">
+          <nav aria-label="관리 메뉴" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 border-t border-[#F2F4F6] pt-4">
             {[
               { path: '/admin', label: '관리 요약', count: null, icon: LayoutDashboard, active: currentRoute === '/admin' },
               { path: '/admin/books', label: '교재 관리', count: books.length, icon: BookOpen, active: currentRoute.startsWith('/admin/books') },
               { path: '/admin/import', label: 'CSV 일괄 등록', count: null, icon: FileSpreadsheet, active: currentRoute === '/admin/import' },
-              { path: '/admin/link-search', label: '답지 링크 자동 검색', count: null, icon: ScanSearch, active: currentRoute === '/admin/link-search' }
+              { path: '/admin/link-search', label: '답지 링크 자동 검색', count: null, icon: ScanSearch, active: currentRoute === '/admin/link-search' },
+              { path: '/admin/inbox', label: '사용자 접수함', count: null, icon: Inbox, active: currentRoute === '/admin/inbox' },
+              { path: '/admin/site-content', label: '사이트 문서 관리', count: null, icon: Globe, active: currentRoute === '/admin/site-content' }
             ].map(item => {
               const Icon = item.icon;
               return <button key={item.path} onClick={() => navigateTo(item.path)} aria-current={item.active ? 'page' : undefined} className={`flex min-h-11 items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-left text-sm sm:text-base font-bold transition-colors ${item.active ? 'border-[#D0D5DD] bg-[#F2F4F6] text-[#191F28]' : 'border-[#E5E8EB] bg-white text-[#4E5968] hover:bg-[#F9FAFB]'}`}>
@@ -153,6 +226,7 @@ export function renderAdminLayout(content: React.ReactNode) {
           </nav>
         </header>
 
+        <AdminSharedSearchStatus currentRoute={currentRoute} navigateTo={navigateTo} />
         {content}
       </div>
     );
@@ -172,7 +246,7 @@ type UserSubmission = {
 };
 
 export function AdminDashboard() {
-    const {books, links, navigateTo, catalogStatus, catalogError, refreshCatalog} = useAppContext();
+    const {books, links, navigateTo, catalogStatus, catalogError, refreshCatalog, currentRoute} = useAppContext();
     const [submissions, setSubmissions] = useState<UserSubmission[]>([]);
     const [submissionLoading, setSubmissionLoading] = useState(true);
     const [submissionError, setSubmissionError] = useState('');
@@ -191,7 +265,7 @@ export function AdminDashboard() {
         setSubmissionLoading(false);
       }
     };
-    useEffect(() => { void loadSubmissions(); }, []);
+    useEffect(() => { if (currentRoute === '/admin/inbox') void loadSubmissions(); }, [currentRoute]);
     const updateSubmissionStatus = async (submission: UserSubmission, status: UserSubmission['status']) => {
       setUpdatingSubmissionId(submission.id);
       setSubmissionError('');
@@ -215,10 +289,11 @@ export function AdminDashboard() {
     return renderAdminLayout(
       <div className="space-y-6">
         <div>
-          <h2 className="text-xl font-extrabold text-[#191F28]">관리 요약</h2>
-          <p className="mt-1 text-sm text-[#667085]">교재와 답지 링크 현황을 확인합니다.</p>
+          <h2 className="text-xl font-extrabold text-[#191F28]">{currentRoute === '/admin/inbox' ? '사용자 접수함' : '운영 대시보드'}</h2>
+          <p className="mt-1 text-sm text-[#667085]">{currentRoute === '/admin/inbox' ? '교재 등록 요청과 링크 오류 신고를 처리합니다.' : '교재·링크·검색·사용자 요청 업무로 이동하고 서비스 운영 상태를 확인합니다.'}</p>
           {catalogStatus === 'error' && <div role="alert" className="mt-3 flex flex-col gap-2 rounded-xl border border-[#FDD8D5] bg-[#FFEEEC] p-3 text-sm text-[#B42318] sm:flex-row sm:items-center sm:justify-between"><span>통계를 불러오지 못했습니다. {catalogError}</span><button type="button" onClick={() => void refreshCatalog()} className="font-bold underline">다시 시도</button></div>}
         </div>
+        {currentRoute === '/admin' && <>
         {/* Metric Cards Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="bg-white p-5 rounded-3xl border border-[#E5E8EB] space-y-1 shadow-sm">
@@ -257,7 +332,9 @@ export function AdminDashboard() {
           </button>
         </div>
 
-        <section className="overflow-hidden rounded-2xl border border-[#E5E8EB] bg-white">
+        </>}
+
+        {currentRoute === '/admin/inbox' && <section id="admin-submissions" className="overflow-hidden rounded-2xl border border-[#E5E8EB] bg-white">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E5E8EB] p-4 sm:p-5">
             <div>
               <h3 className="flex items-center gap-2 text-base font-bold text-[#191F28]"><Inbox className="h-4 w-4" /> 사용자 요청 및 오류 신고</h3>
@@ -289,8 +366,9 @@ export function AdminDashboard() {
               </div>
             </article>)}
           </div>}
-        </section>
+        </section>}
 
+        {currentRoute === '/admin' && <>
         {/* Table of Recent Books */}
         <div className="bg-white rounded-2xl border border-[#E5E8EB] overflow-hidden">
           <div className="p-4 sm:p-5 border-b border-[#E5E8EB]">
@@ -332,6 +410,7 @@ export function AdminDashboard() {
           </div>
           }
         </div>
+        </>}
       </div>
     );
 }
