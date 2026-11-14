@@ -8,7 +8,7 @@ type Run = {
   created_by: string;
   id: string; status: 'running' | 'paused' | 'completed' | 'failed'; book_ids: string[];
   next_index: number; processed_books: number; candidate_count: number; api_requests: number;
-  error_count: number; failed_book_ids: string[]; last_error: string | null; started_at: string; finished_at: string | null;
+  error_count: number; failed_book_ids: string[]; last_error: string | null; started_at: string; finished_at: string | null; provider_mode: 'naver' | 'kakao' | 'web' | 'combined';
 };
 type Candidate = {
   id: string; run_id: string | null; book_id: string; title: string; url: string; source_name: string | null;
@@ -35,6 +35,7 @@ export function AdminLinkSearchPage() {
   const [subjectFilter, setSubjectFilter] = useState('전체');
   const [gradeFilter, setGradeFilter] = useState('전체');
   const [includeBooksWithLinks, setIncludeBooksWithLinks] = useState(false);
+  const [providerMode, setProviderMode] = useState<'naver' | 'kakao' | 'web' | 'combined' | 'local'>('combined');
   const [selectedBookIds, setSelectedBookIds] = useState<string[]>([]);
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
   const [bookSearch, setBookSearch] = useState('');
@@ -144,7 +145,13 @@ export function AdminLinkSearchPage() {
     setError('');
     setNotice('');
     try {
-      const result = await invoke({ action: 'start', includeBooksWithLinks, selectedBookIds });
+      if (providerMode === 'local') {
+        window.open('https://github.com/fbwndnjs12345-tech/dapjimoum/actions/workflows/build-local-answer-finder.yml', '_blank', 'noopener,noreferrer');
+        setNotice('로컬 프로그램 빌드 페이지를 열었습니다. Windows용 탐색기를 내려받아 실행하면 후보가 이 관리자 검토 목록에 등록됩니다.');
+        setBusy(false);
+        return;
+      }
+      const result = await invoke({ action: 'start', includeBooksWithLinks, selectedBookIds, providerMode });
       await loadData();
       const newRun = result.run as Run;
       if (newRun.book_ids.length === 0) {
@@ -260,7 +267,17 @@ export function AdminLinkSearchPage() {
     {notice && <div role="status" className="rounded-xl border border-[#EAECF0] bg-[#F9FAFB] p-3 text-sm text-[#344054]">{notice}</div>}
 
     <section className="rounded-2xl border border-[#E5E8EB] bg-white p-4 sm:p-5 space-y-4">
-      <div><h3 className="font-bold text-[#191F28]">검색 실행</h3><p className="mt-1 text-xs text-[#667085]">교재마다 최대 5가지 검색어로 Google·Bing·DuckDuckGo를 조회하고, 답지 관련 단서가 확인된 결과만 후보로 저장합니다. 한 배치는 최대 2권입니다.</p></div>
+      <div><h3 className="font-bold text-[#191F28]">검색 실행</h3><p className="mt-1 text-xs text-[#667085]">검색할 경로를 직접 선택합니다. 선택한 경로만 호출하며, 작업을 이어가거나 실패 교재를 재시도해도 같은 설정을 유지합니다.</p></div>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        {([
+          ['combined', '통합 검색', '네이버 + 카카오 + 웹 검색'],
+          ['naver', '네이버 API', '블로그·카페 검색'],
+          ['kakao', '카카오 API', '다음 블로그·카페·웹문서'],
+          ['web', '공개 웹 검색', 'Google·Bing·DuckDuckGo'],
+          ['local', '로컬 프로그램', 'Windows 브라우저 탐색기'],
+        ] as const).map(([value, title, description]) => <button key={value} type="button" onClick={() => setProviderMode(value)} className={`rounded-xl border p-3 text-left transition ${providerMode === value ? 'border-[#191F28] bg-[#F2F4F7] ring-1 ring-[#191F28]' : 'border-[#D0D5DD] bg-white hover:bg-[#F9FAFB]'}`}><span className="block text-sm font-bold text-[#191F28]">{title}</span><span className="mt-1 block text-[11px] leading-4 text-[#667085]">{description}</span></button>)}
+      </div>
+      {providerMode === 'local' ? <div className="rounded-xl border border-[#D0D5DD] bg-[#F9FAFB] p-3 text-xs leading-5 text-[#475467]">로컬 탐색기는 Windows PC에서 실행됩니다. GitHub Actions에서 최신 Windows 프로그램을 내려받아 실행하세요. Supabase 관리자 로그인을 연결하면 검색 후보가 이 검토 목록으로 전송됩니다. <a className="font-bold underline" href="https://github.com/fbwndnjs12345-tech/dapjimoum/actions/workflows/build-local-answer-finder.yml" target="_blank" rel="noreferrer">로컬 프로그램 다운로드 페이지 열기</a></div> : <div className="rounded-xl border border-[#EAECF0] bg-[#F9FAFB] p-3 text-xs leading-5 text-[#475467]">{providerMode === 'naver' ? 'NAVER_API_HUB_CLIENT_ID와 NAVER_API_HUB_CLIENT_SECRET 설정이 필요합니다.' : providerMode === 'kakao' ? 'KAKAO_REST_API_KEY 설정이 필요합니다.' : providerMode === 'web' ? '별도 API 키 없이 공개 검색 페이지를 조회합니다. 검색엔진의 자동화 차단에 따라 결과가 제한될 수 있습니다.' : '설정된 네이버·카카오 API와 공개 웹 검색을 함께 조회합니다. API가 설정되지 않은 경로는 건너뛰고, 실패한 경로는 오류로 기록합니다.'}</div>}
       <div className="grid gap-3 md:grid-cols-2">
         <div className="space-y-2">
           <label htmlFor="search-book-picker" className="text-xs font-bold text-[#344054]">선택 교재 검색 (선택 사항)</label>
@@ -271,14 +288,14 @@ export function AdminLinkSearchPage() {
         <div className="flex flex-col justify-end gap-3">
           <label className="flex items-start gap-2 text-xs text-[#475467]"><input type="checkbox" checked={includeBooksWithLinks} onChange={event => setIncludeBooksWithLinks(event.target.checked)} className="mt-0.5 accent-[#191F28]" />이미 답지 링크가 있는 교재도 재검색</label>
           <p className="text-xs text-[#667085]">선택된 교재가 있으면 선택 교재만 검색합니다. 없으면 {includeBooksWithLinks ? '전체 교재' : '답지 링크 미등록 교재'}를 검색합니다.</p>
-          <button type="button" onClick={() => void startSearch()} disabled={busy || isLoading} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#191F28] px-4 py-3 text-sm font-bold text-white hover:bg-[#333D4B] disabled:opacity-50"><Play className="h-4 w-4" />검색 시작</button>
+          <button type="button" onClick={() => void startSearch()} disabled={busy || isLoading} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#191F28] px-4 py-3 text-sm font-bold text-white hover:bg-[#333D4B] disabled:opacity-50"><Play className="h-4 w-4" />{providerMode === 'local' ? '로컬 프로그램 열기' : '검색 시작'}</button>
         </div>
       </div>
     </section>
 
     <section className="rounded-2xl border border-[#E5E8EB] bg-white p-4 sm:p-5 space-y-3">
       <div className="flex items-center justify-between gap-3"><div><h3 className="font-bold text-[#191F28]">검색 작업 기록</h3><p className="mt-1 text-xs text-[#667085]">최근 20개 작업 · 최근 검색 페이지 요청 {runs.reduce((sum, run) => sum + run.api_requests, 0).toLocaleString()}회 · 검토 대기 후보 {pendingCount}개</p></div></div>
-      {runs.length === 0 ? <p className="rounded-xl border border-[#EAECF0] bg-[#F9FAFB] p-5 text-center text-sm text-[#667085]">검색 작업 기록이 없습니다.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="border-b border-[#EAECF0] text-[#667085]"><tr><th className="px-3 py-2">시작 시각</th><th className="px-3 py-2">상태</th><th className="px-3 py-2">진행</th><th className="px-3 py-2">후보/검색 요청/실패</th><th className="px-3 py-2 text-right">작업</th></tr></thead><tbody className="divide-y divide-[#F2F4F6]">{runs.map(run => <tr key={run.id}><td className="px-3 py-3">{new Date(run.started_at).toLocaleString('ko-KR')}</td><td className="px-3 py-3">{run.status === 'running' ? '진행 중' : run.status === 'paused' ? '중지됨' : run.status === 'completed' ? '완료' : '오류'}</td><td className="px-3 py-3">{run.processed_books}/{run.book_ids.length}</td><td className="px-3 py-3">{run.candidate_count} / {run.api_requests} / {run.error_count}</td><td className="px-3 py-3 text-right space-x-2">{run.status === 'running' && <><button type="button" onClick={() => void continueSearch(run)} disabled={busy} className="rounded-lg border border-[#D0D5DD] px-2.5 py-1.5 font-semibold disabled:opacity-50">배치 실행/이어하기</button><button type="button" onClick={() => void pauseSearch(run.id)} className="rounded-lg border border-[#D0D5DD] px-2.5 py-1.5 font-semibold">중지</button></>}{run.status === 'paused' && <button type="button" onClick={() => void continueSearch(run)} disabled={busy} className="rounded-lg border border-[#D0D5DD] px-2.5 py-1.5 font-semibold disabled:opacity-50">이어하기</button>}{run.failed_book_ids.length > 0 && <button type="button" onClick={() => void retryFailed(run)} disabled={busy} className="rounded-lg border border-[#D0D5DD] px-2.5 py-1.5 font-semibold disabled:opacity-50">실패 재시도</button>}</td></tr>)}</tbody></table></div>}
+      {runs.length === 0 ? <p className="rounded-xl border border-[#EAECF0] bg-[#F9FAFB] p-5 text-center text-sm text-[#667085]">검색 작업 기록이 없습니다.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="border-b border-[#EAECF0] text-[#667085]"><tr><th className="px-3 py-2">시작 시각</th><th className="px-3 py-2">상태</th><th className="px-3 py-2">진행</th><th className="px-3 py-2">후보/검색 요청/실패</th><th className="px-3 py-2 text-right">작업</th></tr></thead><tbody className="divide-y divide-[#F2F4F6]">{runs.map(run => <tr key={run.id}><td className="px-3 py-3">{new Date(run.started_at).toLocaleString('ko-KR')}</td><td className="px-3 py-3">{run.status === 'running' ? '진행 중' : run.status === 'paused' ? '중지됨' : run.status === 'completed' ? '완료' : '오류'}</td><td className="px-3 py-3">{run.processed_books}/{run.book_ids.length}</td><td className="px-3 py-3">{run.candidate_count} / {run.api_requests} / {run.error_count}<p className="mt-1 text-[10px] text-[#667085]">{run.provider_mode === 'naver' ? '네이버 API' : run.provider_mode === 'kakao' ? '카카오 API' : run.provider_mode === 'web' ? '공개 웹' : '통합'}</p></td><td className="px-3 py-3 text-right space-x-2">{run.status === 'running' && <><button type="button" onClick={() => void continueSearch(run)} disabled={busy} className="rounded-lg border border-[#D0D5DD] px-2.5 py-1.5 font-semibold disabled:opacity-50">배치 실행/이어하기</button><button type="button" onClick={() => void pauseSearch(run.id)} className="rounded-lg border border-[#D0D5DD] px-2.5 py-1.5 font-semibold">중지</button></>}{run.status === 'paused' && <button type="button" onClick={() => void continueSearch(run)} disabled={busy} className="rounded-lg border border-[#D0D5DD] px-2.5 py-1.5 font-semibold disabled:opacity-50">이어하기</button>}{run.failed_book_ids.length > 0 && <button type="button" onClick={() => void retryFailed(run)} disabled={busy} className="rounded-lg border border-[#D0D5DD] px-2.5 py-1.5 font-semibold disabled:opacity-50">실패 재시도</button>}</td></tr>)}</tbody></table></div>}
       {activeRunId && busy && <div role="status" className="flex items-center gap-2 text-xs text-[#475467]"><LoaderCircle className="h-4 w-4 animate-spin" />현재 검색 작업은 페이지를 열어 둔 동안 자동으로 다음 배치를 요청합니다.</div>}
     </section>
 
