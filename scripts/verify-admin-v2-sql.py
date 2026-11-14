@@ -9,8 +9,9 @@ v2 = [path for path in paths if any(marker in path.name for marker in (
     "123000_answer_search_global_rate_limit",
     "124000_answer_link_health_fields",
     "125000_answer_candidate_match_scoring",
+    "126000_search_priority_engine",
 ))]
-assert len(v2) == 6, f"Expected six V2 migrations, found {len(v2)}"
+assert len(v2) == 7, f"Expected seven V2 migrations, found {len(v2)}"
 for path in v2:
     sql = path.read_text(encoding="utf-8")
     parse_sql(sql)
