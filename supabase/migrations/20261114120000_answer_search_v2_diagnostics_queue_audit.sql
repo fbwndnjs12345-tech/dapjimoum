@@ -323,3 +323,30 @@ create trigger answer_search_run_terminal_reason after update of status on publi
 for each row execute function public.set_answer_search_run_terminal_reason();
 
 create index if not exists site_pages_updated_by_idx on public.site_pages(updated_by);
+
+
+create or replace function public.finish_answer_search_queue_items()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.status in ('completed', 'failed') and old.status is distinct from new.status then
+    update public.answer_link_search_queue
+    set status = case when book_id = any(coalesce(new.failed_book_ids, '{}')) then 'failed' else 'completed' end,
+        last_error = case when book_id = any(coalesce(new.failed_book_ids, '{}')) then left(coalesce(new.last_error, '교재별 검색 실패'), 1000) else null end,
+        updated_at = now()
+    where run_id = new.id and status = 'running';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists finish_answer_search_queue_items on public.answer_link_search_runs;
+create trigger finish_answer_search_queue_items after update of status on public.answer_link_search_runs
+for each row execute function public.finish_answer_search_queue_items();
+
+alter table public.answer_link_search_settings
+  add column if not exists scheduler_last_tick_at timestamptz,
+  add column if not exists scheduler_last_error text,
+  add column if not exists scheduler_configured boolean not null default false;
