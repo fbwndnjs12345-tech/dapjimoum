@@ -10,6 +10,22 @@ const corsHeaders = {
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: corsHeaders });
 const PAGE_SIZE = 1000;
 
+
+function hasVerifiedServiceRole(token: string): boolean {
+  // Edge gateway validates the JWT signature while verify_jwt is enabled.
+  // Decode only the verified role claim to identify internal service-role requests.
+  const parts = token.split('.');
+  if (parts.length !== 3) return false;
+  try {
+    const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
+    const payload = JSON.parse(atob(padded)) as { role?: string };
+    return payload.role === 'service_role';
+  } catch {
+    return false;
+  }
+}
+
 function readSupabaseKey(legacyName: string, keySetName: string): string | undefined {
   const legacyKey = Deno.env.get(legacyName);
   if (legacyKey) return legacyKey;
@@ -403,7 +419,7 @@ Deno.serve(async (request) => {
   const serviceKey = readSupabaseKey('SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_SECRET_KEYS');
   if (!bearer || !supabaseUrl || !anonKey || !serviceKey) return json({ error: '인증 또는 서버 설정을 확인해 주세요.' }, 401);
 
-  const isServiceInvocation = bearer === serviceKey;
+  const isServiceInvocation = bearer === serviceKey || hasVerifiedServiceRole(bearer);
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
   let actorUserId: string;
   if (isServiceInvocation) {
