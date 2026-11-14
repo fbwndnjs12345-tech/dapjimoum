@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { supabase } from '../../lib/supabase/client';
 import { AlertCircle, Lock, Globe, Plus, Search, BookOpen, LayoutDashboard, RefreshCw, FileSpreadsheet, ScanSearch, Inbox } from 'lucide-react';
 import { useAppContext } from '../../state/useAppContext';
 import type { AnswerLink, Book } from '../../types/book';
@@ -112,6 +113,51 @@ export function LoginPage() {
     );
 }
 
+type SharedSearchRun = {
+  id: string;
+  status: 'running';
+  book_ids: string[];
+  processed_books: number;
+  candidate_count: number;
+  api_requests: number;
+  provider_mode: string;
+};
+
+function AdminSharedSearchStatus({ currentRoute, navigateTo }: { currentRoute: string; navigateTo: (path: string) => void }) {
+  const [run, setRun] = useState<SharedSearchRun | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const sync = async () => {
+      const { data, error } = await supabase.from('answer_link_search_runs')
+        .select('id,status,book_ids,processed_books,candidate_count,api_requests,provider_mode')
+        .eq('status', 'running').order('started_at', { ascending: false }).limit(1).maybeSingle();
+      if (!alive || error) return;
+      setRun(data as SharedSearchRun | null);
+    };
+    void sync();
+    const timer = window.setInterval(() => { void sync(); }, 3000);
+    const channel = supabase.channel('admin-global-search-status')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'answer_link_search_runs' }, () => { void sync(); })
+      .subscribe();
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      void supabase.removeChannel(channel);
+    };
+  }, []);
+  if (!run || currentRoute === '/admin/link-search') return null;
+  const total = Math.max(1, run.book_ids.length);
+  const progress = Math.min(100, Math.round(run.processed_books / total * 100));
+  return <section role="status" className="rounded-2xl border border-[#D0D5DD] bg-[#F9FAFB] p-3 sm:p-4">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div><p className="text-sm font-bold text-[#191F28]">공용 답지 자동 검색 실행 중</p><p className="mt-1 text-xs text-[#667085]">다른 관리자 화면에서도 진행 중인 작업을 공유하고 있습니다.</p></div>
+      <button type="button" onClick={() => navigateTo('/admin/link-search')} className="min-h-10 rounded-lg bg-[#191F28] px-3 py-2 text-xs font-bold text-white">검색 현황 보기</button>
+    </div>
+    <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#EAECF0]"><div className="h-full rounded-full bg-[#344054] transition-all" style={{ width: progress + '%' }} /></div>
+    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#475467]"><span>진행 {progress}% ({run.processed_books}/{run.book_ids.length})</span><span>후보 {run.candidate_count}개</span><span>검색 요청 {run.api_requests}회</span></div>
+  </section>;
+}
+
 export function renderAdminLayout(content: React.ReactNode) {
     const {isAdminLoggedIn, navigateTo, books, currentRoute, catalogStatus} = useAppContext();
     if (!isAdminLoggedIn) {
@@ -155,7 +201,7 @@ export function renderAdminLayout(content: React.ReactNode) {
           </nav>
         </header>
 
-        {content}
+        <AdminSharedSearchStatus currentRoute={currentRoute} navigateTo={navigateTo} />\n        {content}
       </div>
     );
 }
