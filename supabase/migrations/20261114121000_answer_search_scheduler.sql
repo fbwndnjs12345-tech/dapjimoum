@@ -6,6 +6,7 @@ create extension if not exists pg_cron with schema pg_catalog;
 create extension if not exists pg_net with schema net;
 
 create schema if not exists private;
+alter table public.answer_link_search_settings add column if not exists last_daily_run_on date;
 
 create or replace function private.invoke_answer_search_edge(p_action text, p_run_id uuid default null)
 returns bigint
@@ -69,11 +70,35 @@ begin
   end if;
 end $$;
 
--- 21:00 UTC is 06:00 in Korea (Asia/Seoul, UTC+9).
+create or replace function private.maybe_start_daily_answer_search()
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $
+declare
+  config public.answer_link_search_settings%rowtype;
+  local_now timestamp;
+  request_id bigint;
+begin
+  select * into config from public.answer_link_search_settings where singleton = true;
+  if not found or not config.daily_enabled then return; end if;
+  local_now := now() at time zone config.timezone;
+  if local_now::date = config.last_daily_run_on then return; end if;
+  if to_char(local_now::time, 'HH24:MI') <> to_char(config.daily_time, 'HH24:MI') then return; end if;
+  request_id := private.invoke_answer_search_edge('scheduled_start', null);
+  if request_id is not null then
+    update public.answer_link_search_settings set last_daily_run_on = local_now::date where singleton = true;
+  end if;
+end;
+$;
+revoke all on function private.maybe_start_daily_answer_search() from public, anon, authenticated;
+
+-- Check every minute; daily_time is interpreted in Asia/Seoul by default.
 select cron.schedule(
   'dapjimoum-answer-search-daily-kst',
-  '0 21 * * *',
-  $$ select private.invoke_answer_search_edge('scheduled_start', null); $$
+  '* * * * *',
+  $ select private.maybe_start_daily_answer_search(); $
 );
 
 -- Each tick processes one server-side batch (3 books). No browser tab must remain open.
