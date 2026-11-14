@@ -144,7 +144,7 @@ export default function App() {
     if (isAuthLoading || !isAdminLoggedIn || !currentRoute.startsWith('/admin')) return;
     let active = true;
     void import('./lib/supabase/client').then(({ supabase }) => {
-      if (active) return supabase.rpc('record_admin_access_event', { p_event_type: 'admin_page_view', p_route: currentRoute });
+      if (active) return supabase.rpc('record_admin_access_event', { p_event_type: currentRoute === '/admin' ? 'admin_login' : 'admin_page_view', p_route: currentRoute });
       return undefined;
     }).catch(() => undefined);
     return () => { active = false; };
