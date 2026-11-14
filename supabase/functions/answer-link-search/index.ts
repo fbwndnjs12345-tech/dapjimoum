@@ -69,10 +69,10 @@ function queriesFor(book: BookRow): string[] {
   const title = cleanBookTitle(book);
   const variants = [
     `"${title}" 답지`,
-    `"${title}" 정답 해설`,
-    `"${title}" 답안 PDF`,
-    `"${title}" 답지 블로그`,
-    `"${title}" 정답과 해설`,
+    `"${title}" 답지 PDF`,
+    `"${title}" site:tistory.com 답지`,
+    `"${title}" site:blog.naver.com OR site:cafe.naver.com 답지`,
+    `"${title}" ${[book.publisher, book.grade, book.semester].filter(Boolean).join(' ')} 정답과 해설`,
   ];
   return [...new Set(variants.map(value => value.replace(/\s+/g, ' ').trim()))].slice(0, 5);
 }
@@ -100,7 +100,7 @@ function matchAssessment(book: BookRow, title: string, snippet: string, url: str
   const hasDistinctiveMatch = matchedTokens.length > 0;
   const relevant = !isBlockedHost && hasDistinctiveMatch && numericMatch &&
     titleRatio >= (tokens.length <= 2 ? 0.5 : 0.4) &&
-    (answerSignal || likelyCommunity || isPdf);
+    answerSignal;
   const likely = relevant && answerSignal && titleRatio >= 0.75;
   return {
     relevant,
@@ -510,7 +510,7 @@ Deno.serve(async (request) => {
             results.push(result);
             resultQueries.push(query);
           }
-          if (results.length >= 30) break;
+
         }
         clearTimeout(timeout);
         timeout = undefined;
