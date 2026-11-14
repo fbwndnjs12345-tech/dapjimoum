@@ -95,14 +95,30 @@ function matchAssessment(book: BookRow, title: string, snippet: string, url: str
   const likelyCommunity = /(^|\.)(tistory\.com|blog\.naver\.com|cafe\.naver\.com|m\.blog\.naver\.com)$/.test(host);
   const isPdf = /\.pdf(?:$|[?#])/i.test(url);
   const numericMatch = numericTokens.every(token => sourceText.includes(token));
+  const publisherMatch = Boolean(publisher && sourceText.includes(publisher));
   const hasDistinctiveMatch = matchedTokens.length > 0;
   const relevant = !isBlockedHost && hasDistinctiveMatch && numericMatch &&
     titleRatio >= (tokens.length <= 2 ? 0.5 : 0.4) &&
     answerSignal;
-  const likely = relevant && answerSignal && titleRatio >= 0.75;
+  const score = Math.max(0, Math.min(100, Math.round(
+    titleRatio * 55 + (numericMatch ? 15 : 0) + (answerSignal ? 15 : 0) +
+    (publisherMatch ? 10 : 0) + (isPdf ? 5 : 0)
+  )));
+  const likely = relevant && score >= 75;
   return {
     relevant,
     match_status: likely ? 'likely' : relevant ? 'uncertain' : 'mismatch',
+    match_score: score,
+    match_evidence: {
+      title_ratio: Number(titleRatio.toFixed(3)),
+      matched_tokens: matchedTokens,
+      missing_tokens: tokens.filter(token => !sourceText.includes(token)),
+      numeric_match: numericMatch,
+      answer_signal: answerSignal,
+      publisher_match: publisherMatch,
+      pdf_url: isPdf,
+      source_host: host,
+    },
   };
 }
 
@@ -673,6 +689,8 @@ Deno.serve(async (request) => {
             query: resultQueries[resultIndex] ?? '',
             provider: result.provider,
             match_status: assessment.match_status,
+            match_score: assessment.match_score,
+            match_evidence: assessment.match_evidence,
             link_type: url.pathname.toLowerCase().endsWith('.pdf') ? 'PDF' : '웹페이지',
           });
         }
@@ -728,6 +746,8 @@ Deno.serve(async (request) => {
             query: candidate.provider ? `[${candidate.provider}] ${candidate.query}` : candidate.query,
             snippet: candidate.snippet,
             match_status: candidate.match_status,
+            match_score: candidate.match_score,
+            match_evidence: candidate.match_evidence,
             status: isDuplicate ? 'duplicate' : 'pending',
           };
           if (isDuplicate) {
