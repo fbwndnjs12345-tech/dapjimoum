@@ -262,7 +262,7 @@ export function AdminDashboard() {
 
         </>}
 
-        <section id="admin-submissions" className="overflow-hidden rounded-2xl border border-[#E5E8EB] bg-white">
+        {currentRoute === '/admin/inbox' && <section id="admin-submissions" className="overflow-hidden rounded-2xl border border-[#E5E8EB] bg-white">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E5E8EB] p-4 sm:p-5">
             <div>
               <h3 className="flex items-center gap-2 text-base font-bold text-[#191F28]"><Inbox className="h-4 w-4" /> 사용자 요청 및 오류 신고</h3>
@@ -294,8 +294,9 @@ export function AdminDashboard() {
               </div>
             </article>)}
           </div>}
-        </section>
+        </section>}
 
+        {currentRoute === '/admin' && <>
         {/* Table of Recent Books */}
         <div className="bg-white rounded-2xl border border-[#E5E8EB] overflow-hidden">
           <div className="p-4 sm:p-5 border-b border-[#E5E8EB]">
@@ -337,6 +338,7 @@ export function AdminDashboard() {
           </div>
           }
         </div>
+        </>}
       </div>
     );
 }
