@@ -53,6 +53,76 @@ function downloadText(filename: string, content: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
+function xmlEscape(value: unknown) {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
+
+function crc32(bytes: Uint8Array) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function makeStoredZip(files: Array<{ name: string; content: string }>) {
+  const encoder = new TextEncoder();
+  const localParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  let localOffset = 0;
+  const w16 = (view: DataView, offset: number, value: number) => view.setUint16(offset, value, true);
+  const w32 = (view: DataView, offset: number, value: number) => view.setUint32(offset, value, true);
+  for (const file of files) {
+    const name = encoder.encode(file.name);
+    const data = encoder.encode(file.content);
+    const crc = crc32(data);
+    const local = new Uint8Array(30 + name.length + data.length);
+    const lv = new DataView(local.buffer);
+    w32(lv, 0, 0x04034b50); w16(lv, 4, 20); w16(lv, 6, 0); w16(lv, 8, 0);
+    w16(lv, 10, 0); w16(lv, 12, 0); w32(lv, 14, crc); w32(lv, 18, data.length);
+    w32(lv, 22, data.length); w16(lv, 26, name.length); w16(lv, 28, 0);
+    local.set(name, 30); local.set(data, 30 + name.length); localParts.push(local);
+    const central = new Uint8Array(46 + name.length);
+    const cv = new DataView(central.buffer);
+    w32(cv, 0, 0x02014b50); w16(cv, 4, 20); w16(cv, 6, 20); w16(cv, 8, 0);
+    w16(cv, 10, 0); w16(cv, 12, 0); w16(cv, 14, 0); w32(cv, 16, crc);
+    w32(cv, 20, data.length); w32(cv, 24, data.length); w16(cv, 28, name.length);
+    w16(cv, 30, 0); w16(cv, 32, 0); w16(cv, 34, 0); w16(cv, 36, 0);
+    w32(cv, 38, 0); w32(cv, 42, localOffset); central.set(name, 46); centralParts.push(central);
+    localOffset += local.length;
+  }
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const end = new Uint8Array(22);
+  const ev = new DataView(end.buffer);
+  w32(ev, 0, 0x06054b50); w16(ev, 4, 0); w16(ev, 6, 0);
+  w16(ev, 8, files.length); w16(ev, 10, files.length); w32(ev, 12, centralSize);
+  w32(ev, 16, localOffset); w16(ev, 20, 0);
+  return new Blob([...localParts, ...centralParts, end], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+
+function downloadXlsx(filename: string, rows: Array<Record<string, unknown>>) {
+  const headers = Object.keys(rows[0] ?? { run_id: '', book: '', publisher: '', title: '', url: '', source: '', query: '', match_status: '', status: '', created_at: '', reviewed_at: '' });
+  const allRows = [headers, ...rows.map(row => headers.map(header => row[header] ?? ''))];
+  const columnName = (index: number) => {
+    let value = index + 1; let name = '';
+    while (value) { const remainder = (value - 1) % 26; name = String.fromCharCode(65 + remainder) + name; value = Math.floor((value - 1) / 26); }
+    return name;
+  };
+  const sheetRows = allRows.map((row, rowIndex) => '<row r="' + (rowIndex + 1) + '">' + row.map((value, colIndex) => '<c r="' + columnName(colIndex) + (rowIndex + 1) + '" t="inlineStr"><is><t xml:space="preserve">' + xmlEscape(value) + '</t></is></c>').join('') + '</row>').join('');
+  const files = [
+    { name: '[Content_Types].xml', content: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>' },
+    { name: '_rels/.rels', content: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
+    { name: 'xl/workbook.xml', content: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="검색 후보" sheetId="1" r:id="rId1"/></sheets></workbook>' },
+    { name: 'xl/_rels/workbook.xml.rels', content: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>' },
+    { name: 'xl/worksheets/sheet1.xml', content: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' + sheetRows + '</sheetData></worksheet>' },
+  ];
+  const blob = makeStoredZip(files);
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function csvCell(value: unknown) {
   const text = String(value ?? '');
   return '"' + text.replace(/"/g, '""') + '"';
