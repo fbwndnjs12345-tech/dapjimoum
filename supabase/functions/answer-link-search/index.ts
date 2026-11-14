@@ -80,7 +80,10 @@ function queriesFor(book: BookRow): string[] {
 function matchAssessment(book: BookRow, title: string, snippet: string, url: string) {
   const publisher = normalizeSearchText(book.publisher ?? '');
   const bookTitle = normalizeSearchText(cleanBookTitle(book));
-  const rawPath = new URL(url).pathname;\n  let decodedPath = rawPath;\n  try { decodedPath = decodeURIComponent(rawPath); } catch { /* Keep the encoded path when malformed. */ }\n  const sourceText = normalizeSearchText(`${title} ${snippet} ${decodedPath}`);
+  const rawPath = new URL(url).pathname;
+  let decodedPath = rawPath;
+  try { decodedPath = decodeURIComponent(rawPath); } catch { /* Keep the encoded path when malformed. */ }
+  const sourceText = normalizeSearchText(`${title} ${snippet} ${decodedPath}`);
   const ignored = new Set(['중학', '초등', '고등', '공통', '개정', '교육', '정답과', '정답', '해설', '답지', '답안', 'pdf']);
   const tokens = [...new Set(bookTitle.match(/[가-힣a-z0-9]+/g) ?? [])]
     .filter(token => token.length > 1 && !ignored.has(token) && !/^[1-3]학년$/.test(token) && !/^[12]학기$/.test(token) && token !== publisher);
