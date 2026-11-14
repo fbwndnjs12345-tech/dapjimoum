@@ -341,7 +341,7 @@ begin
           else 'failed'
         end,
         available_at = case
-          when q.book_id = any(coalesce(new.failed_book_ids, '{}')))
+          when q.book_id = any(coalesce(new.failed_book_ids, '{}'))
             and q.retry_count < coalesce((select retry_limit from public.answer_link_search_settings where singleton = true), 2)
           then now() + make_interval(mins => (5 * power(2, q.retry_count))::integer)
           else q.available_at
