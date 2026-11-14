@@ -127,40 +127,15 @@ function AdminSharedSearchStatus({ currentRoute, navigateTo }: { currentRoute: s
   const [run, setRun] = useState<SharedSearchRun | null>(null);
   useEffect(() => {
     let alive = true;
-    let workerRunning = false;
-    const delay = (ms: number) => new Promise(resolve => window.setTimeout(resolve, ms));
-    const runSharedBatches = async (runId: string) => {
-      if (workerRunning || currentRoute === '/admin/link-search') return;
-      workerRunning = true;
-      try {
-        while (alive) {
-          const { data: batch, error: batchError } = await supabase.functions.invoke('answer-link-search', { body: { action: 'batch', runId } });
-          if (batchError) {
-            await delay(1500);
-            const { data: state } = await supabase.from('answer_link_search_runs').select('status').eq('id', runId).maybeSingle();
-            if (!state || state.status !== 'running') break;
-            continue;
-          }
-          const { data: latest, error: readError } = await supabase.from('answer_link_search_runs')
-            .select('status,next_index,book_ids').eq('id', runId).maybeSingle();
-          if (readError || !latest || latest.status !== 'running' || batch?.done) break;
-          if (batch?.busy) await delay(1000);
-        }
-      } finally {
-        workerRunning = false;
-        if (alive) void sync();
-      }
-    };
     const sync = async () => {
       const { data, error } = await supabase.from('answer_link_search_runs')
         .select('id,status,book_ids,processed_books,candidate_count,api_requests,provider_mode')
         .eq('status', 'running').order('started_at', { ascending: false }).limit(1).maybeSingle();
       if (!alive || error) return;
       setRun(data as SharedSearchRun | null);
-      if (data && currentRoute !== '/admin/link-search') void runSharedBatches(data.id);
     };
     void sync();
-    const timer = window.setInterval(() => { void sync(); }, 3000);
+    const timer = window.setInterval(() => { void sync(); }, 5000);
     const channel = supabase.channel('admin-global-search-status')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'answer_link_search_runs' }, () => { void sync(); })
       .subscribe();
@@ -169,13 +144,13 @@ function AdminSharedSearchStatus({ currentRoute, navigateTo }: { currentRoute: s
       window.clearInterval(timer);
       void supabase.removeChannel(channel);
     };
-  }, [currentRoute]);
+  }, []);
   if (!run || currentRoute === '/admin/link-search') return null;
   const total = Math.max(1, run.book_ids.length);
   const progress = Math.min(100, Math.round(run.processed_books / total * 100));
   return <section role="status" className="rounded-2xl border border-[#D0D5DD] bg-[#F9FAFB] p-3 sm:p-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <div><p className="text-sm font-bold text-[#191F28]">공용 답지 자동 검색 실행 중</p><p className="mt-1 text-xs text-[#667085]">다른 관리자 화면에서도 진행 중인 작업을 공유하고 있습니다.</p></div>
+      <div><p className="text-sm font-bold text-[#191F28]">공용 답지 자동 검색 실행 중</p><p className="mt-1 text-xs text-[#667085]">서버 작업자가 진행 상황을 처리하고 있습니다. 브라우저를 닫아도 실행 기록은 유지됩니다.</p></div>
       <button type="button" onClick={() => navigateTo('/admin/link-search')} className="min-h-10 rounded-lg bg-[#191F28] px-3 py-2 text-xs font-bold text-white">검색 현황 보기</button>
     </div>
     <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#EAECF0]"><div className="h-full rounded-full bg-[#344054] transition-all" style={{ width: progress + '%' }} /></div>
