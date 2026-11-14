@@ -349,7 +349,7 @@ async function searchWithProviders(query: string, signal: AbortSignal, mode: 'na
     const identity = canonicalUrl(item.url);
     if (!unique.has(identity)) unique.set(identity, item);
   }
-  if (!unique.size && errors.length) throw new Error(errors.join(' / ').slice(0, 1000));
+  if (!unique.size && errors.length === settled.length) throw new Error(errors.join(' / ').slice(0, 1000));
   return { results: [...unique.values()], warnings: errors };
 }
 
