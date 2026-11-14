@@ -1,0 +1,30 @@
+{
+  "sources": [
+    {
+      "publisher": "비상교육",
+      "start_urls": [
+        "https://s-book.visang.com/resources",
+        "https://t-book.visang.com/resources"
+      ]
+    }
+  ],
+  "max_sitemap_urls_per_source": 500,
+  "request_delay_seconds": 1.5,
+  "page_timeout_ms": 20000,
+  "answer_keywords": [
+    "정답과 해설",
+    "정답·해설",
+    "정답 및 해설",
+    "정답 해설",
+    "답지"
+  ],
+  "web_search": {
+    "enabled": true,
+    "engines": [
+      "google",
+      "bing"
+    ],
+    "results_per_engine": 12,
+    "max_queries_per_book": 8
+  }
+}
