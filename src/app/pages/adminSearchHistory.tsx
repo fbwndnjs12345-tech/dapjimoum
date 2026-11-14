@@ -189,14 +189,19 @@ export function AdminSearchHistoryPage() {
       if (!active) return;
       if (response.error) {
         setAttempts([]);
-        setAttemptError('상세 진단 로그는 데이터베이스 진단 마이그레이션 적용 후 표시됩니다.');
+        setAttemptError(response.error.message.toLowerCase().includes('permission') || response.error.code === '42501'
+          ? '이 계정에는 상세 검색 진단을 조회할 권한이 없습니다.'
+          : '상세 진단 로그는 데이터베이스 진단 마이그레이션 적용 후 표시됩니다.');
       } else {
         setAttempts((response.data ?? []) as Attempt[]);
       }
       setAttemptLoading(false);
     };
     void loadAttempts();
-    return () => { active = false; };
+    const channel = supabase.channel('admin-search-attempts-' + selectedRunId)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'answer_link_search_attempts' }, () => { void loadAttempts(); })
+      .subscribe();
+    return () => { active = false; void supabase.removeChannel(channel); };
   }, [selectedRunId]);
 
   const visibleCandidates = useMemo(() => candidates.filter(candidate => {
