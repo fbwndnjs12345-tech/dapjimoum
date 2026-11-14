@@ -297,24 +297,27 @@ declare
   total_results bigint;
   total_filtered bigint;
   failed_attempts bigint;
+  warning_attempts bigint;
 begin
   if new.status = 'completed' and old.status is distinct from new.status and new.terminal_reason is null then
     select coalesce(sum(result_count), 0), coalesce(sum(filtered_count), 0),
-           count(*) filter (where status = 'failed')
-      into total_results, total_filtered, failed_attempts
+           count(*) filter (where status = 'failed'),
+           count(*) filter (where jsonb_array_length(coalesce(warnings, '[]'::jsonb)) > 0)
+      into total_results, total_filtered, failed_attempts, warning_attempts
     from public.answer_link_search_attempts where run_id = new.id;
 
     update public.answer_link_search_runs
     set terminal_reason = case
-      when new.candidate_count > 0 and (new.error_count > 0 or failed_attempts > 0) then 'partial_provider_failure'
+      when new.candidate_count > 0 and (new.error_count > 0 or failed_attempts > 0 or warning_attempts > 0) then 'partial_provider_failure'
       when new.candidate_count > 0 then 'found_candidates'
+      when warning_attempts > 0 then 'partial_provider_failure'
       when new.error_count > 0 and failed_attempts = 0 and total_results = 0 then 'book_failures'
       when failed_attempts > 0 and total_results = 0 then 'provider_failures'
       when total_results > 0 and total_filtered > 0 then 'all_filtered'
       when total_results = 0 then 'no_search_results'
       else 'unknown_legacy'
     end,
-    completed_with_warnings = (new.error_count > 0 or failed_attempts > 0)
+    completed_with_warnings = (new.error_count > 0 or failed_attempts > 0 or warning_attempts > 0)
     where id = new.id and terminal_reason is null;
   end if;
   return new;
