@@ -214,6 +214,7 @@ export function renderAdminLayout(content: React.ReactNode) {
               { path: '/admin/books', label: '교재 관리', count: books.length, icon: BookOpen, active: currentRoute.startsWith('/admin/books') },
               { path: '/admin/import', label: 'CSV 일괄 등록', count: null, icon: FileSpreadsheet, active: currentRoute === '/admin/import' },
               { path: '/admin/link-search', label: '답지 링크 자동 검색', count: null, icon: ScanSearch, active: currentRoute === '/admin/link-search' },
+              { path: '/admin/search-history', label: '검색 기록·후보 검수', count: null, icon: RefreshCw, active: currentRoute === '/admin/search-history' },
               { path: '/admin/inbox', label: '사용자 접수함', count: null, icon: Inbox, active: currentRoute === '/admin/inbox' },
               { path: '/admin/site-content', label: '사이트 문서 관리', count: null, icon: Globe, active: currentRoute === '/admin/site-content' }
             ].map(item => {
