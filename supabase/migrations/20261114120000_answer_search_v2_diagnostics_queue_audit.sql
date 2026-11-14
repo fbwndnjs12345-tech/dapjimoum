@@ -347,7 +347,7 @@ begin
           else q.available_at
         end,
         retry_count = case
-          when q.book_id = any(coalesce(new.failed_book_ids, '{}')))
+          when q.book_id = any(coalesce(new.failed_book_ids, '{}'))
             and q.retry_count < coalesce((select retry_limit from public.answer_link_search_settings where singleton = true), 2)
           then q.retry_count + 1 else q.retry_count
         end,
