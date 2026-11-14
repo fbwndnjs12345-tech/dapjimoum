@@ -75,7 +75,7 @@ returns void
 language plpgsql
 security definer
 set search_path = ''
-as $
+as $body$
 declare
   config public.answer_link_search_settings%rowtype;
   local_now timestamp;
@@ -91,14 +91,14 @@ begin
     update public.answer_link_search_settings set last_daily_run_on = local_now::date where singleton = true;
   end if;
 end;
-$;
+$body$;
 revoke all on function private.maybe_start_daily_answer_search() from public, anon, authenticated;
 
 -- Check every minute; daily_time is interpreted in Asia/Seoul by default.
 select cron.schedule(
   'dapjimoum-answer-search-daily-kst',
   '* * * * *',
-  $ select private.maybe_start_daily_answer_search(); $
+  $command$ select private.maybe_start_daily_answer_search(); $command$
 );
 
 -- Each tick processes one server-side batch (3 books). No browser tab must remain open.
@@ -132,11 +132,11 @@ end $$;
 select cron.schedule(
   'dapjimoum-answer-search-history-retention',
   '0 19 * * *',
-  $ delete from public.answer_link_search_runs
+  $command$ delete from public.answer_link_search_runs
      where started_at < now() - interval '30 days'
        and status in ('completed', 'failed', 'paused');
      delete from public.answer_link_search_rate_limits
-     where bucket_start < now() - interval '2 days'; $
+     where bucket_start < now() - interval '2 days'; $command$
 );
 
 
