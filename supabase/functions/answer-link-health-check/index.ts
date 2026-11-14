@@ -22,7 +22,8 @@ function safeExternalUrl(value: string) {
     const url = new URL(value);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return false;
     const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-    if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return false;
+    if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return false;
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':')) return false;
     if (/^(10\.|127\.|169\.254\.|192\.168\.|0\.)/.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
     if (host === '::1' || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80:')) return false;
     return true;
@@ -88,7 +89,7 @@ Deno.serve(async request => {
     .limit(limit);
   if (linksError) return json({ error: '검사할 답지 링크를 불러오지 못했습니다: ' + linksError.message }, 500);
 
-  const summary = { checked: 0, healthy: 0, broken: 0, redirected: 0, invalidPdf: 0, temporaryErrors: 0, queued: 0 };
+  const summary = { checked: 0, healthy: 0, broken: 0, redirected: 0, invalidPdf: 0, rateLimited: 0, temporaryErrors: 0, queued: 0 };
   const errors: string[] = [];
   for (const link of links ?? []) {
     let status: 'healthy' | 'broken' | 'redirected' | 'invalid_pdf' | 'rate_limited' | 'temporary_error' = 'temporary_error';
@@ -99,7 +100,7 @@ Deno.serve(async request => {
     try {
       if (!safeExternalUrl(link.url)) throw new Error('안전하지 않은 외부 URL이어서 검사하지 않았습니다.');
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
+      const timeout = setTimeout(() => controller.abort(), 90000);
       try {
         await reserveSlot();
         let response = await fetch(link.url, { method: 'HEAD', redirect: 'manual', signal: controller.signal });
@@ -177,6 +178,7 @@ Deno.serve(async request => {
     else if (status === 'broken') summary.broken += 1;
     else if (status === 'redirected') summary.redirected += 1;
     else if (status === 'invalid_pdf') summary.invalidPdf += 1;
+    else if (status === 'rate_limited') summary.rateLimited += 1;
     else summary.temporaryErrors += 1;
 
     if (['broken', 'redirected', 'invalid_pdf'].includes(status)) {
