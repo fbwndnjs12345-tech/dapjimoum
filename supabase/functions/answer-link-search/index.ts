@@ -516,39 +516,79 @@ Deno.serve(async (request) => {
         const results: HtmlSearchResult[] = [];
         const resultQueries: string[] = [];
         const providerWarnings: string[] = [];
+        const diagnostics: Array<{
+          query: string; startedAt: string; durationMs: number;
+          status: 'succeeded' | 'partial' | 'no_results' | 'failed' | 'filtered_all';
+          resultCount: number; candidateCount: number; filteredCount: number;
+          warnings: string[]; providersAttempted: string[]; providersWithResults: string[];
+          errorMessage: string | null;
+        }> = [];
+        const attemptedProviders = runProviderMode === 'web'
+          ? ['google_html', 'bing_html', 'duckduckgo_html']
+          : runProviderMode === 'kakao'
+            ? ['kakao_blog', 'kakao_cafe', 'kakao_web']
+            : runProviderMode === 'naver'
+              ? ['naver_blog', 'naver_cafe']
+              : ['google_html', 'bing_html', 'duckduckgo_html', ...(kakaoRestApiKey ? ['kakao_blog', 'kakao_cafe', 'kakao_web'] : []), ...(naverCredentials ? ['naver_blog', 'naver_cafe'] : [])];
         const queryResults = await Promise.allSettled(queries.map(async query => {
+          const started = Date.now();
+          const startedAt = new Date(started).toISOString();
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 12_000);
           try {
-            return { query, result: await searchWithProviders(query, controller.signal, runProviderMode, kakaoRestApiKey, naverCredentials) };
+            return { query, startedAt, durationMs: Date.now() - started, result: await searchWithProviders(query, controller.signal, runProviderMode, kakaoRestApiKey, naverCredentials) };
           } finally { clearTimeout(timeout); }
         }));
-        for (const item of queryResults) {
+        for (let index = 0; index < queryResults.length; index++) {
+          const item = queryResults[index];
           if (item.status === 'rejected') {
-            providerWarnings.push(item.reason instanceof Error ? item.reason.message : '검색 실패');
+            const message = item.reason instanceof Error ? item.reason.message : '검색 실패';
+            providerWarnings.push(message);
+            diagnostics.push({
+              query: queries[index], startedAt: new Date().toISOString(), durationMs: 0,
+              status: 'failed', resultCount: 0, candidateCount: 0, filteredCount: 0,
+              warnings: [message], providersAttempted: attemptedProviders, providersWithResults: [], errorMessage: message,
+            });
             continue;
           }
-          results.push(...item.value.result.results);
-          resultQueries.push(...item.value.result.results.map(() => item.value.query));
-          providerWarnings.push(...item.value.result.warnings);
+          const { query, result, startedAt, durationMs } = item.value;
+          results.push(...result.results);
+          resultQueries.push(...result.results.map(() => query));
+          providerWarnings.push(...result.warnings);
+          const providersWithResults = [...new Set(result.results.map(row => row.provider ?? 'unknown'))];
+          diagnostics.push({
+            query, startedAt, durationMs,
+            status: result.results.length ? (result.warnings.length ? 'partial' : 'succeeded') : (result.warnings.length ? 'failed' : 'no_results'),
+            resultCount: result.results.length, candidateCount: 0, filteredCount: 0,
+            warnings: result.warnings, providersAttempted: attemptedProviders, providersWithResults, errorMessage: result.warnings.join(' / ').slice(0, 1200) || null,
+          });
         }
         apiRequests += queries.length * (runProviderMode === 'web' ? 3 : runProviderMode === 'kakao' ? 3 : runProviderMode === 'naver' ? 2 : 3 + (kakaoRestApiKey ? 3 : 0) + (naverCredentials ? 2 : 0));
         if (providerWarnings.length) errors.push(`${book.title}: 일부 검색 경로 실패 - ${[...new Set(providerWarnings)].join(' / ').slice(0, 800)}`);
 
+        const diagnosticByQuery = new Map(diagnostics.map(item => [item.query, item]));
         const { data: existingLinks, error: linksError } = await admin.from('answer_links').select('url').eq('book_id', book.id);
         if (linksError) throw linksError;
         const existingUrls = new Set((existingLinks ?? []).map(row => canonicalUrl(row.url)));
         const unique = new Map<string, { title: string; url: string; snippet: string; host: string; query: string; provider?: string; match_status: string; link_type: string }>();
         for (const [resultIndex, result] of results.entries()) {
           const candidateUrl = result.url?.trim() ?? '';
-          if (!candidateUrl || !isSafeSearchUrl(candidateUrl)) continue;
+          const diagnostic = diagnosticByQuery.get(resultQueries[resultIndex] ?? '');
+          if (!candidateUrl || !isSafeSearchUrl(candidateUrl)) {
+            if (diagnostic) diagnostic.filteredCount += 1;
+            continue;
+          }
           const identity = canonicalUrl(candidateUrl);
           if (unique.has(identity)) continue;
           const title = (result.title ?? '').trim().slice(0, 500);
           const snippet = (result.description ?? '').trim().slice(0, 2000);
           const url = new URL(candidateUrl);
           const assessment = matchAssessment(book, title, snippet, candidateUrl);
-          if (!assessment.relevant) continue;
+          if (!assessment.relevant) {
+            if (diagnostic) diagnostic.filteredCount += 1;
+            continue;
+          }
+          if (diagnostic) diagnostic.candidateCount += 1;
           unique.set(identity, {
             title: title || url.hostname,
             url: candidateUrl,
@@ -560,6 +600,30 @@ Deno.serve(async (request) => {
             link_type: url.pathname.toLowerCase().endsWith('.pdf') ? 'PDF' : '웹페이지',
           });
         }
+
+        for (const diagnostic of diagnostics) {
+          if (diagnostic.resultCount > 0 && diagnostic.candidateCount === 0 && diagnostic.filteredCount > 0) diagnostic.status = 'filtered_all';
+        }
+        const { error: diagnosticError } = await admin.from('answer_link_search_attempts').insert(diagnostics.map(diagnostic => ({
+          run_id: payload.runId,
+          book_id: book.id,
+          provider_mode: runProviderMode,
+          query: diagnostic.query,
+          status: diagnostic.status,
+          providers_attempted: diagnostic.providersAttempted,
+          providers_with_results: diagnostic.providersWithResults,
+          result_count: diagnostic.resultCount,
+          candidate_count: diagnostic.candidateCount,
+          filtered_count: diagnostic.filteredCount,
+          duration_ms: diagnostic.durationMs,
+          warnings: diagnostic.warnings,
+          error_code: diagnostic.status === 'failed' ? (diagnostic.errorMessage?.match(/(401|403|429|timeout|abort|인증|한도|차단)/i)?.[0] ?? 'provider_error') : null,
+          error_message: diagnostic.errorMessage,
+          details: { result_count_by_provider: diagnostic.providersWithResults.reduce<Record<string, number>>((counts, provider) => { counts[provider] = (counts[provider] ?? 0) + 1; return counts; }, {}) },
+          started_at: diagnostic.startedAt,
+          finished_at: new Date().toISOString(),
+        })));
+        if (diagnosticError) errors.push(`${book.title}: 검색 진단 저장 실패 - ${diagnosticError.message}`);
 
         for (const candidate of unique.values()) {
           const identity = canonicalUrl(candidate.url);
