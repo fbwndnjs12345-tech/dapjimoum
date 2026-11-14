@@ -67,14 +67,13 @@ function cleanBookTitle(book: BookRow): string {
 
 function queriesFor(book: BookRow): string[] {
   const title = cleanBookTitle(book);
+  const identity = [book.publisher, book.grade, book.semester, book.series].filter(Boolean).join(' ');
   const variants = [
-    `"${title}" 답지`,
+    `"${title}" ${identity} 정답과 해설`,
     `"${title}" 답지 PDF`,
-    `"${title}" site:tistory.com 답지`,
-    `"${title}" site:blog.naver.com OR site:cafe.naver.com 답지`,
-    `"${title}" ${[book.publisher, book.grade, book.semester].filter(Boolean).join(' ')} 정답과 해설`,
+    `"${title}" site:tistory.com OR site:blog.naver.com OR site:cafe.naver.com 답지`,
   ];
-  return [...new Set(variants.map(value => value.replace(/\s+/g, ' ').trim()))].slice(0, 3);
+  return [...new Set(variants.map(value => value.replace(/\s+/g, ' ').trim()))];
 }
 
 function matchAssessment(book: BookRow, title: string, snippet: string, url: string) {
