@@ -454,8 +454,8 @@ Deno.serve(async (request) => {
     const status = action === 'pause' ? 'paused' : 'running';
     const { data, error } = await admin.from('answer_link_search_runs').update({
       status,
-      lock_token: null,
-      locked_until: null,
+      // Do not steal an in-flight batch on pause/resume. Its lease is released by
+      // finish_answer_link_search_batch, or expires after two minutes if its tab dies.
       finished_at: action === 'pause' ? new Date().toISOString() : null,
       ...(action === 'pause' && typeof payload.reason === 'string' ? { last_error: payload.reason.slice(0, 1500) } : {}),
     }).eq('id', payload.runId).select('id,status').maybeSingle();
