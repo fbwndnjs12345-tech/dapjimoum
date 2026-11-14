@@ -263,7 +263,7 @@ export function AdminLinkSearchPage() {
       }
       setSelectedCandidateIds([]);
       setNotice(`일괄 처리 완료: ${approved}개 승인, ${duplicate}개 중복 제외, ${failures.length}개 실패`);
-      if (failures.length) setError(failures.join('\\n'));
+      if (failures.length) setError(failures.join('\n'));
       await Promise.all([loadData(), refreshCatalog()]);
     } catch (approvalError) {
       setError(errorText(approvalError));
