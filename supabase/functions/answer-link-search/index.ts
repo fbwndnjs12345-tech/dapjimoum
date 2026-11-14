@@ -53,15 +53,15 @@ function isSafeSearchUrl(value: string): boolean {
 function normalizeSearchText(value: string): string {
   return value.toLocaleLowerCase('ko-KR')
     .replace(/&amp;/g, '&')
-    .replace(/[()［］【】「」『』,.:·_\\-]/g, ' ')
-    .replace(/\\s+/g, ' ')
+    .replace(/[()［］【】「」『』,.:·_\-]/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
 function cleanBookTitle(book: BookRow): string {
   return book.title
-    .replace(/\\s*\\((?:NE능률|능률|천재교육|비상교육|미래엔|동아출판|금성출판사|YBM|지학사|좋은책신사고|교학사|천재|비상)\\)\\s*/gi, ' ')
-    .replace(/\\s+/g, ' ')
+    .replace(/\s*\((?:NE능률|능률|천재교육|비상교육|미래엔|동아출판|금성출판사|YBM|지학사|좋은책신사고|교학사|천재|비상)\)\s*/gi, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
@@ -74,7 +74,7 @@ function queriesFor(book: BookRow): string[] {
     `"${title}" 답지 블로그`,
     `"${title}" 정답과 해설`,
   ];
-  return [...new Set(variants.map(value => value.replace(/\\s+/g, ' ').trim()))].slice(0, 5);
+  return [...new Set(variants.map(value => value.replace(/\s+/g, ' ').trim()))].slice(0, 5);
 }
 
 function matchAssessment(book: BookRow, title: string, snippet: string, url: string) {
@@ -84,15 +84,15 @@ function matchAssessment(book: BookRow, title: string, snippet: string, url: str
   const ignored = new Set(['중학', '초등', '고등', '공통', '개정', '교육', '정답과', '정답', '해설', '답지', '답안', 'pdf']);
   const tokens = [...new Set(bookTitle.match(/[가-힣a-z0-9]+/g) ?? [])]
     .filter(token => token.length > 1 && !ignored.has(token) && token !== publisher);
-  const numericTokens = tokens.filter(token => /\\d/.test(token) && !/^[1-3]학년$/.test(token) && !/^[12]학기$/.test(token));
+  const numericTokens = tokens.filter(token => /\d/.test(token) && !/^[1-3]학년$/.test(token) && !/^[12]학기$/.test(token));
   const matchedTokens = tokens.filter(token => sourceText.includes(token));
   const titleRatio = tokens.length ? matchedTokens.length / tokens.length : 0;
-  const answerSignal = /답지|정답|해설|답안|정답지|\\bpdf\\b/i.test(sourceText) || /\\.pdf(?:$|[?#])/i.test(url);
-  const host = new URL(url).hostname.toLowerCase().replace(/^www\\./, '');
+  const answerSignal = /답지|정답|해설|답안|정답지|\bpdf\b/i.test(sourceText) || /\.pdf(?:$|[?#])/i.test(url);
+  const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
   const blockedHosts = new Set(['github.com','wikipedia.org','namu.wiki','google.com','bing.com','naver.com','daum.net','kakao.com','gmail.com']);
   const isBlockedHost = [...blockedHosts].some(domain => host === domain || host.endsWith(`.${domain}`));
-  const likelyCommunity = /(^|\\.)(tistory\\.com|blog\\.naver\\.com|cafe\\.naver\\.com|m\\.blog\\.naver\\.com)$/.test(host);
-  const isPdf = /\\.pdf(?:$|[?#])/i.test(url);
+  const likelyCommunity = /(^|\.)(tistory\.com|blog\.naver\.com|cafe\.naver\.com|m\.blog\.naver\.com)$/.test(host);
+  const isPdf = /\.pdf(?:$|[?#])/i.test(url);
   const numericMatch = numericTokens.every(token => sourceText.includes(token));
   const hasDistinctiveMatch = matchedTokens.length > 0;
   const relevant = !isBlockedHost && hasDistinctiveMatch && numericMatch &&
@@ -106,8 +106,8 @@ function matchAssessment(book: BookRow, title: string, snippet: string, url: str
 }
 
 function classifySource(hostname: string, publisher: string | null): 'official' | 'general' | 'unknown' {
-  const host = hostname.toLowerCase().replace(/^www\\./, '');
-  if (/(^|\\.)(tistory\\.com|blog\\.naver\\.com|cafe\\.naver\\.com)$/.test(host)) return 'general';
+  const host = hostname.toLowerCase().replace(/^www\./, '');
+  if (/(^|\.)(tistory\.com|blog\.naver\.com|cafe\.naver\.com)$/.test(host)) return 'general';
   const officialDomains: Record<string, string[]> = {
     'ne능률': ['neungyule.com', 'nebooks.co.kr'],
     '능률': ['neungyule.com', 'nebooks.co.kr'],
