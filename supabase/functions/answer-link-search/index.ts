@@ -9,7 +9,6 @@ const corsHeaders = {
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: corsHeaders });
 const PAGE_SIZE = 1000;
-const BATCH_SIZE = 3;
 
 function readSupabaseKey(legacyName: string, keySetName: string): string | undefined {
   const legacyKey = Deno.env.get(legacyName);
@@ -526,8 +525,11 @@ Deno.serve(async (request) => {
     const runProviderMode = (ownedRun.provider_mode ?? 'combined') as 'naver' | 'kakao' | 'web' | 'combined';
     if (runProviderMode === 'naver' && !naverCredentials) return json({ error: '이 작업은 네이버 API로 시작되었지만 현재 API 인증 정보가 없습니다. Secrets 설정 후 다시 이어서 실행하세요.' }, 400);
     if (runProviderMode === 'kakao' && !kakaoRestApiKey) return json({ error: '이 작업은 카카오 API로 시작되었지만 현재 API 키가 없습니다. Secrets 설정 후 다시 이어서 실행하세요.' }, 400);
+    const { data: runSettings } = await admin.from('answer_link_search_settings').select('max_concurrency,retry_limit,requests_per_minute').eq('singleton', true).maybeSingle();
+    const batchSize = Math.max(1, Math.min(5, Number(runSettings?.max_concurrency ?? 3)));
+    const retryLimit = Math.max(0, Math.min(5, Number(runSettings?.retry_limit ?? 2)));
     const lockToken = crypto.randomUUID();
-    const { data: claim, error: claimError } = await admin.rpc('claim_answer_link_search_batch', { p_run_id: payload.runId, p_lock_token: lockToken, p_batch_size: BATCH_SIZE });
+    const { data: claim, error: claimError } = await admin.rpc('claim_answer_link_search_batch', { p_run_id: payload.runId, p_lock_token: lockToken, p_batch_size: batchSize });
     if (claimError) return json({ error: `검색 배치를 가져오지 못했습니다: ${claimError.message}` }, 500);
     if (!claim) return json({ busy: true });
     const bookIds = (claim.book_ids ?? []) as string[];
@@ -558,7 +560,7 @@ Deno.serve(async (request) => {
         const resultQueries: string[] = [];
         const providerWarnings: string[] = [];
         const diagnostics: Array<{
-          query: string; startedAt: string; durationMs: number;
+          query: string; startedAt: string; durationMs: number; retryCount: number;
           status: 'succeeded' | 'partial' | 'no_results' | 'failed' | 'filtered_all';
           resultCount: number; candidateCount: number; filteredCount: number;
           warnings: string[]; providersAttempted: string[]; providersWithResults: string[];
@@ -574,11 +576,30 @@ Deno.serve(async (request) => {
         const queryResults = await Promise.allSettled(queries.map(async query => {
           const started = Date.now();
           const startedAt = new Date(started).toISOString();
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 12_000);
-          try {
-            return { query, startedAt, durationMs: Date.now() - started, result: await searchWithProviders(query, controller.signal, runProviderMode, kakaoRestApiKey, naverCredentials) };
-          } finally { clearTimeout(timeout); }
+          let retryCount = 0;
+          let lastError: unknown = null;
+          while (retryCount <= retryLimit) {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 12_000);
+            try {
+              const result = await searchWithProviders(query, controller.signal, runProviderMode, kakaoRestApiKey, naverCredentials);
+              clearTimeout(timeout);
+              if (result.results.length > 0 || result.warnings.length === 0 || retryCount >= retryLimit) {
+                return { query, startedAt, durationMs: Date.now() - started, retryCount, result };
+              }
+              lastError = new Error(result.warnings.join(' / ').slice(0, 1000));
+            } catch (error) {
+              clearTimeout(timeout);
+              lastError = error;
+            }
+            if (retryCount < retryLimit) {
+              await new Promise(resolve => setTimeout(resolve, Math.min(8000, 1000 * (2 ** retryCount))));
+              retryCount += 1;
+            } else {
+              break;
+            }
+          }
+          throw lastError instanceof Error ? lastError : new Error('검색 재시도 한도를 초과했습니다.');
         }));
         for (let index = 0; index < queryResults.length; index++) {
           const item = queryResults[index];
@@ -586,19 +607,19 @@ Deno.serve(async (request) => {
             const message = item.reason instanceof Error ? item.reason.message : '검색 실패';
             providerWarnings.push(message);
             diagnostics.push({
-              query: queries[index], startedAt: new Date().toISOString(), durationMs: 0,
+              query: queries[index], startedAt: new Date().toISOString(), durationMs: 0, retryCount: retryLimit,
               status: 'failed', resultCount: 0, candidateCount: 0, filteredCount: 0,
               warnings: [message], providersAttempted: attemptedProviders, providersWithResults: [], errorMessage: message,
             });
             continue;
           }
-          const { query, result, startedAt, durationMs } = item.value;
+          const { query, result, startedAt, durationMs, retryCount } = item.value;
           results.push(...result.results);
           resultQueries.push(...result.results.map(() => query));
           providerWarnings.push(...result.warnings);
           const providersWithResults = [...new Set(result.results.map(row => row.provider ?? 'unknown'))];
           diagnostics.push({
-            query, startedAt, durationMs,
+            query, startedAt, durationMs, retryCount,
             status: result.results.length ? (result.warnings.length ? 'partial' : 'succeeded') : (result.warnings.length ? 'failed' : 'no_results'),
             resultCount: result.results.length, candidateCount: 0, filteredCount: 0,
             warnings: result.warnings, providersAttempted: attemptedProviders, providersWithResults, errorMessage: result.warnings.join(' / ').slice(0, 1200) || null,
@@ -660,7 +681,19 @@ Deno.serve(async (request) => {
           warnings: diagnostic.warnings,
           error_code: diagnostic.status === 'failed' ? (diagnostic.errorMessage?.match(/(401|403|429|timeout|abort|인증|한도|차단)/i)?.[0] ?? 'provider_error') : null,
           error_message: diagnostic.errorMessage,
-          details: { result_count_by_provider: diagnostic.providersWithResults.reduce<Record<string, number>>((counts, provider) => { counts[provider] = (counts[provider] ?? 0) + 1; return counts; }, {}) },
+          details: {
+            retry_count: diagnostic.retryCount,
+            result_count_by_provider: results.reduce<Record<string, number>>((counts, row, index) => {
+              if (resultQueries[index] === diagnostic.query) {
+                const provider = row.provider ?? 'unknown';
+                counts[provider] = (counts[provider] ?? 0) + 1;
+              }
+              return counts;
+            }, {}),
+            unconfigured_providers: runProviderMode === 'combined'
+              ? [...(!kakaoRestApiKey ? ['kakao_api'] : []), ...(!naverCredentials ? ['naver_api'] : [])]
+              : [],
+          },
           started_at: diagnostic.startedAt,
           finished_at: new Date().toISOString(),
         })));
