@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Check, Download, ExternalLink, FileSpreadsheet, RefreshCw, Search, ShieldCheck, X } from 'lucide-react';
+import { AlertCircle, ArrowDown, ArrowUp, Check, Download, ExternalLink, FileSpreadsheet, RefreshCw, Search, ShieldCheck, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase/client';
 import { useAppContext } from '../../state/useAppContext';
 import { renderAdminLayout } from './admin';
@@ -20,6 +20,12 @@ type Candidate = {
   review_note: string | null; reviewed_by: string | null; reviewed_at: string | null;
   created_at: string;
   books: { title: string; publisher: string | null; subject: string | null; grade: string | null; semester: string | null } | null;
+};
+type QueueItem = {
+  id: string; book_id: string; reason: 'new_book' | 'user_request' | 'link_health' | 'manual';
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+  priority: number; requested_count: number; retry_count: number; available_at: string;
+  last_error: string | null; books: { title: string } | null;
 };
 type Attempt = {
   id: string; run_id: string; book_id: string; provider_mode: string; query: string;
@@ -133,6 +139,9 @@ export function AdminSearchHistoryPage() {
   const { refreshCatalog, navigateTo } = useAppContext();
   const [runs, setRuns] = useState<Run[]>([]);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
+  const [queueError, setQueueError] = useState('');
+  const [queueLoading, setQueueLoading] = useState(false);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [attemptError, setAttemptError] = useState('');
   const [attemptLoading, setAttemptLoading] = useState(false);
@@ -177,6 +186,34 @@ export function AdminSearchHistoryPage() {
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [load]);
+
+  const loadQueue = useCallback(async () => {
+    setQueueLoading(true);
+    setQueueError('');
+    const { data, error: queryError } = await supabase.from('answer_link_search_queue')
+      .select('id,book_id,reason,status,priority,requested_count,retry_count,available_at,last_error,books(title)')
+      .in('status', ['queued', 'running']).order('priority', { ascending: false }).order('created_at', { ascending: true }).limit(200);
+    if (queryError) {
+      setQueueItems([]);
+      setQueueError(queryError.code === '42501' ? '이 계정에는 자동 검색 대기열을 관리할 권한이 없습니다.' : '대기열은 진단 스키마 적용 후 표시됩니다.');
+    } else setQueueItems((data ?? []) as QueueItem[]);
+    setQueueLoading(false);
+  }, []);
+
+  useEffect(() => {
+    void loadQueue();
+    const channel = supabase.channel('admin-search-queue-v2')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'answer_link_search_queue' }, () => { void loadQueue(); })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [loadQueue]);
+
+  const changeQueuePriority = async (item: QueueItem, delta: number) => {
+    const nextPriority = Math.max(0, Math.min(1000, item.priority + delta));
+    const { error: updateError } = await supabase.from('answer_link_search_queue').update({ priority: nextPriority, updated_at: new Date().toISOString() }).eq('id', item.id);
+    if (updateError) setQueueError(updateError.message);
+    else await loadQueue();
+  };
 
   useEffect(() => {
     let active = true;
@@ -326,6 +363,11 @@ export function AdminSearchHistoryPage() {
         <section className="rounded-xl border border-[#EAECF0] bg-[#F9FAFB] p-3">
           <div className="flex items-center justify-between gap-2"><div><h4 className="text-sm font-bold text-[#344054]">출처별 검색 진단</h4><p className="mt-1 text-xs text-[#667085]">{selectedRun ? '선택한 실행의 검색 쿼리와 출처 응답' : '최근 검색 시도의 출처별 진단'}</p></div><span className="text-xs text-[#667085]">{attempts.length}건</span></div>
           {attemptLoading ? <p className="py-4 text-xs text-[#667085]">진단 로그를 불러오는 중입니다.</p> : attemptError ? <p className="py-4 text-xs text-[#667085]">{attemptError}</p> : attempts.length === 0 ? <p className="py-4 text-xs text-[#667085]">저장된 검색 시도 진단이 없습니다.</p> : <div className="mt-3 space-y-2">{attempts.map(attempt => <article key={attempt.id} className="rounded-lg border border-[#EAECF0] bg-white p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-[#344054]">{attempt.status === 'succeeded' ? '성공' : attempt.status === 'partial' ? '일부 성공' : attempt.status === 'no_results' ? '검색 결과 없음' : attempt.status === 'filtered_all' ? '교재 불일치로 모두 제외' : '검색 실패'} · {attempt.provider_mode}</p><span className="text-xs tabular-nums text-[#667085]">{attempt.duration_ms}ms</span></div><p className="mt-1 break-words text-xs text-[#475467]">{attempt.query}</p><p className="mt-1 text-xs text-[#667085]">결과 {attempt.result_count} · 후보 일치 {attempt.candidate_count} · 제외 {attempt.filtered_count}</p><p className="mt-1 break-words text-xs text-[#667085]">시도 출처: {(attempt.providers_attempted ?? []).join(', ') || '확인 불가'} · 결과 출처: {(attempt.providers_with_results ?? []).join(', ') || '없음'}</p>{attempt.error_message && <p className="mt-1 break-words text-xs text-[#B42318]">{attempt.error_code ? '[' + attempt.error_code + '] ' : ''}{attempt.error_message}</p>}</article>)}</div>}
+        </section>
+
+        <section className="rounded-xl border border-[#EAECF0] bg-[#F9FAFB] p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2"><div><h4 className="text-sm font-bold text-[#344054]">자동 검색 대기열</h4><p className="mt-1 text-xs text-[#667085]">새 교재·사용자 요청·링크 오류가 우선순위에 따라 처리됩니다.</p></div><span className="text-xs text-[#667085]">{queueItems.length}건</span></div>
+          {queueLoading ? <p className="py-4 text-xs text-[#667085]">대기열을 불러오는 중입니다.</p> : queueError ? <p className="py-4 text-xs text-[#667085]">{queueError}</p> : queueItems.length === 0 ? <p className="py-4 text-xs text-[#667085]">현재 대기 중인 교재가 없습니다.</p> : <div className="mt-3 space-y-2">{queueItems.map(item => <article key={item.id} className="flex flex-col gap-2 rounded-lg border border-[#EAECF0] bg-white p-3 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><p className="truncate text-xs font-bold text-[#344054]">{item.books?.title ?? item.book_id}</p><p className="mt-1 text-xs text-[#667085]">{item.reason === 'new_book' ? '새 교재' : item.reason === 'user_request' ? '사용자 요청' : item.reason === 'link_health' ? '답지 링크 오류' : '관리자 요청'} · 요청 {item.requested_count}회 · 재시도 {item.retry_count}회 · {item.status === 'running' ? '진행 중' : '대기'}</p>{item.last_error && <p className="mt-1 break-words text-xs text-[#B42318]">{item.last_error}</p>}</div><div className="flex items-center gap-2"><span className="min-w-16 text-right text-xs font-bold tabular-nums text-[#344054]">우선순위 {item.priority}</span>{item.status === 'queued' && <><button type="button" onClick={() => void changeQueuePriority(item, 10)} aria-label="우선순위 높이기" className="grid h-9 w-9 place-items-center rounded-lg border border-[#D0D5DD]"><ArrowUp className="h-4 w-4" /></button><button type="button" onClick={() => void changeQueuePriority(item, -10)} aria-label="우선순위 낮추기" className="grid h-9 w-9 place-items-center rounded-lg border border-[#D0D5DD]"><ArrowDown className="h-4 w-4" /></button></>}</div></article>)}</div>}
         </section>
 
         <div className="grid gap-2 sm:grid-cols-[1fr_190px]"><label className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#98A2B3]" /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="교재명·후보 제목·URL 검색" className="min-h-11 w-full rounded-lg border border-[#D0D5DD] pl-9 pr-3 text-sm outline-none focus:border-[#667085]" /></label><select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} className="min-h-11 rounded-lg border border-[#D0D5DD] px-3 text-sm"><option value="pending">검수 대기</option><option value="all">모든 상태</option><option value="approved">승인</option><option value="rejected">거절</option><option value="duplicate">중복</option><option value="unverified">확인 필요</option></select></div>
