@@ -441,7 +441,11 @@ Deno.serve(async (request) => {
       provider_mode: providerMode,
       book_ids: targets.map(book => book.id),
     }).select('id,status,book_ids,started_at,provider_mode').single();
-    if (error) return json({ error: `검색 작업을 만들지 못했습니다: ${error.message}` }, 500);
+    if (error?.code === '23505') {
+      const { data: activeRun } = await admin.from('answer_link_search_runs').select('id,status,book_ids,processed_books,candidate_count,api_requests,provider_mode,started_at').eq('status','running').maybeSingle();
+      return json({ error: '다른 관리자가 먼저 검색 작업을 시작했습니다. 기존 공용 작업을 확인해 주세요.', activeRun }, 409);
+    }
+    if (error) return json({ error: '검색 작업을 만들지 못했습니다: ' + error.message }, 500);
     return json({ run });
   }
 
@@ -468,6 +472,7 @@ Deno.serve(async (request) => {
     const failedIds = previous.failed_book_ids ?? [];
     if (failedIds.length === 0) return json({ error: '재시도할 실패 교재가 없습니다.' }, 400);
     const { data: run, error } = await admin.from('answer_link_search_runs').insert({ created_by: authData.user.id, status: 'running', provider_mode: previous.provider_mode ?? 'combined', book_ids: failedIds }).select('id,status,book_ids,started_at,provider_mode').single();
+    if (error?.code === '23505') return json({ error: '이미 다른 검색 작업이 실행 중입니다. 기존 작업을 먼저 확인해 주세요.' }, 409);
     if (error) return json({ error: error.message }, 500);
     return json({ run });
   }
