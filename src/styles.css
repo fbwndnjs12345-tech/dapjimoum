@@ -62,8 +62,8 @@ img, svg, video, canvas {
   /* The existing UI used 10–12px helper text extensively. Raise the floor
      without changing Tailwind's desktop typography scale. */
   .text-xs { font-size: 0.8125rem; line-height: 1.55; }
-  .text-\\[10px\\] { font-size: 0.75rem; line-height: 1.5; }
-  .text-\\[11px\\] { font-size: 0.75rem; line-height: 1.5; }
+  [class~="text-[10px]"] { font-size: 0.75rem; line-height: 1.5; }
+  [class~="text-[11px]"] { font-size: 0.75rem; line-height: 1.5; }
 
   input:not([type="checkbox"]):not([type="radio"]),
   select,
@@ -80,8 +80,8 @@ img, svg, video, canvas {
     min-width: 0;
   }
 
-  .max-w-\\[1100px\\],
-  .max-w-\\[800px\\] {
+  [class~="max-w-[1100px]"],
+  [class~="max-w-[800px]"] {
     max-width: 100%;
   }
 
