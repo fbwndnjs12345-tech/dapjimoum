@@ -173,3 +173,144 @@ with check ((select public.has_admin_permission('content.update')) and updated_b
 
 -- A newly added administrator receives the limited support role unless a super admin assigns another role.
 -- Existing administrator accounts were seeded as super_admin above.
+
+
+drop policy if exists "Admins can read search attempts" on public.answer_link_search_attempts;
+create policy "Admins can read search attempts" on public.answer_link_search_attempts for select to authenticated
+using ((select public.has_admin_permission('search.diagnostics')));
+drop policy if exists "Admins can read search queue" on public.answer_link_search_queue;
+create policy "Admins can read search queue" on public.answer_link_search_queue for select to authenticated
+using ((select public.has_admin_permission('search.queue')));
+drop policy if exists "Admins can update search queue" on public.answer_link_search_queue;
+create policy "Admins can update search queue" on public.answer_link_search_queue for update to authenticated
+using ((select public.has_admin_permission('search.queue')))
+with check ((select public.has_admin_permission('search.queue')));
+drop policy if exists "Admins can read audit events" on public.admin_audit_events;
+create policy "Admins can read audit events" on public.admin_audit_events for select to authenticated
+using ((select public.has_admin_permission('audit.read')));
+drop policy if exists "Admins can read search settings" on public.answer_link_search_settings;
+create policy "Admins can read search settings" on public.answer_link_search_settings for select to authenticated
+using ((select public.has_admin_permission('search.settings')));
+drop policy if exists "Admins can update search settings" on public.answer_link_search_settings;
+create policy "Admins can update search settings" on public.answer_link_search_settings for update to authenticated
+using ((select public.has_admin_permission('search.settings')))
+with check ((select public.has_admin_permission('search.settings')));
+
+create or replace function public.approve_answer_link_candidate(p_candidate_id uuid)
+returns text
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  candidate public.answer_link_candidates%rowtype;
+begin
+  if (select auth.uid()) is null or not (select public.has_admin_permission('candidates.review')) then
+    raise exception 'Candidate review permission is required.' using errcode = '42501';
+  end if;
+
+  select * into candidate from public.answer_link_candidates where id = p_candidate_id for update;
+  if not found then raise exception 'Candidate not found.' using errcode = 'P0002'; end if;
+  if candidate.status = 'approved' then return 'approved'; end if;
+  if candidate.status not in ('pending', 'unverified') then
+    raise exception 'Only pending candidates can be approved.' using errcode = '22023';
+  end if;
+  if btrim(coalesce(candidate.url, '')) = '' or candidate.url !~* '^https?://' then
+    raise exception 'Candidate URL must be a valid HTTP(S) URL.' using errcode = '22023';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(candidate.url_identity, 0));
+  if exists (
+    select 1 from public.answer_links links
+    where public.answer_link_url_identity(links.url) = candidate.url_identity
+  ) then
+    update public.answer_link_candidates
+    set status = 'duplicate', reviewed_by = (select auth.uid()), reviewed_at = now()
+    where id = p_candidate_id;
+    return 'duplicate';
+  end if;
+
+  insert into public.answer_links (book_id, title, url, source_name, link_type, verified, click_count)
+  values (candidate.book_id, candidate.title, btrim(candidate.url), candidate.source_name, candidate.link_type, false, 0);
+
+  update public.answer_link_candidates
+  set status = 'approved', reviewed_by = (select auth.uid()), reviewed_at = now()
+  where id = p_candidate_id;
+  return 'approved';
+end;
+$$;
+
+create or replace function public.reject_answer_link_candidate(p_candidate_id uuid, p_review_note text default null)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if (select auth.uid()) is null or not (select public.has_admin_permission('candidates.review')) then
+    raise exception 'Candidate review permission is required.' using errcode = '42501';
+  end if;
+  update public.answer_link_candidates
+  set status = 'rejected',
+      review_note = nullif(left(btrim(coalesce(p_review_note, '')), 1000), ''),
+      reviewed_by = (select auth.uid()),
+      reviewed_at = now()
+  where id = p_candidate_id and status = 'pending';
+  if not found then
+    raise exception 'Candidate is missing or is no longer pending.' using errcode = 'P0002';
+  end if;
+end;
+$$;
+
+create or replace function public.admin_list_role_assignments()
+returns table(user_id uuid, email text, role_key text, role_label text)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not (select public.has_admin_permission('admin.roles.manage')) then
+    raise exception 'Administrator role management permission is required.' using errcode = '42501';
+  end if;
+  return query
+    select a.user_id, u.email::text, ur.role_key, r.label
+    from public.admin_users a
+    join auth.users u on u.id = a.user_id
+    left join public.admin_user_roles ur on ur.user_id = a.user_id
+    left join public.admin_roles r on r.role_key = ur.role_key
+    order by lower(coalesce(u.email, '')), a.created_at;
+end;
+$$;
+revoke all on function public.admin_list_role_assignments() from public, anon;
+grant execute on function public.admin_list_role_assignments() to authenticated;
+
+create or replace function public.admin_assign_role(p_user_id uuid, p_role_key text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  previous_role text;
+begin
+  if not (select public.has_admin_permission('admin.roles.manage')) then
+    raise exception 'Administrator role management permission is required.' using errcode = '42501';
+  end if;
+  if not exists (select 1 from public.admin_users where user_id = p_user_id) then
+    raise exception 'Target user is not an administrator.' using errcode = '22023';
+  end if;
+  if not exists (select 1 from public.admin_roles where role_key = p_role_key) then
+    raise exception 'Unknown administrator role.' using errcode = '22023';
+  end if;
+  select role_key into previous_role from public.admin_user_roles where user_id = p_user_id;
+  insert into public.admin_user_roles(user_id, role_key, assigned_by, assigned_at)
+  values (p_user_id, p_role_key, (select auth.uid()), now())
+  on conflict (user_id) do update
+    set role_key = excluded.role_key, assigned_by = excluded.assigned_by, assigned_at = excluded.assigned_at;
+  insert into public.admin_audit_events(actor_user_id, action, entity_type, entity_id, before_data, after_data)
+  values ((select auth.uid()), 'role_change', 'admin_user_roles', p_user_id::text,
+          jsonb_build_object('role_key', previous_role), jsonb_build_object('role_key', p_role_key));
+end;
+$$;
+revoke all on function public.admin_assign_role(uuid, text) from public, anon;
+grant execute on function public.admin_assign_role(uuid, text) to authenticated;
