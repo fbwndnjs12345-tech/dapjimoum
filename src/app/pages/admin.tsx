@@ -278,7 +278,9 @@ export function AdminDashboard() {
                 {item.publisher && <p className="mt-1 text-xs text-[#667085]">출판사: {item.publisher}</p>}
                 {item.answer_link_title && <p className="mt-1 break-all text-xs text-[#667085]">신고 링크: {item.answer_link_title}</p>}
                 {item.reason && <p className="mt-1 text-xs text-[#475467]">신고 사유: {item.reason}</p>}
-                {item.details && <p className="mt-2 whitespace-pre-wrap text-xs text-[#475467]">{item.details}</p>}
+                {item.details && (item.submission_type === 'link_report' && /^https?:\\/\\//i.test(item.details)
+                  ? <a href={item.details} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block break-all text-xs font-semibold text-[#175CD3] underline">신고된 링크 열기</a>
+                  : <p className="mt-2 whitespace-pre-wrap text-xs text-[#475467]">{item.details}</p>)}
               </div>
               <div className="flex flex-wrap gap-2">
                 <button type="button" onClick={() => void updateSubmissionStatus(item, 'in_progress')} disabled={updatingSubmissionId === item.id || item.status === 'in_progress'} className="min-h-9 rounded-lg border border-[#D0D5DD] px-3 py-2 text-xs font-semibold text-[#344054] disabled:opacity-40">처리 중</button>
