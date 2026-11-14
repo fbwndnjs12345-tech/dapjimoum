@@ -245,7 +245,6 @@ export function AdminLinkSearchPage() {
           setCandidates(current => current.map(item => item.id === candidate.id ? { ...item, status: 'approved' } : item));
           setNotice('답지 링크 등록 완료. 공개 교재 데이터를 갱신했습니다.');
           await refreshCatalog();
-          window.dispatchEvent(new CustomEvent('catalog-data-updated'));
         }
       } else {
         const { error: rejectError } = await supabase.rpc('reject_answer_link_candidate', { p_candidate_id: candidate.id, p_review_note: reviewNote });
@@ -365,7 +364,7 @@ export function AdminLinkSearchPage() {
           ['kakao', '카카오 API', '다음 블로그·카페·웹문서'],
           ['web', '공개 웹 검색', 'Google·Bing·DuckDuckGo'],
           ['local', '로컬 프로그램', 'Windows 브라우저 탐색기'],
-        ] as const).map(([value, title, description]) => <button key={value} type="button" onClick={() => setProviderMode(value)} className={`rounded-xl border p-3 text-left transition ${providerMode === value ? 'border-[#191F28] bg-[#F2F4F7] ring-1 ring-[#191F28]' : 'border-[#D0D5DD] bg-white hover:bg-[#F9FAFB]'}`}><span className="block text-sm font-bold text-[#191F28]">{title}</span><span className="mt-1 block text-[11px] leading-4 text-[#667085]">{description}</span></button>)}
+        ] as const).map(([value, title, description]) => <button key={value} type="button" onClick={() => setProviderMode(value)} aria-pressed={providerMode === value} className={`rounded-xl border p-3 text-left transition ${providerMode === value ? 'border-[#191F28] bg-[#F2F4F7] ring-1 ring-[#191F28]' : 'border-[#D0D5DD] bg-white hover:bg-[#F9FAFB]'}`}><span className="block text-sm font-bold text-[#191F28]">{title}</span><span className="mt-1 block text-[11px] leading-4 text-[#667085]">{description}</span></button>)}
       </div>
       {providerMode === 'local' ? <div className="rounded-xl border border-[#D0D5DD] bg-[#F9FAFB] p-3 text-xs leading-5 text-[#475467]">로컬 탐색기는 Windows PC에서 실행됩니다. GitHub Actions에서 최신 Windows 프로그램을 내려받아 실행하세요. Supabase 관리자 로그인을 연결하면 검색 후보가 이 검토 목록으로 전송됩니다. <a className="font-bold underline" href="https://github.com/fbwndnjs12345-tech/dapjimoum/actions/workflows/build-local-answer-finder.yml" target="_blank" rel="noreferrer">로컬 프로그램 다운로드 페이지 열기</a></div> : <div className="rounded-xl border border-[#EAECF0] bg-[#F9FAFB] p-3 text-xs leading-5 text-[#475467]">{providerMode === 'naver' ? 'NAVER_API_HUB_CLIENT_ID와 NAVER_API_HUB_CLIENT_SECRET 설정이 필요합니다.' : providerMode === 'kakao' ? 'KAKAO_REST_API_KEY 설정이 필요합니다.' : providerMode === 'web' ? '별도 API 키 없이 공개 검색 페이지를 조회합니다. 검색엔진의 자동화 차단에 따라 결과가 제한될 수 있습니다.' : '설정된 네이버·카카오 API와 공개 웹 검색을 함께 조회합니다. API가 설정되지 않은 경로는 건너뛰고, 실패한 경로는 오류로 기록합니다.'}</div>}
       <div className="grid gap-3 md:grid-cols-2">
@@ -378,7 +377,7 @@ export function AdminLinkSearchPage() {
         <div className="flex flex-col justify-end gap-3">
           <label className="flex items-start gap-2 text-xs text-[#475467]"><input type="checkbox" checked={includeBooksWithLinks} onChange={event => setIncludeBooksWithLinks(event.target.checked)} className="mt-0.5 accent-[#191F28]" />이미 답지 링크가 있는 교재도 재검색</label>
           <p className="text-xs text-[#667085]">선택된 교재가 있으면 선택 교재만 검색합니다. 없으면 {includeBooksWithLinks ? '전체 교재' : '답지 링크 미등록 교재'}를 검색합니다.</p>
-          <button type="button" onClick={() => void startSearch()} disabled={busy || isLoading || runs.some(run => run.status === 'running')} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#191F28] px-4 py-3 text-sm font-bold text-white hover:bg-[#333D4B] disabled:opacity-50"><Play className="h-4 w-4" />{providerMode === 'local' ? '로컬 프로그램 열기' : runs.some(run => run.status === 'running') ? '공용 검색 작업 실행 중' : busy ? '시작 요청 중…' : '검색 시작'}</button>
+          <button type="button" onClick={() => void startSearch()} disabled={busy || isLoading || runs.some(run => run.status === 'running')} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#191F28] px-4 py-3 text-sm font-bold text-white hover:bg-[#333D4B] disabled:opacity-50"><Play className="h-4 w-4" />{providerMode === 'local' ? 'Windows 프로그램 다운로드' : runs.some(run => run.status === 'running') ? '공용 검색 작업 실행 중' : busy ? '시작 요청 중…' : '검색 시작'}</button>
         </div>
       </div>
     </section>
