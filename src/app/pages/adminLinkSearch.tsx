@@ -83,39 +83,6 @@ export function AdminLinkSearchPage() {
   }, []);
 
   useEffect(() => { void loadData(); }, [loadData]);
-  useEffect(() => {
-    let alive = true;
-    const syncRuns = async () => {
-      const { data, error: syncError } = await supabase.from('answer_link_search_runs').select('*').order('started_at', { ascending: false }).limit(20);
-      if (!alive || syncError || !data) return;
-      setRuns(data as Run[]);
-      const active = (data as Run[]).find(run => run.status === 'running');
-      if (active && !pumpGuard.current) void runBatches(active.id);
-    };
-    void syncRuns();
-    const timer = window.setInterval(() => { void syncRuns(); }, 2500);
-    const channel = supabase.channel('admin-shared-answer-search')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'answer_link_search_runs' }, () => { void syncRuns(); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'answer_link_candidates' }, () => { void loadData(); })
-      .subscribe();
-    return () => {
-      alive = false;
-      window.clearInterval(timer);
-      void supabase.removeChannel(channel);
-    };
-  }, [loadData, runBatches]);
-
-  // 진행 중인 검색은 후보 목록 전체를 재조회하지 않고 작업 행만 2초마다 갱신한다.
-  useEffect(() => {
-    if (!activeRunId || !busy) return;
-    const timer = window.setInterval(async () => {
-      const { data, error: statusError } = await supabase.from('answer_link_search_runs').select('*').eq('id', activeRunId).maybeSingle();
-      if (statusError || !data) return;
-      setRuns(current => [data as Run, ...current.filter(run => run.id !== activeRunId)].slice(0, 20));
-    }, 2000);
-    return () => window.clearInterval(timer);
-  }, [activeRunId, busy]);
-
   const invoke = useCallback(async (body: Record<string, unknown>) => {
     const { data, error: invokeError } = await supabase.functions.invoke('answer-link-search', { body });
     if (invokeError) {
@@ -172,6 +139,39 @@ export function AdminLinkSearchPage() {
       await loadData();
     }
   }, [invoke, loadData, refreshCatalog]);
+
+  useEffect(() => {
+    let alive = true;
+    const syncRuns = async () => {
+      const { data, error: syncError } = await supabase.from('answer_link_search_runs').select('*').order('started_at', { ascending: false }).limit(20);
+      if (!alive || syncError || !data) return;
+      setRuns(data as Run[]);
+      const active = (data as Run[]).find(run => run.status === 'running');
+      if (active && !pumpGuard.current) void runBatches(active.id);
+    };
+    void syncRuns();
+    const timer = window.setInterval(() => { void syncRuns(); }, 2500);
+    const channel = supabase.channel('admin-shared-answer-search')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'answer_link_search_runs' }, () => { void syncRuns(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'answer_link_candidates' }, () => { void loadData(); })
+      .subscribe();
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      void supabase.removeChannel(channel);
+    };
+  }, [loadData, runBatches]);
+
+  // 진행 중인 검색은 후보 목록 전체를 재조회하지 않고 작업 행만 2초마다 갱신한다.
+  useEffect(() => {
+    if (!activeRunId || !busy) return;
+    const timer = window.setInterval(async () => {
+      const { data, error: statusError } = await supabase.from('answer_link_search_runs').select('*').eq('id', activeRunId).maybeSingle();
+      if (statusError || !data) return;
+      setRuns(current => [data as Run, ...current.filter(run => run.id !== activeRunId)].slice(0, 20));
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [activeRunId, busy]);
 
   const startSearch = async () => {
     if (busy) return;
