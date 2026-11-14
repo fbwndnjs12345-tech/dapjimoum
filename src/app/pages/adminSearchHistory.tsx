@@ -1,0 +1,190 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AlertCircle, Check, Download, ExternalLink, RefreshCw, Search, ShieldCheck, X } from 'lucide-react';
+import { supabase } from '../../lib/supabase/client';
+import { useAppContext } from '../../state/useAppContext';
+import { renderAdminLayout } from './admin';
+
+type Run = {
+  id: string; status: 'running' | 'paused' | 'completed' | 'failed'; book_ids: string[];
+  next_index: number; processed_books: number; candidate_count: number; api_requests: number;
+  error_count: number; failed_book_ids: string[]; last_error: string | null;
+  started_at: string; finished_at: string | null; provider_mode: string;
+};
+type Candidate = {
+  id: string; run_id: string | null; book_id: string; title: string; url: string;
+  source_name: string | null; link_type: string; source_type: string; query: string;
+  snippet: string | null; match_status: 'likely' | 'uncertain' | 'mismatch';
+  status: 'pending' | 'approved' | 'rejected' | 'duplicate' | 'unverified';
+  review_note: string | null; reviewed_by: string | null; reviewed_at: string | null;
+  created_at: string;
+  books: { title: string; publisher: string | null; subject: string | null; grade: string | null; semester: string | null } | null;
+};
+
+const statusLabel: Record<Run['status'], string> = {
+  running: '진행 중', paused: '일시정지', completed: '완료', failed: '실패',
+};
+const candidateStatusLabel: Record<Candidate['status'], string> = {
+  pending: '검수 대기', approved: '승인', rejected: '거절', duplicate: '중복', unverified: '확인 필요',
+};
+const errorMessage = (error: unknown) => error instanceof Error ? error.message : '요청을 처리하지 못했습니다.';
+
+function downloadText(filename: string, content: string, mime: string) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function csvCell(value: unknown) {
+  const text = String(value ?? '');
+  return '"' + text.replace(/"/g, '""') + '"';
+}
+
+export function AdminSearchHistoryPage() {
+  const { refreshCatalog, navigateTo } = useAppContext();
+  const [runs, setRuns] = useState<Run[]>([]);
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState('all');
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('pending');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    const [runResponse, candidateResponse] = await Promise.all([
+      supabase.from('answer_link_search_runs').select('*').gte('started_at', new Date(Date.now() - 30 * 86400000).toISOString()).order('started_at', { ascending: false }).limit(200),
+      supabase.from('answer_link_candidates').select('*, books(title,publisher,subject,grade,semester)').order('created_at', { ascending: false }).limit(1000),
+    ]);
+    if (runResponse.error || candidateResponse.error) {
+      setError(runResponse.error?.message ?? candidateResponse.error?.message ?? '검색 기록을 불러오지 못했습니다.');
+    } else {
+      setRuns((runResponse.data ?? []) as Run[]);
+      setCandidates((candidateResponse.data ?? []) as Candidate[]);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    void load();
+    const channel = supabase.channel('admin-search-history-v2')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'answer_link_search_runs' }, () => { void load(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'answer_link_candidates' }, () => { void load(); })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [load]);
+
+  const visibleCandidates = useMemo(() => candidates.filter(candidate => {
+    if (selectedRunId !== 'all' && candidate.run_id !== selectedRunId) return false;
+    if (statusFilter !== 'all' && candidate.status !== statusFilter) return false;
+    const haystack = [candidate.title, candidate.url, candidate.source_name, candidate.query, candidate.books?.title, candidate.books?.publisher].filter(Boolean).join(' ').toLocaleLowerCase('ko-KR');
+    return !query.trim() || haystack.includes(query.trim().toLocaleLowerCase('ko-KR'));
+  }), [candidates, selectedRunId, statusFilter, query]);
+
+  const selectedRun = selectedRunId === 'all' ? null : runs.find(run => run.id === selectedRunId) ?? null;
+  const exportRows = () => visibleCandidates.map(candidate => ({
+    run_id: candidate.run_id, book: candidate.books?.title ?? '', publisher: candidate.books?.publisher ?? '',
+    title: candidate.title, url: candidate.url, source: candidate.source_name ?? '',
+    query: candidate.query, match_status: candidate.match_status, status: candidate.status,
+    created_at: candidate.created_at, reviewed_at: candidate.reviewed_at ?? '',
+  }));
+  const exportCsv = () => {
+    const rows = exportRows();
+    const keys = Object.keys(rows[0] ?? { run_id: '', book: '', publisher: '', title: '', url: '', source: '', query: '', match_status: '', status: '', created_at: '', reviewed_at: '' });
+    downloadText('dapjimoum-search-candidates.csv', '\uFEFF' + [keys.map(csvCell).join(','), ...rows.map(row => keys.map(key => csvCell((row as Record<string, unknown>)[key])).join(','))].join('\r\n'), 'text/csv;charset=utf-8');
+  };
+
+  const review = async (candidate: Candidate, action: 'approve' | 'reject') => {
+    if (busyId) return;
+    if (action === 'approve' && candidate.match_status !== 'likely' && !window.confirm('교재 일치 여부가 불확실한 후보입니다. 실제 링크를 확인한 뒤 승인하시겠습니까?')) return;
+    setBusyId(candidate.id);
+    setError('');
+    setNotice('');
+    try {
+      if (action === 'approve') {
+        const { data, error: rpcError } = await supabase.rpc('approve_answer_link_candidate', { p_candidate_id: candidate.id });
+        if (rpcError) throw rpcError;
+        if (data === 'duplicate') setNotice('이미 등록된 링크여서 중복으로 처리했습니다.');
+        else {
+          const { data: saved, error: verifyError } = await supabase.from('answer_links').select('id').eq('book_id', candidate.book_id).eq('url', candidate.url).maybeSingle();
+          if (verifyError) throw verifyError;
+          if (!saved) throw new Error('승인 결과를 답지 링크 테이블에서 확인하지 못했습니다.');
+          setNotice('답지 링크를 등록했습니다.');
+          await refreshCatalog();
+        }
+      } else {
+        const { error: rpcError } = await supabase.rpc('reject_answer_link_candidate', { p_candidate_id: candidate.id, p_review_note: '관리자 검수에서 거절' });
+        if (rpcError) throw rpcError;
+        setNotice('후보를 거절했습니다.');
+      }
+      await load();
+    } catch (reviewError) {
+      setError(errorMessage(reviewError));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const pendingCount = candidates.filter(candidate => candidate.status === 'pending').length;
+  const zeroCandidateRun = selectedRun && selectedRun.status === 'completed' && selectedRun.candidate_count === 0;
+
+  return renderAdminLayout(
+    <div className="space-y-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div><p className="text-xs font-semibold text-[#667085]">답지 자동 검색</p><h2 className="mt-1 text-2xl font-extrabold text-[#191F28]">실행 기록과 전체 후보</h2><p className="mt-1 text-sm text-[#667085]">실행별 후보를 분리해 확인하거나 전체 실행의 후보를 한곳에서 검수합니다.</p></div>
+        <div className="flex flex-wrap gap-2"><button type="button" onClick={() => void load()} disabled={loading} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-[#D0D5DD] bg-white px-3 text-sm font-semibold text-[#344054]"><RefreshCw className="h-4 w-4" />새로고침</button><button type="button" onClick={() => navigateTo('/admin/link-search')} className="min-h-10 rounded-xl bg-[#191F28] px-4 text-sm font-bold text-white">새 검색 실행</button></div>
+      </div>
+
+      {error && <div role="alert" className="flex items-start gap-2 rounded-xl border border-[#FDD8D5] bg-[#FFEEEC] p-3 text-sm text-[#B42318]"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
+      {notice && <p role="status" className="rounded-xl border border-[#D0D5DD] bg-[#F9FAFB] p-3 text-sm text-[#344054]">{notice}</p>}
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">최근 30일 실행</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{runs.length}</p></div>
+        <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">전체 후보</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{candidates.length}</p></div>
+        <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">검수 대기</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{pendingCount}</p></div>
+        <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">실패 교재</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{runs.reduce((sum, run) => sum + run.failed_book_ids.length, 0)}</p></div>
+      </div>
+
+      <section className="rounded-2xl border border-[#E5E8EB] bg-white p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-bold text-[#191F28]">검색 실행 기록</h3><p className="mt-1 text-xs text-[#667085]">최근 30일 기록 · 실행을 선택하면 해당 실행에서 발견한 후보만 표시됩니다.</p></div><button type="button" onClick={() => setSelectedRunId('all')} className="min-h-9 rounded-lg border border-[#D0D5DD] px-3 text-xs font-semibold">전체 후보 보기</button></div>
+        {loading ? <p className="py-8 text-center text-sm text-[#667085]">기록을 불러오는 중입니다.</p> : runs.length === 0 ? <p className="mt-4 rounded-xl bg-[#F9FAFB] p-6 text-center text-sm text-[#667085]">최근 30일 내 검색 실행 기록이 없습니다.</p> : <div className="mt-4 grid gap-2 lg:grid-cols-2">{runs.map(run => {
+          const progress = run.book_ids.length ? Math.min(100, Math.round(run.processed_books / run.book_ids.length * 100)) : 100;
+          const isSelected = selectedRunId === run.id;
+          return <button type="button" key={run.id} onClick={() => setSelectedRunId(run.id)} aria-pressed={isSelected} className={'rounded-xl border p-3 text-left transition-colors ' + (isSelected ? 'border-[#344054] bg-[#F2F4F6]' : 'border-[#EAECF0] bg-white hover:bg-[#F9FAFB]')}>
+            <div className="flex items-start justify-between gap-2"><div><p className="text-sm font-bold text-[#191F28]">{new Date(run.started_at).toLocaleString('ko-KR')}</p><p className="mt-1 text-xs text-[#667085]">{run.book_ids.length.toLocaleString()}개 교재 · {run.provider_mode}</p></div><span className="rounded-full bg-[#F2F4F6] px-2.5 py-1 text-xs font-semibold text-[#344054]">{statusLabel[run.status]}</span></div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#EAECF0]"><div className="h-full rounded-full bg-[#475467]" style={{ width: progress + '%' }} /></div>
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#475467]"><span>처리 {run.processed_books}/{run.book_ids.length}</span><span>후보 {run.candidate_count}</span><span>요청 {run.api_requests}</span><span>오류 {run.error_count}</span></div>
+            {run.last_error && <p className="mt-2 line-clamp-2 break-words text-xs text-[#B42318]">마지막 오류: {run.last_error}</p>}
+          </button>;
+        })}</div>}
+      </section>
+
+      <section className="space-y-3 rounded-2xl border border-[#E5E8EB] bg-white p-4 sm:p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div><p className="text-xs font-semibold text-[#667085]">{selectedRun ? '선택한 실행' : '통합 보기'}</p><h3 className="mt-1 text-lg font-extrabold text-[#191F28]">{selectedRun ? new Date(selectedRun.started_at).toLocaleString('ko-KR') : '전체 실행의 후보'}</h3><p className="mt-1 text-xs text-[#667085]">{selectedRun ? '이 실행에서 수집된 후보만 표시합니다.' : '최근 실행에서 수집된 후보를 통합해 표시합니다.'}</p></div>
+          <div className="grid grid-cols-2 gap-2 sm:flex"><button type="button" onClick={exportCsv} disabled={!visibleCandidates.length} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#D0D5DD] px-3 text-xs font-semibold disabled:opacity-40"><Download className="h-4 w-4" />CSV 내보내기</button><button type="button" onClick={() => downloadText('dapjimoum-search-candidates.json', JSON.stringify(exportRows(), null, 2), 'application/json;charset=utf-8')} disabled={!visibleCandidates.length} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[#D0D5DD] px-3 text-xs font-semibold disabled:opacity-40"><Download className="h-4 w-4" />JSON 내보내기</button></div>
+        </div>
+
+        {zeroCandidateRun && <div className="rounded-xl border border-[#FDE2B8] bg-[#FFFAEB] p-3"><p className="text-sm font-bold text-[#93370D]">이 실행은 후보 0개로 종료되었습니다.</p><p className="mt-1 text-xs leading-5 text-[#93370D]">기존 실행 기록에는 출처별 검색 시도·응답·필터 제외 사유가 저장되지 않아, 이 기록만으로 실제 검색 결과가 없었는지 판별할 수 없습니다. 새 검색 엔진 진단 로그를 추가해 이후 실행부터 원인을 구분해야 합니다.</p>{selectedRun.last_error && <p className="mt-2 break-words text-xs text-[#93370D]">저장된 오류: {selectedRun.last_error}</p>}</div>}
+
+        <div className="grid gap-2 sm:grid-cols-[1fr_190px]"><label className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#98A2B3]" /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="교재명·후보 제목·URL 검색" className="min-h-11 w-full rounded-lg border border-[#D0D5DD] pl-9 pr-3 text-sm outline-none focus:border-[#667085]" /></label><select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} className="min-h-11 rounded-lg border border-[#D0D5DD] px-3 text-sm"><option value="pending">검수 대기</option><option value="all">모든 상태</option><option value="approved">승인</option><option value="rejected">거절</option><option value="duplicate">중복</option><option value="unverified">확인 필요</option></select></div>
+
+        <p className="text-xs text-[#667085]">표시 후보 {visibleCandidates.length}개</p>
+        {loading ? <p className="py-8 text-center text-sm text-[#667085]">후보를 불러오는 중입니다.</p> : visibleCandidates.length === 0 ? <div className="rounded-xl border border-dashed border-[#D0D5DD] bg-[#F9FAFB] p-8 text-center"><p className="text-sm font-semibold text-[#344054]">조건에 맞는 후보가 없습니다.</p><p className="mt-1 text-xs text-[#667085]">{selectedRun ? '이 실행에서는 저장된 후보가 발견되지 않았습니다.' : '선택한 상태나 검색어에 해당하는 후보가 없습니다.'}</p></div> : <div className="space-y-3">{visibleCandidates.map(candidate => <article key={candidate.id} className="rounded-xl border border-[#EAECF0] p-3 sm:p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0 flex-1"><p className="text-sm font-bold text-[#191F28]">{candidate.books?.title ?? '교재 정보 없음'}</p><p className="mt-1 text-xs text-[#667085]">{[candidate.books?.publisher,candidate.books?.subject,candidate.books?.grade,candidate.books?.semester].filter(Boolean).join(' · ')}</p><a href={candidate.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex break-all text-sm font-semibold text-[#344054] underline">{candidate.title} <ExternalLink className="ml-1 h-3 w-3 shrink-0" /></a><p className="mt-1 break-all text-xs text-[#667085]">{candidate.url}</p>{candidate.snippet && <p className="mt-2 text-xs leading-5 text-[#475467]">{candidate.snippet}</p>}<p className="mt-2 break-words text-xs text-[#667085]">출처: {candidate.source_name ?? '미확인'} · 검색어: {candidate.query}</p></div>
+            <div className="flex shrink-0 flex-wrap items-center gap-2"><span className="rounded-full bg-[#F2F4F6] px-2.5 py-1 text-xs font-semibold text-[#344054]">{candidateStatusLabel[candidate.status]}</span><span className="rounded-full bg-[#F9FAFB] px-2.5 py-1 text-xs text-[#475467]">{candidate.match_status === 'likely' ? '일치 가능성 높음' : candidate.match_status === 'mismatch' ? '불일치 가능' : '추가 검수 필요'}</span></div></div>
+          {candidate.status === 'pending' && <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => void review(candidate, 'approve')} disabled={busyId === candidate.id} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#191F28] px-3 text-xs font-bold text-white disabled:opacity-50">{busyId === candidate.id ? '처리 중…' : <><Check className="h-4 w-4" />승인하고 사이트에 등록</>}</button><button type="button" onClick={() => void review(candidate, 'reject')} disabled={busyId === candidate.id} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#D0D5DD] px-3 text-xs font-semibold text-[#344054] disabled:opacity-50"><X className="h-4 w-4" />거절</button></div>}
+          {candidate.review_note && <p className="mt-2 text-xs text-[#667085]">검수 메모: {candidate.review_note}</p>}
+          {candidate.reviewed_at && <p className="mt-2 text-xs text-[#667085]">검수 시각: {new Date(candidate.reviewed_at).toLocaleString('ko-KR')}</p>}
+        </article>)}</div>}
+      </section>
+      <div className="flex items-start gap-2 rounded-xl border border-[#EAECF0] bg-[#F9FAFB] p-3 text-xs leading-5 text-[#475467]"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" /><p>후보는 승인 전까지 공개 답지 링크에 반영되지 않습니다. 승인 시 기존 답지 등록 RPC와 중복 URL 검사를 사용합니다. 이 화면은 기존 데이터와 기존 검수 이력을 그대로 읽습니다.</p></div>
+    </div>
+  );
+}
