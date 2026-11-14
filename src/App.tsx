@@ -321,6 +321,7 @@ export default function App() {
                 <label className="text-xs font-bold text-[#333D4B]">교재명 *</label>
                 <input
                   type="text"
+                  maxLength={200}
                   placeholder="예: 쎈 고등 수학(하), 자이스토리 영어"
                   value={requestBookName}
                   onChange={(e) => setRequestBookName(e.target.value)}
@@ -333,6 +334,7 @@ export default function App() {
                 <label className="text-xs font-bold text-[#333D4B]">출판사</label>
                 <input
                   type="text"
+                  maxLength={120}
                   placeholder="예: 좋은책신사고, 비상교육"
                   value={requestBookPublisher}
                   onChange={(e) => setRequestBookPublisher(e.target.value)}
@@ -424,9 +426,9 @@ export default function App() {
                       submission_type: 'link_report',
                       book_title: books.find(book => book.id === reportTargetLink.book_id)?.title ?? reportTargetLink.title,
                       answer_link_id: reportTargetLink.id,
-                      answer_link_title: reportTargetLink.title,
+                      answer_link_title: reportTargetLink.title.slice(0, 300),
                       reason: reportReason,
-                      details: reportTargetLink.url
+                      details: reportTargetLink.url.slice(0, 1000)
                     });
                     if (error) throw error;
                     setIsReportModalOpen(false);
