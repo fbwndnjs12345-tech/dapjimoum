@@ -260,7 +260,7 @@ export function AdminLinkSearchPage() {
     {notice && <div role="status" className="rounded-xl border border-[#EAECF0] bg-[#F9FAFB] p-3 text-sm text-[#344054]">{notice}</div>}
 
     <section className="rounded-2xl border border-[#E5E8EB] bg-white p-4 sm:p-5 space-y-4">
-      <div><h3 className="font-bold text-[#191F28]">검색 실행</h3><p className="mt-1 text-xs text-[#667085]">교재별 1회 검색 후 결과가 3개 미만이면 보조 검색을 한 번 더 실행합니다. 한 배치는 최대 5권입니다.</p></div>
+      <div><h3 className="font-bold text-[#191F28]">검색 실행</h3><p className="mt-1 text-xs text-[#667085]">교재마다 최대 5가지 검색어로 Google·Bing·DuckDuckGo를 조회하고, 답지 관련 단서가 확인된 결과만 후보로 저장합니다. 한 배치는 최대 2권입니다.</p></div>
       <div className="grid gap-3 md:grid-cols-2">
         <div className="space-y-2">
           <label htmlFor="search-book-picker" className="text-xs font-bold text-[#344054]">선택 교재 검색 (선택 사항)</label>

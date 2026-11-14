@@ -122,7 +122,7 @@ function classifySource(hostname: string, publisher: string | null): 'official' 
   };
   const domains = officialDomains[(publisher ?? '').toLowerCase()] ?? [];
   if (domains.some(domain => host === domain || host.endsWith(`.${domain}`))) return 'official';
-  return 'unknown';
+  return host ? 'general' : 'unknown';
 }
 
 type HtmlSearchResult = { title: string; url: string; description: string; meta_url: { hostname: string }; provider?: string };
