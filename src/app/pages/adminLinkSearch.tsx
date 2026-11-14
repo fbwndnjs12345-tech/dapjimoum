@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, BookOpen, ExternalLink, LoaderCircle, Pause, Play, RefreshCw, Search } from 'lucide-react';
+import { AlertCircle, ExternalLink, LoaderCircle, Pause, Play, RefreshCw, Search } from 'lucide-react';
 import { useAppContext } from '../../state/useAppContext';
 import { supabase } from '../../lib/supabase/client';
 import { renderAdminLayout } from './admin';
