@@ -116,3 +116,73 @@
 - CI, 타입 검사, 빌드 또는 필수 E2E 테스트 실패
 
 운영 Supabase schema/Edge Function/스케줄 변경은 별도 migration 및 테스트 결과를 확인하기 전까지 수행하지 않는다.
+
+
+## V2 implementation status (2026-11-14)
+
+### Added to the draft branch
+
+- New guided 3-step search execution screen; search controls are separated from history and candidate review.
+- New /admin/search-history screen with run isolation, unified candidate review, pagination across candidate rows, bulk approve/reject, CSV/JSON/XLSX export, provider attempt details and terminal diagnosis.
+- Search Edge Function now records query-level attempts, provider lists, result/candidate/filter counts, warnings, durations, retry counts and error messages.
+- Search provider adapters retain partial provider failures instead of silently discarding them.
+- Global request-per-minute reservation is backed by Postgres so browser and scheduled workers share one budget.
+- Batch size, retry limit, provider mode and requests-per-minute are configurable in /admin/search-settings.
+- Daily schedule checks the configured time in Asia/Seoul; default remains 06:00.
+- New books and matching user requests are added to a priority queue; failed queue items receive bounded exponential retries.
+- Daily link checker checks HTTP status and PDF file signature without following redirects. Broken/redirected/invalid-PDF links are queued for replacement search.
+- Candidate score and explainable matching evidence are stored. Scores are heuristics based on search-result title/snippet and URL metadata, not a guarantee that the external PDF's full text was parsed.
+- Administrator roles: super admin, search operator, reviewer, content manager and support. Existing admins are seeded as super admins.
+- Database RLS and candidate review RPCs check the role permissions. Last-super-admin demotion is guarded.
+- Administrator route access and data-change audit events are stored separately.
+- Dashboard includes run status, candidate backlog, duplicate count, broken-link count, queue size, pending user requests and recent activity.
+- Windows local program shortcut points to the currently verified GitHub Actions artifact run; local candidate import function is retained.
+- Added CI jobs for web build, Deno Edge Function typecheck and non-destructive schema contract checks.
+
+### Migration order
+
+1. 20261114120000_answer_search_v2_diagnostics_queue_audit.sql
+2. 20261114121000_answer_search_scheduler.sql
+3. 20261114122000_admin_role_permissions.sql
+4. 20261114123000_answer_search_global_rate_limit.sql
+5. 20261114124000_answer_link_health_fields.sql
+6. 20261114125000_answer_candidate_match_scoring.sql
+
+All migrations are additive or replace existing policies/functions with permission-aware equivalents. They do not delete catalog rows. The 30-day retention job deletes only completed/failed/paused run rows and associated query-attempt rows; candidate rows are retained with run_id = NULL, and audit events are retained.
+
+### Required server setup before scheduled work is considered active
+
+The scheduler migration installs pg_cron and pg_net, then schedules:
+- configurable daily search time (default 06:00 Asia/Seoul),
+- one batch worker tick per minute,
+- new-book/user-request queue worker every five minutes,
+- daily link/PDF health check at 04:30 Asia/Seoul,
+- daily 30-day run-history retention at 04:00 Asia/Seoul.
+
+The jobs intentionally do nothing until the following two Supabase Vault secrets exist:
+- dapjimoum_project_url
+- dapjimoum_service_role_key
+
+The service-role secret must be entered only in Supabase Vault (or the trusted Supabase dashboard), never in the browser, repository, CI logs or ChatGPT messages. The secret names are visible in the admin settings screen; secret values are not.
+
+### Current validation and remaining deployment gates
+
+- A read-only live Supabase inventory confirmed existing rows: books 1,762; answer_links 26; runs 7; candidates 171; user_submissions 2; site_pages 5; admin_users 1.
+- The currently connected Supabase Vault had no decrypted secrets at the time of inspection. Scheduled Edge Function calls therefore cannot be considered active yet.
+- No V2 migration has been applied to the production database, and no V2 Edge Function has been deployed.
+- No production data has been modified by this V2 work.
+- CI has already exposed and corrected one Edge Function candidate-type error and one web JSX string-quoting error. Re-run the complete CI after the latest commits.
+- The schema contract check is static. It is not a substitute for applying migrations to an isolated database and running real SQL/RLS/backup-restore tests.
+- The project owner must provide an isolated Supabase staging branch or a separately provisioned staging project to test migrations and restore procedures before production migration. Creating a Supabase database branch may incur additional charges; do not create one without cost approval.
+- A full PDF text extraction pipeline is not implemented. Current PDF validation checks the HTTP response, content type and %PDF- signature; candidate scoring uses search snippets and URL/title evidence. Do not claim that the full PDF body has been semantically analyzed.
+- The current local Windows artifact is the previously verified package from Actions run 43584387790; a new package must be built and QA-tested after the API/schema changes if the local client itself is changed.
+
+### Deployment order after staging QA
+
+1. Create and test a full database backup and restore.
+2. Apply the migrations in order to staging.
+3. Deploy answer-link-search and answer-link-health-check Edge Functions to staging.
+4. Add the two Vault secrets in staging and verify Cron HTTP responses in net._http_response and cron.job_run_details.
+5. Run end-to-end tests for scheduled/manual search, queue retries, PDF health checks, role-based access, audit events, and 30-day retention.
+6. Compare all preserved data counts and checksums.
+7. Only after staging and restore tests pass, schedule production migration/deployment with rollback steps.
