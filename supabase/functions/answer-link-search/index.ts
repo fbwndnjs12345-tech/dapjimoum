@@ -465,7 +465,8 @@ Deno.serve(async (request) => {
         p_include_books_with_links: Boolean(payload.includeBooksWithLinks),
       });
       if (priorityError) return json({ error: '검색 우선순위 계산 실패: ' + priorityError.message }, 500);
-      selectedIds = (prioritized ?? []).map(row => row.book_id);
+      const prioritizedRows = (prioritized ?? []) as Array<{ book_id: string; priority_score: number; priority_reasons?: Record<string, unknown> }>;
+      selectedIds = prioritizedRows.map(row => row.book_id);
       if (action === 'scheduled_start' && prioritized?.length) {
         queuePriority = Number(prioritized[0].priority_score ?? 50);
       }
