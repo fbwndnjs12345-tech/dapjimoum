@@ -132,7 +132,7 @@ class FinderApp:
             if example.exists():
                 self.config_text.insert("1.0", example.read_text(encoding="utf-8"))
             else:
-                self.config_text.insert("1.0", json.dumps({"sources": [], "max_sitemap_urls_per_source": 500, "request_delay_seconds": 1.5, "page_timeout_ms": 20000, "answer_keywords": ["정답과 해설", "정답 해설", "답지"]}, ensure_ascii=False, indent=2))
+                self.config_text.insert("1.0", json.dumps({"sources": [], "max_sitemap_urls_per_source": 80, "request_delay_seconds": 1.0, "page_timeout_ms": 20000, "answer_keywords": ["정답과 해설", "정답 해설", "답지"]}, ensure_ascii=False, indent=2))
         cfgbuttons = ttk.Frame(sourcecard)
         cfgbuttons.pack(fill="x")
         ttk.Button(cfgbuttons, text="설정 저장 및 검사", command=self.save_config, style="Accent.TButton").pack(side="left")
