@@ -353,7 +353,7 @@ export default function App() {
                   disabled={isSubmissionSubmitting}
                   className="w-1/2 py-3 bg-[#3182F6] text-white font-bold text-sm rounded-2xl hover:bg-[#1B64DA] shadow-md shadow-[#3182F6]/20 transition-colors disabled:opacity-60"
                 >
-                  {isSubmissionSubmitting ? '접수 중…' : '요청 제출'
+                  {isSubmissionSubmitting ? '접수 중…' : '요청 제출'}
                 </button>
               </div>
             </form>
