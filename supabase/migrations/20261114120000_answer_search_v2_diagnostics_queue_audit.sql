@@ -308,6 +308,7 @@ begin
     set terminal_reason = case
       when new.candidate_count > 0 and (new.error_count > 0 or failed_attempts > 0) then 'partial_provider_failure'
       when new.candidate_count > 0 then 'found_candidates'
+      when new.error_count > 0 and failed_attempts = 0 and total_results = 0 then 'book_failures'
       when failed_attempts > 0 and total_results = 0 then 'provider_failures'
       when total_results > 0 and total_filtered > 0 then 'all_filtered'
       when total_results = 0 then 'no_search_results'
