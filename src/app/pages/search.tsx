@@ -18,6 +18,23 @@ function normalizeSearchValue(value: string): string {
   return value.toLocaleLowerCase('ko-KR').normalize('NFKC').replace(/[\s·ㆍ_\-–—()[\]{}:：,.]+/g, '');
 }
 
+function isOneEditAway(left: string, right: string): boolean {
+  if (Math.abs(left.length - right.length) > 1 || Math.min(left.length, right.length) < 4) return false;
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < left.length && j < right.length) {
+    if (left[i] === right[j]) { i += 1; j += 1; continue; }
+    edits += 1;
+    if (edits > 1) return false;
+    if (left.length > right.length) i += 1;
+    else if (right.length > left.length) j += 1;
+    else { i += 1; j += 1; }
+  }
+  if (i < left.length || j < right.length) edits += 1;
+  return edits <= 1;
+}
+
 function scoreBookSearch(book: Book, query: string): number {
   const fields = [book.title, book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.description]
     .filter((value): value is string => Boolean(value));
@@ -29,7 +46,7 @@ function scoreBookSearch(book: Book, query: string): number {
   const queryParts = searchTokens(query);
   const fieldParts = fields.flatMap(searchTokens);
   if (!queryParts.length) return 0;
-  const hits = queryParts.filter(token => fieldParts.some(field => field === token || (token.length >= 2 && field.startsWith(token))));
+  const hits = queryParts.filter(token => fieldParts.some(field => field === token || (token.length >= 2 && field.startsWith(token)) || isOneEditAway(token, field)));
   const ratio = hits.length / queryParts.length;
   if (ratio === 1) return 80 + Math.min(15, queryParts.length * 3);
   if (queryParts.length >= 2 && ratio >= 0.75) return 50 + ratio * 20;
