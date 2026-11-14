@@ -26,7 +26,7 @@ export function SiteInfoPage({ route }: SiteInfoPageProps) {
       <div className="space-y-5 text-sm leading-7 text-[#475467]">
         {blocks.map((block,index) => {
           const lines=block.split(String.fromCharCode(10));
-          const heading=lines[0].match(/^#{1,3}\\s+(.+)$/)?.[1] ?? null;
+          const heading=lines[0].match(/^#{1,3}[ ]+(.+)$/)?.[1] ?? null;
           const content=heading ? lines.slice(1) : lines;
           const isList=content.length>0 && content.every(line => line.startsWith('- '));
           return <section key={index} className="space-y-2">
