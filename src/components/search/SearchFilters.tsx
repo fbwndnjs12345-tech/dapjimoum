@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Filter, X } from 'lucide-react';
 import type { Book } from '../../types/book';
 
@@ -14,16 +15,33 @@ type SearchFiltersProps = {
 
 export function SearchFilters({ books, dataStatus, searchQuery, setSearchQuery, publisherFilter, setPublisherFilter, subjectFilter, setSubjectFilter, gradeFilter, setGradeFilter, semesterFilter, setSemesterFilter, onReset }: SearchFiltersProps) {
   const countText = (count: number) => dataStatus === 'success' ? String(count) : '—';
-  const optionsFor = (select: (book: Book) => string | null | undefined) => [
-    '전체',
-    ...Array.from(new Set(books.map(book => select(book)?.trim()).filter((value): value is string => Boolean(value)))).sort((a, b) => a.localeCompare(b, 'ko'))
-  ];
-  const countFor = (value: string, select: (book: Book) => string | null | undefined) =>
-    countText(value === '전체' ? books.length : books.filter(book => select(book)?.trim() === value).length);
-  const publishers = optionsFor(book => book.publisher);
-  const subjects = optionsFor(book => book.subject);
-  const grades = optionsFor(book => book.grade);
-  const semesters = optionsFor(book => book.semester);
+  const facets = useMemo(() => {
+    const build = (select: (book: Book) => string | null | undefined) => {
+      const counts = new Map<string, number>();
+      for (const book of books) {
+        const value = select(book)?.trim();
+        if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
+      }
+      return {
+        options: ['전체', ...Array.from(counts.keys()).sort((a, b) => a.localeCompare(b, 'ko'))],
+        counts
+      };
+    };
+    return {
+      publishers: build(book => book.publisher),
+      subjects: build(book => book.subject),
+      grades: build(book => book.grade),
+      semesters: build(book => book.semester)
+    };
+  }, [books]);
+  const countFor = (value: string, facet: { counts: Map<string, number> }) =>
+    countText(value === '전체' ? books.length : facet.counts.get(value) ?? 0);
+  const { publishers, subjects, grades, semesters } = {
+    publishers: facets.publishers.options,
+    subjects: facets.subjects.options,
+    grades: facets.grades.options,
+    semesters: facets.semesters.options
+  };
   return (
           <div className="mobile-filter-panel bg-white p-5 rounded-3xl border border-[#E5E8EB] space-y-5 h-fit shadow-sm">
             <div className="mobile-filter-heading flex items-center justify-between border-b border-[#F2F4F6] pb-3">
@@ -66,7 +84,7 @@ export function SearchFilters({ books, dataStatus, searchQuery, setSearchQuery, 
                 className="w-full px-3.5 py-2.5 text-xs bg-[#F9FAFB] border border-[#E5E8EB] rounded-2xl font-semibold text-[#191F28] outline-none focus:border-[#3182F6]"
               >
                 {publishers.map(p => (
-                  <option key={p} value={p}>{p === '전체' ? `전체 (${countFor(p, book => book.publisher)})` : `${p} (${countFor(p, book => book.publisher)})`}</option>
+                  <option key={p} value={p}>{p === '전체' ? `전체 (${countFor(p, facets.publishers)})` : `${p} (${countFor(p, book => book.publisher)})`}</option>
                 ))}
               </select>
             </div>
@@ -85,7 +103,7 @@ export function SearchFilters({ books, dataStatus, searchQuery, setSearchQuery, 
                         : 'bg-[#F2F4F6] text-[#4E5968] hover:bg-[#E5E8EB]'
                     }`}
                   >
-                    {s === '전체' ? `전체 (${countFor(s, book => book.subject)})` : `${s} (${countFor(s, book => book.subject)})`}
+                    {s === '전체' ? `전체 (${countFor(s, facets.subjects)})` : `${s} (${countFor(s, book => book.subject)})`}
                   </button>
                 ))}
               </div>
@@ -105,7 +123,7 @@ export function SearchFilters({ books, dataStatus, searchQuery, setSearchQuery, 
                         : 'bg-[#F2F4F6] text-[#4E5968] hover:bg-[#E5E8EB]'
                     }`}
                   >
-                    {g === '전체' ? `전체 (${countFor(g, book => book.grade)})` : `${g} (${countFor(g, book => book.grade)})`}
+                    {g === '전체' ? `전체 (${countFor(g, facets.grades)})` : `${g} (${countFor(g, book => book.grade)})`}
                   </button>
                 ))}
               </div>
@@ -125,7 +143,7 @@ export function SearchFilters({ books, dataStatus, searchQuery, setSearchQuery, 
                         : 'bg-[#F2F4F6] text-[#4E5968] hover:bg-[#E5E8EB]'
                     }`}
                   >
-                    {sem === '전체' ? `전체 (${countFor(sem, book => book.semester)})` : `${sem} (${countFor(sem, book => book.semester)})`}
+                    {sem === '전체' ? `전체 (${countFor(sem, facets.semesters)})` : `${sem} (${countFor(sem, book => book.semester)})`}
                   </button>
                 ))}
               </div>
