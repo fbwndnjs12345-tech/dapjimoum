@@ -65,7 +65,7 @@ class FinderApp:
         self.password = tk.StringVar()
         self.status = tk.StringVar(value="Supabase에서 교재를 불러오거나 CSV 파일을 선택하세요.")
         self.headed = tk.BooleanVar(value=True)
-        self.max_pages = tk.StringVar(value="500")
+        self.max_pages = tk.StringVar(value="200")
         self._build()
         self.root.after(150, self._poll)
 
@@ -276,11 +276,14 @@ class FinderApp:
                     self.password.set("")
                 elif kind == "books_path":
                     self.books_path.set(value)
+                    self._update_book_status()
+                    self.tabs.select(0)
                 elif kind == "paused":
                     self.run_button.configure(state="normal")
                     self.stop_button.configure(state="disabled")
                     self.progress.stop()
                     self.status.set(value)
+                    self.search_status.set("중지됨 · 현재까지 수집한 후보는 CSV에 저장했습니다.")
                     self.load_results()
                     messagebox.showwarning("검색 중지", value)
                 elif kind == "done":
@@ -289,6 +292,7 @@ class FinderApp:
                     if hasattr(self, "progress"):
                         self.progress.stop()
                     self.status.set(value)
+                    self.search_status.set("완료 · 검색 결과를 확인하고 필요한 후보를 등록하세요.")
                     self.load_results()
                     messagebox.showinfo("완료", value)
                 elif kind == "error":
@@ -296,7 +300,8 @@ class FinderApp:
                     self.run_button.configure(state="normal")
                     if hasattr(self, "progress"):
                         self.progress.stop()
-                    self.status.set("오류가 발생했습니다. 로그와 입력 설정을 확인하세요.")
+                    self.status.set("오류 발생 · 상세 내용은 진행 로그에 표시했습니다.")
+                    self.search_status.set("오류 발생 · 아래 상세 진행 로그의 마지막 항목을 확인하세요.")
                     self.log_line("[오류] " + value)
                     messagebox.showerror("오류", value)
         except queue.Empty:
@@ -307,6 +312,8 @@ class FinderApp:
         path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
         if path:
             self.books_path.set(path)
+            self._update_book_status()
+            self.status.set("교재 CSV를 선택했습니다. '검색 및 결과' 탭에서 검색을 시작할 수 있습니다.")
 
     def save_config(self):
         try:
@@ -407,7 +414,8 @@ class FinderApp:
     def run_finder(self):
         csv_path = Path(self.books_path.get().strip())
         if not csv_path.is_file():
-            messagebox.showerror("CSV 필요", "먼저 교재 CSV 파일을 선택하거나 Supabase에서 불러오세요.")
+            self.tabs.select(0)
+            messagebox.showerror("교재 목록 필요", "먼저 '시작하기' 탭에서 교재 CSV를 선택하거나 Supabase에서 교재를 가져오세요.")
             return
         try:
             config = json.loads(self.config_text.get("1.0", "end"))
@@ -425,8 +433,9 @@ class FinderApp:
         self.run_button.configure(state="disabled")
         self.stop_event = threading.Event()
         self.stop_button.configure(state="normal")
-        self.status.set("탐색 중입니다. 검색엔진과 대상 사이트의 접근 정책을 확인하며 진행합니다.")
-        self.tabs.select(2)
+        self.status.set("검색 중입니다. 창을 닫지 말고 진행 로그와 후보 수를 확인하세요.")
+        self.tabs.select(1)
+        self.search_status.set("검색 중 · 교재별 검색어를 만들고 공개 웹 자료를 확인하고 있습니다.")
         self.progress.start(12)
         self.log_line("[시작] 탐색 작업을 준비합니다.")
         def worker():
