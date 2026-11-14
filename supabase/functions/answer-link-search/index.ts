@@ -662,7 +662,7 @@ Deno.serve(async (request) => {
         const { data: existingLinks, error: linksError } = await admin.from('answer_links').select('url').eq('book_id', book.id);
         if (linksError) throw linksError;
         const existingUrls = new Set((existingLinks ?? []).map(row => canonicalUrl(row.url)));
-        const unique = new Map<string, { title: string; url: string; snippet: string; host: string; query: string; provider?: string; match_status: string; link_type: string }>();
+        const unique = new Map<string, { title: string; url: string; snippet: string; host: string; query: string; provider?: string; match_status: string; match_score: number; match_evidence: Record<string, unknown>; link_type: string }>();
         for (const [resultIndex, result] of results.entries()) {
           const candidateUrl = result.url?.trim() ?? '';
           const diagnostic = diagnosticByQuery.get(resultQueries[resultIndex] ?? '');
