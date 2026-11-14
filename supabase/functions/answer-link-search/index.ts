@@ -423,7 +423,8 @@ Deno.serve(async (request) => {
   const naverClientId = Deno.env.get('NAVER_API_HUB_CLIENT_ID')?.trim();
   const naverClientSecret = Deno.env.get('NAVER_API_HUB_CLIENT_SECRET')?.trim();
   const naverCredentials = naverClientId && naverClientSecret ? { clientId: naverClientId, clientSecret: naverClientSecret } : undefined;
-  const providerMode = payload.providerMode ?? 'combined';
+  const { data: savedSearchSettings } = await admin.from('answer_link_search_settings').select('provider_mode').eq('singleton', true).maybeSingle();
+  const providerMode = payload.providerMode ?? savedSearchSettings?.provider_mode ?? 'combined';
   if (!['naver', 'kakao', 'web', 'combined'].includes(providerMode)) return json({ error: '지원하지 않는 검색 경로입니다.' }, 400);
 
   if (action === 'start' || action === 'scheduled_start' || action === 'scheduled_queue_start') {
@@ -593,7 +594,7 @@ Deno.serve(async (request) => {
           let lastError: unknown = null;
           while (retryCount <= retryLimit) {
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 12_000);
+            const timeout = setTimeout(() => controller.abort(), 90_000);
             try {
               const result = await searchWithProviders(query, controller.signal, runProviderMode, kakaoRestApiKey, naverCredentials, reserveSlot);
               clearTimeout(timeout);
