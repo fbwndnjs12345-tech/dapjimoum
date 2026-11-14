@@ -50,37 +50,76 @@ function isSafeSearchUrl(value: string): boolean {
   } catch { return false; }
 }
 
+function normalizeSearchText(value: string): string {
+  return value.toLocaleLowerCase('ko-KR')
+    .replace(/&amp;/g, '&')
+    .replace(/[()［］【】「」『』,.:·_\\-]/g, ' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
+function cleanBookTitle(book: BookRow): string {
+  return book.title
+    .replace(/\\s*\\((?:NE능률|능률|천재교육|비상교육|미래엔|동아출판|금성출판사|YBM|지학사|좋은책신사고|교학사|천재|비상)\\)\\s*/gi, ' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
 function queriesFor(book: BookRow): string[] {
-  const title = book.title.trim().replace(/\s*\((?:NE능률|능률|천재교육|비상교육|미래엔|동아출판|금성출판사|YBM|지학사)\)\s*/gi, ' ').replace(/\s+/g, ' ').trim();
-  const queries = [
+  const title = cleanBookTitle(book);
+  const variants = [
     `"${title}" 답지`,
+    `"${title}" 정답 해설`,
+    `"${title}" 답안 PDF`,
+    `"${title}" 답지 블로그`,
     `"${title}" 정답과 해설`,
-    `"${title}" 해설 PDF`,
-    `"${title}" site:tistory.com`,
-    `"${title}" (site:blog.naver.com OR site:cafe.naver.com) 답지`,
   ];
-  return [...new Set(queries.map(value => value.replace(/\s+/g, ' ').trim()))];
+  return [...new Set(variants.map(value => value.replace(/\\s+/g, ' ').trim()))].slice(0, 5);
 }
 
 function matchAssessment(book: BookRow, title: string, snippet: string, url: string) {
-  const source = `${title} ${snippet}`.toLocaleLowerCase('ko-KR').replace(/[()［］【】,.:·_-]/g, ' ');
-  const normalizedBook = book.title.toLocaleLowerCase('ko-KR').replace(/[()［］【】,.:·_-]/g, ' ');
-  const tokens = normalizedBook.match(/[가-힣a-z0-9]+/g) ?? [];
-  const ignored = new Set(['중학', '초등', '고등', '공통', '개정', '교육']);
-  const coreTokens = [...new Set(tokens.filter(token => token.length > 1 && !ignored.has(token) && token !== (book.publisher ?? '').toLocaleLowerCase('ko-KR')))];
-  const requiredNumeric = coreTokens.filter(token => /\d/.test(token) && !/^[1-3]학년$/.test(token) && !/^[12]학기$/.test(token));
-  const matched = coreTokens.filter(token => source.includes(token));
-  const titleRatio = coreTokens.length ? matched.length / coreTokens.length : 0;
-  const numericMatch = requiredNumeric.every(token => source.includes(token));
-  const answerSignal = /답지|정답|해설|답안|정답지|정답 및 해설|정답과 해설|\bpdf\b/i.test(source) || /\.pdf(?:$|[?#])/i.test(url);
-  const host = new URL(url).hostname.toLowerCase();
-  const likelySource = /(^|\.)(tistory\.com|blog\.naver\.com|cafe\.naver\.com|m.blog\.naver\.com)$/.test(host) || /\.pdf(?:$|[?#])/i.test(url);
-  const relevant = titleRatio >= 0.6 && numericMatch && (answerSignal || (titleRatio >= 0.85 && likelySource));
-  const likely = relevant && titleRatio >= 0.85 && answerSignal;
+  const publisher = normalizeSearchText(book.publisher ?? '');
+  const bookTitle = normalizeSearchText(cleanBookTitle(book));
+  const sourceText = normalizeSearchText(`${title} ${snippet} ${decodeURIComponent(new URL(url).pathname)}`);
+  const ignored = new Set(['중학', '초등', '고등', '공통', '개정', '교육', '정답과', '정답', '해설', '답지', '답안', 'pdf']);
+  const tokens = [...new Set(bookTitle.match(/[가-힣a-z0-9]+/g) ?? [])]
+    .filter(token => token.length > 1 && !ignored.has(token) && token !== publisher);
+  const numericTokens = tokens.filter(token => /\\d/.test(token) && !/^[1-3]학년$/.test(token) && !/^[12]학기$/.test(token));
+  const matchedTokens = tokens.filter(token => sourceText.includes(token));
+  const titleRatio = tokens.length ? matchedTokens.length / tokens.length : 0;
+  const answerSignal = /답지|정답|해설|답안|정답지|\\bpdf\\b/i.test(sourceText) || /\\.pdf(?:$|[?#])/i.test(url);
+  const host = new URL(url).hostname.toLowerCase().replace(/^www\\./, '');
+  const blockedHosts = new Set(['github.com','wikipedia.org','namu.wiki','google.com','bing.com','naver.com','daum.net','kakao.com','gmail.com']);
+  const isBlockedHost = [...blockedHosts].some(domain => host === domain || host.endsWith(`.${domain}`));
+  const likelyCommunity = /(^|\\.)(tistory\\.com|blog\\.naver\\.com|cafe\\.naver\\.com|m\\.blog\\.naver\\.com)$/.test(host);
+  const isPdf = /\\.pdf(?:$|[?#])/i.test(url);
+  const numericMatch = numericTokens.every(token => sourceText.includes(token));
+  const hasDistinctiveMatch = matchedTokens.length > 0;
+  const relevant = !isBlockedHost && hasDistinctiveMatch && numericMatch &&
+    titleRatio >= (tokens.length <= 2 ? 0.5 : 0.4) &&
+    (answerSignal || likelyCommunity || isPdf);
+  const likely = relevant && answerSignal && titleRatio >= 0.75;
   return {
     relevant,
     match_status: likely ? 'likely' : relevant ? 'uncertain' : 'mismatch',
   };
+}
+
+function classifySource(hostname: string, publisher: string | null): 'official' | 'general' | 'unknown' {
+  const host = hostname.toLowerCase().replace(/^www\\./, '');
+  if (/(^|\\.)(tistory\\.com|blog\\.naver\\.com|cafe\\.naver\\.com)$/.test(host)) return 'general';
+  const officialDomains: Record<string, string[]> = {
+    'ne능률': ['neungyule.com', 'nebooks.co.kr'],
+    '능률': ['neungyule.com', 'nebooks.co.kr'],
+    '천재교육': ['chunjae.co.kr', 'chunjae.com'],
+    '비상교육': ['visang.com', 'visangbook.com'],
+    '미래엔': ['mirae-n.com', 'mirae-n.co.kr'],
+    '동아출판': ['doeapub.com', 'dongapublishing.com'],
+    '좋은책신사고': ['sinsago.co.kr'],
+  };
+  const domains = officialDomains[(publisher ?? '').toLowerCase()] ?? [];
+  if (domains.some(domain => host === domain || host.endsWith(`.${domain}`))) return 'official';
+  return 'unknown';
 }
 
 type HtmlSearchResult = { title: string; url: string; description: string; meta_url: { hostname: string }; provider?: string };
@@ -468,7 +507,7 @@ Deno.serve(async (request) => {
             results.push(result);
             resultQueries.push(query);
           }
-          if (results.length >= 12) break;
+          if (results.length >= 30) break;
         }
         clearTimeout(timeout);
         timeout = undefined;
@@ -510,7 +549,7 @@ Deno.serve(async (request) => {
             url_identity: identity,
             source_name: candidate.host,
             link_type: candidate.link_type,
-            source_type: 'unknown',
+            source_type: classifySource(candidate.host, book.publisher),
             query: candidate.provider ? `[${candidate.provider}] ${candidate.query}` : candidate.query,
             snippet: candidate.snippet,
             match_status: candidate.match_status,
