@@ -370,12 +370,16 @@ class FinderApp:
         key = self.anon_key.get().strip()
         email = self.email.get().strip()
         password = self.password.get()
+        if not all([base, key, email, password]):
+            messagebox.showerror("연결 정보 필요", "프로젝트 URL, anon/publishable key, 관리자 이메일과 비밀번호를 모두 입력하세요.\nCSV로 검색만 할 경우 이 연결은 생략할 수 있습니다.")
+            self.toggle_connection() if not self.connection_frame.winfo_manager() else None
+            return
+        parsed_base = urllib.parse.urlparse(base)
+        if parsed_base.scheme != "https" or not parsed_base.netloc or parsed_base.username or parsed_base.password:
+            messagebox.showerror("프로젝트 URL 확인", "Supabase 프로젝트 URL은 https://로 시작하는 주소여야 합니다.")
+            return
         def worker():
             try:
-                if not all([base, key, email, password]):
-                    self.events.put(("log", "[안내] Supabase 미연결: 로컬 CSV 탐색은 가능하며, 사이트 업로드만 비활성화됩니다."))
-                    self.events.put(("status", "로컬 CSV 탐색 모드 · Supabase 업로드를 사용하려면 관리자 로그인이 필요합니다."))
-                    return
                 auth = request_json(base + "/auth/v1/token?grant_type=password",
                     {"apikey": key, "Content-Type": "application/json"}, {"email": email, "password": password})
                 token = auth.get("access_token")
