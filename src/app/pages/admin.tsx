@@ -193,7 +193,7 @@ export function AdminDashboard() {
         setSubmissionLoading(false);
       }
     };
-    useEffect(() => { void loadSubmissions(); }, []);
+    useEffect(() => { if (currentRoute === '/admin/inbox') void loadSubmissions(); }, [currentRoute]);
     const updateSubmissionStatus = async (submission: UserSubmission, status: UserSubmission['status']) => {
       setUpdatingSubmissionId(submission.id);
       setSubmissionError('');
