@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabase/client';
 import { AlertCircle, Lock, Globe, Plus, Search, BookOpen, LayoutDashboard, RefreshCw, FileSpreadsheet, ScanSearch, Inbox } from 'lucide-react';
 import { useAppContext } from '../../state/useAppContext';
