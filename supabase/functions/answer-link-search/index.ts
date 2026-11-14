@@ -398,6 +398,9 @@ Deno.serve(async (request) => {
   if (!['naver', 'kakao', 'web', 'combined'].includes(providerMode)) return json({ error: '지원하지 않는 검색 경로입니다.' }, 400);
 
   if (action === 'start') {
+    const { data: activeRuns, error: activeRunsError } = await admin.from('answer_link_search_runs').select('id,status,book_ids,processed_books,candidate_count,api_requests,provider_mode,started_at').eq('status','running').order('started_at',{ascending:false}).limit(1);
+    if (activeRunsError) return json({ error: '기존 검색 작업 확인 실패: ' + activeRunsError.message }, 500);
+    if (activeRuns?.length) return json({ error: '이미 공용 검색 작업이 실행 중입니다. 모든 관리자에게 표시되는 기존 작업을 이어서 관리해 주세요.', activeRun: activeRuns[0] }, 409);
     if (providerMode === 'naver' && !naverCredentials) return json({ error: '네이버 API가 선택되었지만 Client ID 또는 Client Secret이 설정되지 않았습니다. Supabase Edge Function Secrets를 확인하세요.' }, 400);
     if (providerMode === 'kakao' && !kakaoRestApiKey) return json({ error: '카카오 API가 선택되었지만 REST API 키가 설정되지 않았습니다. Supabase Edge Function Secrets를 확인하세요.' }, 400);
     const selectedIds = Array.isArray(payload.selectedBookIds) ? [...new Set(payload.selectedBookIds.filter(id => typeof id === 'string'))] : [];
@@ -451,15 +454,15 @@ Deno.serve(async (request) => {
       locked_until: null,
       finished_at: action === 'pause' ? new Date().toISOString() : null,
       ...(action === 'pause' && typeof payload.reason === 'string' ? { last_error: payload.reason.slice(0, 1500) } : {}),
-    }).eq('id', payload.runId).eq('created_by', authData.user.id).select('id,status').maybeSingle();
+    }).eq('id', payload.runId).select('id,status').maybeSingle();
     if (error) return json({ error: error.message }, 500);
-    if (!data) return json({ error: '검색 작업을 찾을 수 없거나 접근 권한이 없습니다.' }, 404);
+    if (!data) return json({ error: '검색 작업을 찾을 수 없습니다.' }, 404);
     return json({ run: data });
   }
 
   if (action === 'retry') {
     if (!payload.runId) return json({ error: '검색 작업 ID가 필요합니다.' }, 400);
-    const { data: previous, error: previousError } = await admin.from('answer_link_search_runs').select('failed_book_ids,provider_mode').eq('id', payload.runId).eq('created_by', authData.user.id).maybeSingle();
+    const { data: previous, error: previousError } = await admin.from('answer_link_search_runs').select('failed_book_ids,provider_mode').eq('id', payload.runId).maybeSingle();
     if (previousError) return json({ error: previousError.message }, 500);
     if (!previous) return json({ error: '검색 작업을 찾을 수 없거나 접근 권한이 없습니다.' }, 404);
     const failedIds = previous.failed_book_ids ?? [];
