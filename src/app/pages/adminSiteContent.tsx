@@ -11,7 +11,7 @@ const pages = [
   { slug: 'contact', label: '문의 및 오류 신고', path: '/contact' },
 ] as const;
 type PageSlug = typeof pages[number]['slug'];
-type SitePage = { slug: PageSlug; title: string; body: string; updated_at: string; updated_by: string | null };
+type SitePage = { slug: PageSlug; title: string; body: string; updated_at: string };
 
 export function AdminSiteContentPage() {
   const [items, setItems] = useState<SitePage[]>([]);
@@ -26,7 +26,7 @@ export function AdminSiteContentPage() {
   const load = async () => {
     setLoading(true);
     setError('');
-    const { data, error: loadError } = await supabase.from('site_pages').select('*').order('slug');
+    const { data, error: loadError } = await supabase.from('site_pages').select('slug,title,body,updated_at').order('slug');
     if (loadError) setError(loadError.message);
     else {
       const rows = (data ?? []) as SitePage[];
@@ -69,7 +69,7 @@ export function AdminSiteContentPage() {
         body: body.trim().slice(0, 50000),
         updated_at: new Date().toISOString(),
         updated_by: user.id,
-      }, { onConflict: 'slug' }).select('*').single();
+      }, { onConflict: 'slug' }).select('slug,title,body,updated_at').single();
       if (saveError) throw saveError;
       setItems(current => [...current.filter(item => item.slug !== selected), data as SitePage]);
       setNotice('저장했습니다. 공개 페이지에 변경 내용이 반영됩니다.');
