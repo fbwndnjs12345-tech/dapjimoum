@@ -51,7 +51,7 @@ class FinderApp:
         self.password = tk.StringVar()
         self.status = tk.StringVar(value="Supabase에서 교재를 불러오거나 CSV 파일을 선택하세요.")
         self.headed = tk.BooleanVar(value=True)
-        self.max_pages = tk.StringVar(value="500")
+        self.max_pages = tk.StringVar(value="80")
         self._build()
         self.root.after(150, self._poll)
 
@@ -246,10 +246,10 @@ class FinderApp:
             engines = web_cfg.get("engines", ["google", "bing"])
             if web_enabled and (not isinstance(engines, list) or not engines or any(x not in ("google", "bing") for x in engines)):
                 raise ValueError("web_search.engines에는 google 또는 bing을 하나 이상 지정하세요.")
-            results_per_engine = int(web_cfg.get("results_per_engine", 8))
+            results_per_engine = int(web_cfg.get("results_per_engine", 5))
             if results_per_engine < 1 or results_per_engine > 20:
                 raise ValueError("검색엔진별 결과 수는 1~20 사이여야 합니다.")
-            max_queries = int(web_cfg.get("max_queries_per_book", 8))
+            max_queries = int(web_cfg.get("max_queries_per_book", 3))
             if max_queries < 1 or max_queries > 10:
                 raise ValueError("교재별 검색어 수는 1~10 사이여야 합니다.")
             seen = set()
