@@ -8,8 +8,8 @@
       ]
     }
   ],
-  "max_sitemap_urls_per_source": 500,
-  "request_delay_seconds": 1.5,
+  "max_sitemap_urls_per_source": 80,
+  "request_delay_seconds": 1,
   "page_timeout_ms": 20000,
   "answer_keywords": [
     "정답과 해설",
@@ -24,7 +24,8 @@
       "google",
       "bing"
     ],
-    "results_per_engine": 12,
-    "max_queries_per_book": 8
+    "results_per_engine": 5,
+    "max_queries_per_book": 3,
+    "max_candidates_per_book": 5
   }
 }
