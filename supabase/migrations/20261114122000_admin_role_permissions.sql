@@ -314,3 +314,103 @@ end;
 $$;
 revoke all on function public.admin_assign_role(uuid, text) from public, anon;
 grant execute on function public.admin_assign_role(uuid, text) to authenticated;
+
+
+create table if not exists public.admin_access_events (
+  id bigint generated always as identity primary key,
+  actor_user_id uuid references auth.users(id) on delete set null,
+  event_type text not null,
+  route text not null default '',
+  created_at timestamptz not null default now()
+);
+create index if not exists admin_access_events_created_at_idx on public.admin_access_events(created_at desc);
+create index if not exists admin_access_events_actor_idx on public.admin_access_events(actor_user_id, created_at desc);
+alter table public.admin_access_events enable row level security;
+grant select on public.admin_access_events to authenticated;
+drop policy if exists "Admins can read admin access events" on public.admin_access_events;
+create policy "Admins can read admin access events" on public.admin_access_events for select to authenticated
+using ((select public.has_admin_permission('audit.read')));
+
+create or replace function public.record_admin_access_event(p_event_type text, p_route text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if (select auth.uid()) is null or not (select public.is_admin_user()) then
+    raise exception 'Administrator access is required.' using errcode = '42501';
+  end if;
+  insert into public.admin_access_events(actor_user_id, event_type, route)
+  values ((select auth.uid()), left(coalesce(p_event_type, 'page_view'), 60), left(coalesce(p_route, ''), 300));
+end;
+$$;
+revoke all on function public.record_admin_access_event(text, text) from public, anon;
+grant execute on function public.record_admin_access_event(text, text) to authenticated;
+
+create or replace function public.admin_list_activity_events()
+returns table(
+  id text, event_kind text, action text, entity_type text, entity_id text,
+  actor_user_id uuid, actor_email text, created_at timestamptz, details jsonb
+)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not (select public.has_admin_permission('audit.read')) then
+    raise exception 'Audit read permission is required.' using errcode = '42501';
+  end if;
+  return query
+    select 'audit:' || e.id::text, 'change'::text, e.action, e.entity_type, e.entity_id,
+           e.actor_user_id, u.email::text, e.created_at,
+           jsonb_build_object('before', e.before_data, 'after', e.after_data)
+    from public.admin_audit_events e
+    left join auth.users u on u.id = e.actor_user_id
+    union all
+    select 'access:' || a.id::text, 'access'::text, a.event_type, 'route'::text, a.route,
+           a.actor_user_id, u.email::text, a.created_at, '{}'::jsonb
+    from public.admin_access_events a
+    left join auth.users u on u.id = a.actor_user_id
+    order by created_at desc
+    limit 500;
+end;
+$$;
+revoke all on function public.admin_list_activity_events() from public, anon;
+grant execute on function public.admin_list_activity_events() to authenticated;
+
+create or replace function public.admin_assign_role(p_user_id uuid, p_role_key text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  previous_role text;
+  super_admin_count bigint;
+begin
+  if not (select public.has_admin_permission('admin.roles.manage')) then
+    raise exception 'Administrator role management permission is required.' using errcode = '42501';
+  end if;
+  if not exists (select 1 from public.admin_users where user_id = p_user_id) then
+    raise exception 'Target user is not an administrator.' using errcode = '22023';
+  end if;
+  if not exists (select 1 from public.admin_roles where role_key = p_role_key) then
+    raise exception 'Unknown administrator role.' using errcode = '22023';
+  end if;
+  select role_key into previous_role from public.admin_user_roles where user_id = p_user_id;
+  if previous_role = 'super_admin' and p_role_key <> 'super_admin' then
+    select count(*) into super_admin_count from public.admin_user_roles where role_key = 'super_admin';
+    if super_admin_count <= 1 then
+      raise exception 'At least one super administrator must remain.' using errcode = '22023';
+    end if;
+  end if;
+  insert into public.admin_user_roles(user_id, role_key, assigned_by, assigned_at)
+  values (p_user_id, p_role_key, (select auth.uid()), now())
+  on conflict (user_id) do update
+    set role_key = excluded.role_key, assigned_by = excluded.assigned_by, assigned_at = excluded.assigned_at;
+  insert into public.admin_audit_events(actor_user_id, action, entity_type, entity_id, before_data, after_data)
+  values ((select auth.uid()), 'role_change', 'admin_user_roles', p_user_id::text,
+          jsonb_build_object('role_key', previous_role), jsonb_build_object('role_key', p_role_key));
+end;
+$$;
