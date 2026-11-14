@@ -217,6 +217,7 @@ export function renderAdminLayout(content: React.ReactNode) {
               { path: '/admin/search-history', label: '검색 기록·후보 검수', count: null, icon: RefreshCw, active: currentRoute === '/admin/search-history' },
               { path: '/admin/roles', label: '관리자 권한', count: null, icon: Lock, active: currentRoute === '/admin/roles' },
               { path: '/admin/activity', label: '관리자 활동 기록', count: null, icon: RefreshCw, active: currentRoute === '/admin/activity' },
+              { path: '/admin/search-settings', label: '자동 검색 설정', count: null, icon: RefreshCw, active: currentRoute === '/admin/search-settings' },
               { path: '/admin/inbox', label: '사용자 접수함', count: null, icon: Inbox, active: currentRoute === '/admin/inbox' },
               { path: '/admin/site-content', label: '사이트 문서 관리', count: null, icon: Globe, active: currentRoute === '/admin/site-content' }
             ].map(item => {
