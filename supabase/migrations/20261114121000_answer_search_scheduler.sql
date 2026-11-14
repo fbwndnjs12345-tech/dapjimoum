@@ -2,6 +2,7 @@
 -- The cron jobs remain harmless no-ops until both Vault secrets are configured:
 -- dapjimoum_project_url and dapjimoum_service_role_key.
 
+create schema if not exists net;
 create extension if not exists pg_cron with schema pg_catalog;
 create extension if not exists pg_net with schema net;
 
