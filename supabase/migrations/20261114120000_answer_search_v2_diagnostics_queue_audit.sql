@@ -340,12 +340,12 @@ begin
   if new.status in ('completed', 'failed') and old.status is distinct from new.status then
     update public.answer_link_search_queue q
     set status = case
-          when not (q.book_id = any(coalesce(new.failed_book_ids, '{}'))) then 'completed'
+          when new.status = 'completed' and not (q.book_id = any(coalesce(new.failed_book_ids, '{}'))) then 'completed'
           when q.retry_count < coalesce((select retry_limit from public.answer_link_search_settings where singleton = true), 2) then 'queued'
           else 'failed'
         end,
         available_at = case
-          when q.book_id = any(coalesce(new.failed_book_ids, '{}'))
+          when (new.status = 'failed' or q.book_id = any(coalesce(new.failed_book_ids, '{}')))
             and q.retry_count < coalesce((select retry_limit from public.answer_link_search_settings where singleton = true), 2)
           then now() + make_interval(mins => (5 * power(2, q.retry_count))::integer)
           else q.available_at
@@ -355,8 +355,8 @@ begin
             and q.retry_count < coalesce((select retry_limit from public.answer_link_search_settings where singleton = true), 2)
           then q.retry_count + 1 else q.retry_count
         end,
-        run_id = case when q.book_id = any(coalesce(new.failed_book_ids, '{}')) then null else q.run_id end,
-        last_error = case when q.book_id = any(coalesce(new.failed_book_ids, '{}')) then left(coalesce(new.last_error, '교재별 검색 실패'), 1000) else null end,
+        run_id = case when new.status = 'failed' or q.book_id = any(coalesce(new.failed_book_ids, '{}')) then null else q.run_id end,
+        last_error = case when new.status = 'failed' or q.book_id = any(coalesce(new.failed_book_ids, '{}')) then left(coalesce(new.last_error, '교재별 검색 실패'), 1000) else null end,
         updated_at = now()
     where q.run_id = new.id and q.status = 'running';
   end if;
