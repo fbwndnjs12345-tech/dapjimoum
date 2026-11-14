@@ -474,7 +474,7 @@ Deno.serve(async (request) => {
 
   if (action === 'batch') {
     if (!payload.runId) return json({ error: '검색 작업 ID가 필요합니다.' }, 400);
-    const { data: ownedRun, error: ownedRunError } = await admin.from('answer_link_search_runs').select('id,provider_mode').eq('id', payload.runId).eq('created_by', authData.user.id).maybeSingle();
+    const { data: ownedRun, error: ownedRunError } = await admin.from('answer_link_search_runs').select('id,provider_mode').eq('id', payload.runId).maybeSingle();
     if (ownedRunError) return json({ error: ownedRunError.message }, 500);
     if (!ownedRun) return json({ error: '검색 작업을 찾을 수 없거나 접근 권한이 없습니다.' }, 404);
     const runProviderMode = (ownedRun.provider_mode ?? 'combined') as 'naver' | 'kakao' | 'web' | 'combined';
