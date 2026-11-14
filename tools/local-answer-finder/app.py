@@ -511,7 +511,7 @@ def self_test():
     except Exception as exc:
         print(f"SELF-TEST FAILED: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
         try:
-            (ROOT / "SELF_TEST_LOG.name).write_text(f"SELF-TEST FAILED: {type(exc).__name__}: {exc}\\n", encoding="utf-8")
+            (SELF_TEST_LOG).write_text(f"SELF-TEST FAILED: {type(exc).__name__}: {exc}\\n", encoding="utf-8")
         except Exception:
             pass
         return 1
