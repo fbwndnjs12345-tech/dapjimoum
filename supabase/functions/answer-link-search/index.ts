@@ -331,12 +331,13 @@ async function searchNaverApiHub(query: string, clientId: string, clientSecret: 
   return results;
 }
 
-async function searchWithProviders(query: string, signal: AbortSignal, kakaoKey?: string, naverCredentials?: { clientId: string; clientSecret: string }) {
-  const settled = await Promise.allSettled([
-    searchWithoutApi(query, signal),
-    ...(kakaoKey ? [searchKakao(query, kakaoKey, signal)] : []),
-    ...(naverCredentials ? [searchNaverApiHub(query, naverCredentials.clientId, naverCredentials.clientSecret, signal)] : []),
-  ]);
+async function searchWithProviders(query: string, signal: AbortSignal, mode: 'naver' | 'kakao' | 'web' | 'combined', kakaoKey?: string, naverCredentials?: { clientId: string; clientSecret: string }) {
+  const tasks: Array<Promise<HtmlSearchResult[]>> = [];
+  if (mode === 'web' || mode === 'combined') tasks.push(searchWithoutApi(query, signal));
+  if ((mode === 'kakao' || mode === 'combined') && kakaoKey) tasks.push(searchKakao(query, kakaoKey, signal));
+  if ((mode === 'naver' || mode === 'combined') && naverCredentials) tasks.push(searchNaverApiHub(query, naverCredentials.clientId, naverCredentials.clientSecret, signal));
+  if (!tasks.length) throw new Error(mode === 'naver' ? '네이버 API 키가 설정되지 않았습니다.' : '카카오 API 키가 설정되지 않았습니다.');
+  const settled = await Promise.allSettled(tasks);
   const results: HtmlSearchResult[] = [];
   const errors: string[] = [];
   for (const item of settled) {
@@ -349,7 +350,7 @@ async function searchWithProviders(query: string, signal: AbortSignal, kakaoKey?
     if (!unique.has(identity)) unique.set(identity, item);
   }
   if (!unique.size && errors.length) throw new Error(errors.join(' / ').slice(0, 1000));
-  return [...unique.values()];
+  return { results: [...unique.values()], warnings: errors };
 }
 
 async function searchWithoutApi(query: string, signal: AbortSignal) {
@@ -387,15 +388,19 @@ Deno.serve(async (request) => {
   const { data: adminRow, error: adminError } = await admin.from('admin_users').select('user_id').eq('user_id', authData.user.id).maybeSingle();
   if (adminError || !adminRow) return json({ error: '관리자 권한이 필요합니다.' }, 403);
 
-  let payload: { action?: string; runId?: string; selectedBookIds?: string[]; includeBooksWithLinks?: boolean; reason?: string };
+  let payload: { action?: string; runId?: string; selectedBookIds?: string[]; includeBooksWithLinks?: boolean; reason?: string; providerMode?: 'naver' | 'kakao' | 'web' | 'combined' };
   try { payload = await request.json(); } catch { return json({ error: '요청 본문이 올바르지 않습니다.' }, 400); }
   const action = payload.action;
   const kakaoRestApiKey = Deno.env.get('KAKAO_REST_API_KEY')?.trim();
   const naverClientId = Deno.env.get('NAVER_API_HUB_CLIENT_ID')?.trim();
   const naverClientSecret = Deno.env.get('NAVER_API_HUB_CLIENT_SECRET')?.trim();
   const naverCredentials = naverClientId && naverClientSecret ? { clientId: naverClientId, clientSecret: naverClientSecret } : undefined;
+  const providerMode = payload.providerMode ?? 'combined';
+  if (!['naver', 'kakao', 'web', 'combined'].includes(providerMode)) return json({ error: '지원하지 않는 검색 경로입니다.' }, 400);
 
   if (action === 'start') {
+    if (providerMode === 'naver' && !naverCredentials) return json({ error: '네이버 API가 선택되었지만 Client ID 또는 Client Secret이 설정되지 않았습니다. Supabase Edge Function Secrets를 확인하세요.' }, 400);
+    if (providerMode === 'kakao' && !kakaoRestApiKey) return json({ error: '카카오 API가 선택되었지만 REST API 키가 설정되지 않았습니다. Supabase Edge Function Secrets를 확인하세요.' }, 400);
     const selectedIds = Array.isArray(payload.selectedBookIds) ? [...new Set(payload.selectedBookIds.filter(id => typeof id === 'string'))] : [];
     const books: BookRow[] = [];
     if (selectedIds.length) {
@@ -431,6 +436,7 @@ Deno.serve(async (request) => {
     const { data: run, error } = await admin.from('answer_link_search_runs').insert({
       created_by: authData.user.id,
       status: 'running',
+      provider_mode: providerMode,
       book_ids: targets.map(book => book.id),
     }).select('id,status,book_ids,started_at').single();
     if (error) return json({ error: `검색 작업을 만들지 못했습니다: ${error.message}` }, 500);
@@ -454,21 +460,24 @@ Deno.serve(async (request) => {
 
   if (action === 'retry') {
     if (!payload.runId) return json({ error: '검색 작업 ID가 필요합니다.' }, 400);
-    const { data: previous, error: previousError } = await admin.from('answer_link_search_runs').select('failed_book_ids').eq('id', payload.runId).eq('created_by', authData.user.id).maybeSingle();
+    const { data: previous, error: previousError } = await admin.from('answer_link_search_runs').select('failed_book_ids,provider_mode').eq('id', payload.runId).eq('created_by', authData.user.id).maybeSingle();
     if (previousError) return json({ error: previousError.message }, 500);
     if (!previous) return json({ error: '검색 작업을 찾을 수 없거나 접근 권한이 없습니다.' }, 404);
     const failedIds = previous.failed_book_ids ?? [];
     if (failedIds.length === 0) return json({ error: '재시도할 실패 교재가 없습니다.' }, 400);
-    const { data: run, error } = await admin.from('answer_link_search_runs').insert({ created_by: authData.user.id, status: 'running', book_ids: failedIds }).select('id,status,book_ids,started_at').single();
+    const { data: run, error } = await admin.from('answer_link_search_runs').insert({ created_by: authData.user.id, status: 'running', provider_mode: previous.provider_mode ?? 'combined', book_ids: failedIds }).select('id,status,book_ids,started_at,provider_mode').single();
     if (error) return json({ error: error.message }, 500);
     return json({ run });
   }
 
   if (action === 'batch') {
     if (!payload.runId) return json({ error: '검색 작업 ID가 필요합니다.' }, 400);
-    const { data: ownedRun, error: ownedRunError } = await admin.from('answer_link_search_runs').select('id').eq('id', payload.runId).eq('created_by', authData.user.id).maybeSingle();
+    const { data: ownedRun, error: ownedRunError } = await admin.from('answer_link_search_runs').select('id,provider_mode').eq('id', payload.runId).eq('created_by', authData.user.id).maybeSingle();
     if (ownedRunError) return json({ error: ownedRunError.message }, 500);
     if (!ownedRun) return json({ error: '검색 작업을 찾을 수 없거나 접근 권한이 없습니다.' }, 404);
+    const runProviderMode = (ownedRun.provider_mode ?? 'combined') as 'naver' | 'kakao' | 'web' | 'combined';
+    if (runProviderMode === 'naver' && !naverCredentials) return json({ error: '이 작업은 네이버 API로 시작되었지만 현재 API 인증 정보가 없습니다. Secrets 설정 후 다시 이어서 실행하세요.' }, 400);
+    if (runProviderMode === 'kakao' && !kakaoRestApiKey) return json({ error: '이 작업은 카카오 API로 시작되었지만 현재 API 키가 없습니다. Secrets 설정 후 다시 이어서 실행하세요.' }, 400);
     const lockToken = crypto.randomUUID();
     const { data: claim, error: claimError } = await admin.rpc('claim_answer_link_search_batch', { p_run_id: payload.runId, p_lock_token: lockToken, p_batch_size: BATCH_SIZE });
     if (claimError) return json({ error: `검색 배치를 가져오지 못했습니다: ${claimError.message}` }, 500);
@@ -495,25 +504,23 @@ Deno.serve(async (request) => {
         processed += 1;
         continue;
       }
-      let timeout: ReturnType<typeof setTimeout> | undefined;
       try {
-        const controller = new AbortController();
-        timeout = setTimeout(() => controller.abort(), 25_000);
         const queries = queriesFor(book);
         const results: HtmlSearchResult[] = [];
         const resultQueries: string[] = [];
+        const providerWarnings: string[] = [];
         for (const query of queries) {
-          await new Promise(resolve => setTimeout(resolve, 500));
-          apiRequests += 3 + (kakaoRestApiKey ? 3 : 0) + (naverCredentials ? 2 : 0); // Legacy counter: public HTML, Kakao, and NAVER API HUB requests.
-          const queryResults = await searchWithProviders(query, controller.signal, kakaoRestApiKey, naverCredentials);
-          for (const result of queryResults) {
-            results.push(result);
-            resultQueries.push(query);
-          }
-
+          await new Promise(resolve => setTimeout(resolve, 250));
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 12_000);
+          try {
+            const queryResults = await searchWithProviders(query, controller.signal, runProviderMode, kakaoRestApiKey, naverCredentials);
+            results.push(...queryResults.results);
+            resultQueries.push(...queryResults.results.map(() => query));
+            providerWarnings.push(...queryResults.warnings);
+          } finally { clearTimeout(timeout); }
+          apiRequests += runProviderMode === 'web' ? 3 : runProviderMode === 'kakao' ? 3 : runProviderMode === 'naver' ? 2 : 8;
         }
-        clearTimeout(timeout);
-        timeout = undefined;
 
         const { data: existingLinks, error: linksError } = await admin.from('answer_links').select('url').eq('book_id', book.id);
         if (linksError) throw linksError;
@@ -572,7 +579,6 @@ Deno.serve(async (request) => {
           }
         }
       } catch (error) {
-        if (timeout) clearTimeout(timeout);
         failedBookIds.push(book.id);
         const message = error instanceof Error ? error.message : '검색 중 오류가 발생했습니다.';
         errors.push(`${book.title}: ${message}`);
