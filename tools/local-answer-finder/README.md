@@ -78,7 +78,8 @@ Supabase 연결 없이도 CSV만으로 검색할 수 있습니다. 다만 사이
 %LOCALAPPDATA%\DapjiMoum\LocalAnswerFinder\
 ├── sources.json                 검색 출처 및 옵션
 ├── books.csv                    Supabase에서 가져온 교재 목록
-└── answer-link-candidates.csv   검색 후보 결과
+├── answer-link-candidates.csv   검색 후보 결과
+└── app.log                       오류 및 작업 기록
 ```
 
 따라서 프로그램을 업데이트하거나 다른 폴더로 옮겨도 사용자 데이터가 설치 파일과 분리됩니다.
