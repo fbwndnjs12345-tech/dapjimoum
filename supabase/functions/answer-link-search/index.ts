@@ -404,6 +404,19 @@ Deno.serve(async (request) => {
   let payload: { action?: string; runId?: string; selectedBookIds?: string[]; includeBooksWithLinks?: boolean; reason?: string; providerMode?: 'naver' | 'kakao' | 'web' | 'combined' };
   try { payload = await request.json(); } catch { return json({ error: '요청 본문이 올바르지 않습니다.' }, 400); }
   const action = payload.action;
+  if (!isServiceInvocation) {
+    const requiredPermission = action === 'pause' || action === 'resume' ? 'search.control' : 'search.run';
+    const { data: roleData, error: roleError } = await admin
+      .from('admin_user_roles')
+      .select('admin_role_permissions(permission_key)')
+      .eq('user_id', actorUserId)
+      .maybeSingle();
+    if (roleError) return json({ error: '관리자 권한 정보를 확인하지 못했습니다: ' + roleError.message }, 500);
+    const permissionRows = (roleData?.admin_role_permissions ?? []) as Array<{ permission_key: string }>;
+    if (!permissionRows.some(row => row.permission_key === requiredPermission)) {
+      return json({ error: '이 작업을 실행할 권한이 없습니다. 관리자에게 검색 운영 권한을 요청하세요.' }, 403);
+    }
+  }
   const kakaoRestApiKey = Deno.env.get('KAKAO_REST_API_KEY')?.trim();
   const naverClientId = Deno.env.get('NAVER_API_HUB_CLIENT_ID')?.trim();
   const naverClientSecret = Deno.env.get('NAVER_API_HUB_CLIENT_SECRET')?.trim();
