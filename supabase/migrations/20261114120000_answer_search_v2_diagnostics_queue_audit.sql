@@ -277,7 +277,7 @@ begin
     values (target_book_id, 'user_request', 150, 1, new.submitted_by)
     on conflict (book_id) where status in ('queued', 'running')
     do update set requested_count = queue.requested_count + 1,
-                  priority = greatest(queue.priority, 150),
+                  priority = greatest(queue.priority, 150 + least(queue.requested_count + 1, 100) * 2),
                   updated_at = now();
   end if;
   return new;
