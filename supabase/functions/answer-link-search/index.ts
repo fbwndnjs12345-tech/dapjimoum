@@ -529,8 +529,18 @@ Deno.serve(async (request) => {
     if (runProviderMode === 'naver' && !naverCredentials) return json({ error: '이 작업은 네이버 API로 시작되었지만 현재 API 인증 정보가 없습니다. Secrets 설정 후 다시 이어서 실행하세요.' }, 400);
     if (runProviderMode === 'kakao' && !kakaoRestApiKey) return json({ error: '이 작업은 카카오 API로 시작되었지만 현재 API 키가 없습니다. Secrets 설정 후 다시 이어서 실행하세요.' }, 400);
     const { data: runSettings } = await admin.from('answer_link_search_settings').select('max_concurrency,retry_limit,requests_per_minute').eq('singleton', true).maybeSingle();
-    const batchSize = Math.max(1, Math.min(5, Number(runSettings?.max_concurrency ?? 3)));
+    const batchSize = Math.max(1, Math.min(5, Number(runSettings?.max_concurrency ?? 1)));
     const retryLimit = Math.max(0, Math.min(5, Number(runSettings?.retry_limit ?? 2)));
+    const requestsPerMinute = Math.max(1, Math.min(300, Number(runSettings?.requests_per_minute ?? 30)));
+    const reserveSlot = async () => {
+      for (let waitAttempt = 0; waitAttempt < 30; waitAttempt++) {
+        const { data, error } = await admin.rpc('reserve_answer_search_request', { p_limit: requestsPerMinute });
+        if (error) throw new Error('검색 요청 한도 관리 실패: ' + error.message);
+        if (data === true) return;
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+      throw new Error('검색 요청 한도 대기 시간이 초과되었습니다. 다음 실행에서 다시 시도합니다.');
+    };
     const lockToken = crypto.randomUUID();
     const { data: claim, error: claimError } = await admin.rpc('claim_answer_link_search_batch', { p_run_id: payload.runId, p_lock_token: lockToken, p_batch_size: batchSize });
     if (claimError) return json({ error: `검색 배치를 가져오지 못했습니다: ${claimError.message}` }, 500);
@@ -585,7 +595,7 @@ Deno.serve(async (request) => {
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 12_000);
             try {
-              const result = await searchWithProviders(query, controller.signal, runProviderMode, kakaoRestApiKey, naverCredentials);
+              const result = await searchWithProviders(query, controller.signal, runProviderMode, kakaoRestApiKey, naverCredentials, reserveSlot);
               clearTimeout(timeout);
               if (result.results.length > 0 || result.warnings.length === 0 || retryCount >= retryLimit) {
                 return { query, startedAt, durationMs: Date.now() - started, retryCount, result };
@@ -628,7 +638,7 @@ Deno.serve(async (request) => {
             warnings: result.warnings, providersAttempted: attemptedProviders, providersWithResults, errorMessage: result.warnings.join(' / ').slice(0, 1200) || null,
           });
         }
-        apiRequests += queries.length * (runProviderMode === 'web' ? 3 : runProviderMode === 'kakao' ? 3 : runProviderMode === 'naver' ? 2 : 3 + (kakaoRestApiKey ? 3 : 0) + (naverCredentials ? 2 : 0));
+        apiRequests += diagnostics.reduce((sum, diagnostic) => sum + diagnostic.providersAttempted.length * (diagnostic.retryCount + 1), 0);
         if (providerWarnings.length) errors.push(`${book.title}: 일부 검색 경로 실패 - ${[...new Set(providerWarnings)].join(' / ').slice(0, 800)}`);
 
         const diagnosticByQuery = new Map(diagnostics.map(item => [item.query, item]));
