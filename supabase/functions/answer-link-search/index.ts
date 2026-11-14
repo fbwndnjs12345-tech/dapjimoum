@@ -336,11 +336,11 @@ async function searchNaverApiHub(query: string, clientId: string, clientSecret: 
   return attachSearchWarnings(results, errors);
 }
 
-async function searchWithProviders(query: string, signal: AbortSignal, mode: 'naver' | 'kakao' | 'web' | 'combined', kakaoKey?: string, naverCredentials?: { clientId: string; clientSecret: string }) {
+async function searchWithProviders(query: string, signal: AbortSignal, mode: 'naver' | 'kakao' | 'web' | 'combined', kakaoKey: string | undefined, naverCredentials: { clientId: string; clientSecret: string } | undefined, reserveSlot: () => Promise<void>) {
   const tasks: Array<Promise<SearchResultBatch>> = [];
-  if (mode === 'web' || mode === 'combined') tasks.push(searchWithoutApi(query, signal));
-  if ((mode === 'kakao' || mode === 'combined') && kakaoKey) tasks.push(searchKakao(query, kakaoKey, signal));
-  if ((mode === 'naver' || mode === 'combined') && naverCredentials) tasks.push(searchNaverApiHub(query, naverCredentials.clientId, naverCredentials.clientSecret, signal));
+  if (mode === 'web' || mode === 'combined') tasks.push(searchWithoutApi(query, signal, reserveSlot));
+  if ((mode === 'kakao' || mode === 'combined') && kakaoKey) tasks.push(searchKakao(query, kakaoKey, signal, reserveSlot));
+  if ((mode === 'naver' || mode === 'combined') && naverCredentials) tasks.push(searchNaverApiHub(query, naverCredentials.clientId, naverCredentials.clientSecret, signal, reserveSlot));
   if (!tasks.length) throw new Error(mode === 'naver' ? '네이버 API 키가 설정되지 않았습니다.' : '카카오 API 키가 설정되지 않았습니다.');
   const settled = await Promise.allSettled(tasks);
   const results: HtmlSearchResult[] = [];
@@ -360,9 +360,9 @@ async function searchWithProviders(query: string, signal: AbortSignal, mode: 'na
   return { results: [...unique.values()], warnings: errors };
 }
 
-async function searchWithoutApi(query: string, signal: AbortSignal): Promise<SearchResultBatch> {
+async function searchWithoutApi(query: string, signal: AbortSignal, reserveSlot: () => Promise<void>): Promise<SearchResultBatch> {
   const engines = ['google', 'bing', 'duckduckgo'] as const;
-  const settled = await Promise.allSettled(engines.map(engine => searchPublicHtml(engine, query, signal)));
+  const settled = await Promise.allSettled(engines.map(engine => searchPublicHtml(engine, query, signal, reserveSlot)));
   const results: HtmlSearchResult[] = [];
   const errors: string[] = [];
   for (let i = 0; i < settled.length; i++) {
