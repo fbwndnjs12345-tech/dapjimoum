@@ -82,13 +82,26 @@ function cleanBookTitle(book: BookRow): string {
 
 function queriesFor(book: BookRow): string[] {
   const title = cleanBookTitle(book);
-  const identity = [book.publisher, book.grade, book.semester, book.series].filter(Boolean).join(' ');
+  const publisher = book.publisher ?? '';
+  const grade = book.grade ?? '';
+  const semester = book.semester ?? '';
+  const subject = book.subject ?? '';
+  const series = book.series?.trim() || title;
+  const identity = [publisher, grade, semester, subject].filter(Boolean).join(' ');
+  // Use complementary search intents: exact title, normalized title, series,
+  // and publisher-specific wording. This avoids relying on one exact phrase.
+  const compactTitle = title
+    .replace(/중학|중등/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   const variants = [
     `"${title}" ${identity} 정답과 해설`,
-    `"${title}" 답지 PDF`,
-    `"${title}" site:tistory.com OR site:blog.naver.com OR site:cafe.naver.com 답지`,
+    `"${title}" ${grade} ${subject} 답지 PDF`,
+    `${series} ${grade} ${semester} ${publisher} 정답 해설 PDF`,
+    `${compactTitle} ${identity} 답지`,
+    `"${title}" 정답지 OR 정답과해설 OR 해설파일`,
   ];
-  return [...new Set(variants.map(value => value.replace(/\s+/g, ' ').trim()))];
+  return [...new Set(variants.map(value => value.replace(/\s+/g, ' ').trim()).filter(Boolean))];
 }
 
 function matchAssessment(book: BookRow, title: string, snippet: string, url: string) {
@@ -234,7 +247,7 @@ function parseSearchHtml(engine: string, html: string, base: string): HtmlSearch
       seen.add(canonicalUrl(url));
       results.push({ title, url, description: '', meta_url: { hostname: new URL(url).hostname }, provider: 'duckduckgo_html' });
     }
-    return results.slice(0, 10);
+    return results.slice(0, 20);
   }
   for (const block of blocks) {
     const anchor = engine === 'duckduckgo'
@@ -260,8 +273,8 @@ function parseSearchHtml(engine: string, html: string, base: string): HtmlSearch
 async function searchPublicHtml(engine: 'google' | 'bing' | 'duckduckgo', query: string, signal: AbortSignal, reserveSlot: () => Promise<void>): Promise<HtmlSearchResult[]> {
   const encoded = encodeURIComponent(query);
   const endpoints: Record<typeof engine, string> = {
-    google: `https://www.google.com/search?q=${encoded}&num=10&hl=ko&gl=kr`,
-    bing: `https://www.bing.com/search?q=${encoded}&count=10&setlang=ko-KR`,
+    google: `https://www.google.com/search?q=${encoded}&num=20&hl=ko&gl=kr`,
+    bing: `https://www.bing.com/search?q=${encoded}&count=20&setlang=ko-KR`,
     duckduckgo: `https://html.duckduckgo.com/html/?q=${encoded}`,
   };
   await reserveSlot();
