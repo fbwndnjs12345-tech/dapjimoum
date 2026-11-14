@@ -9,25 +9,27 @@ const migrations = [
   'supabase/migrations/20261114123000_answer_search_global_rate_limit.sql',
   'supabase/migrations/20261114124000_answer_link_health_fields.sql',
   'supabase/migrations/20261114125000_answer_candidate_match_scoring.sql',
+  'supabase/migrations/20261114126000_search_priority_engine.sql',
 ].map(read);
-const combinedSql = migrations.join('\n').toLowerCase();
+const combinedSql = migrations.join('\\n').toLowerCase();
 
 for (const migration of migrations) {
-  assert.doesNotMatch(migration, /\bdrop\s+table\b/i, 'V2 migrations must not drop tables');
-  assert.doesNotMatch(migration, /\btruncate\b/i, 'V2 migrations must not truncate data');
-  assert.doesNotMatch(migration, /\bdrop\s+column\b/i, 'V2 migrations must not drop columns');
+  assert.doesNotMatch(migration, /\\bdrop\\s+table\\b/i, 'V2 migrations must not drop tables');
+  assert.doesNotMatch(migration, /\\btruncate\\b/i, 'V2 migrations must not truncate data');
+  assert.doesNotMatch(migration, /\\bdrop\\s+column\\b/i, 'V2 migrations must not drop columns');
 }
-assert.doesNotMatch(combinedSql, /delete\s+from\s+public\.(books|answer_links|answer_link_candidates|user_submissions|admin_users|site_pages)\b/, 'Existing catalog, link, request and admin data must not be deleted');
-assert.match(combinedSql, /answer_link_candidates_run_id_fkey[\s\S]*?on delete set null/i, 'Candidate review rows must survive 30-day run cleanup');
-assert.match(combinedSql, /create table if not exists public\.answer_link_search_attempts/i);
-assert.match(combinedSql, /create table if not exists public\.answer_link_search_queue/i);
-assert.match(combinedSql, /create table if not exists public\.admin_audit_events/i);
-assert.match(combinedSql, /create table if not exists public\.admin_access_events/i);
-assert.match(combinedSql, /create table if not exists public\.admin_user_roles/i);
-assert.match(combinedSql, /create or replace function public\.has_admin_permission/i);
+assert.doesNotMatch(combinedSql, /delete\\s+from\\s+public\\.(books|answer_links|answer_link_candidates|user_submissions|admin_users|site_pages)\\b/, 'Existing catalog, link, request and admin data must not be deleted');
+assert.match(combinedSql, /answer_link_candidates_run_id_fkey[\\s\\S]*?on delete set null/i, 'Candidate review rows must survive 30-day run cleanup');
+assert.match(combinedSql, /create table if not exists public\\.answer_link_search_attempts/i);
+assert.match(combinedSql, /create table if not exists public\\.answer_link_search_queue/i);
+assert.match(combinedSql, /create table if not exists public\\.admin_audit_events/i);
+assert.match(combinedSql, /create table if not exists public\\.admin_access_events/i);
+assert.match(combinedSql, /create table if not exists public\\.admin_user_roles/i);
+assert.match(combinedSql, /create or replace function public\\.has_admin_permission/i);
 assert.match(combinedSql, /reserve_answer_search_request/i);
 assert.match(combinedSql, /history-retention/i);
 assert.match(combinedSql, /answer-link-health-check/i);
+assert.match(combinedSql, /get_answer_link_search_priorities/i);
 
 const searchFunction = read('supabase/functions/answer-link-search/index.ts');
 assert.match(searchFunction, /answer_link_search_attempts/);
@@ -39,7 +41,7 @@ assert.match(searchFunction, /retryLimit/);
 assert.match(searchFunction, /answer_link_search_queue/);
 
 const healthFunction = read('supabase/functions/answer-link-health-check/index.ts');
-assert.match(healthFunction, /redirect:\s*'manual'/);
+assert.match(healthFunction, /redirect:\\s*'manual'/);
 assert.match(healthFunction, /safeExternalUrl/);
 assert.match(healthFunction, /%PDF-/);
 assert.match(healthFunction, /answer_link_search_queue/);
