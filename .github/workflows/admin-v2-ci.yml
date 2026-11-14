@@ -48,3 +48,16 @@ jobs:
           node-version: 22
       - name: Verify V2 schema and app contract
         run: node scripts/verify-admin-v2-contract.mjs
+
+  sql-syntax:
+    name: PostgreSQL migration syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install SQL parser
+        run: pip install pglast
+      - name: Parse V2 migrations
+        run: python scripts/verify-admin-v2-sql.py
