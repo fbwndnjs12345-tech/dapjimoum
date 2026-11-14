@@ -132,9 +132,11 @@ end $$;
 select cron.schedule(
   'dapjimoum-answer-search-history-retention',
   '0 19 * * *',
-  $$ delete from public.answer_link_search_runs
+  $ delete from public.answer_link_search_runs
      where started_at < now() - interval '30 days'
-       and status in ('completed', 'failed', 'paused'); $$
+       and status in ('completed', 'failed', 'paused');
+     delete from public.answer_link_search_rate_limits
+     where bucket_start < now() - interval '2 days'; $
 );
 
 
