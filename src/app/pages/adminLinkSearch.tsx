@@ -198,13 +198,17 @@ export function AdminLinkSearchPage() {
   };
 
   const pauseSearch = async (runId: string) => {
-    try { await invoke({ action: 'pause', runId }); setNotice('검색 작업을 중지했습니다. 진행 상태는 저장되었습니다.'); await loadData(); }
+    setBusyRunActionId(runId);
+    try { await invoke({ action: 'pause', runId }); setNotice('공용 검색 작업을 중지했습니다. 모든 관리자 화면에 반영됩니다.'); await loadData(); }
     catch (pauseError) { setError(errorText(pauseError)); }
+    finally { setBusyRunActionId(null); }
   };
 
   const resumeSearch = async (run: Run) => {
-    try { await invoke({ action: 'resume', runId: run.id }); void runBatches(run.id); }
+    setBusyRunActionId(run.id);
+    try { await invoke({ action: 'resume', runId: run.id }); setNotice('검색을 이어서 실행합니다.'); await loadData(); void runBatches(run.id); }
     catch (resumeError) { setError(errorText(resumeError)); }
+    finally { setBusyRunActionId(null); }
   };
 
   const continueSearch = async (run: Run) => {
