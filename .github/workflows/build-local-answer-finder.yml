@@ -2,7 +2,7 @@ name: Build local answer finder
 on:
   push:
     branches:
-      - feat/local-answer-link-finder
+      - main
     paths:
       - "tools/local-answer-finder/**"
       - ".github/workflows/build-local-answer-finder.yml"
