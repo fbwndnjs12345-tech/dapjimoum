@@ -103,7 +103,6 @@ class FinderUnitTests(unittest.TestCase):
                 "semester": "1학기"}
         queries = build_queries(book, 8)
         self.assertTrue(any('"체크체크 중학 수학 2-1" "답지"' in q for q in queries))
-        self.assertTrue(any('"체크체크 중학 수학 2-1" "답지"' in q for q in queries))
         self.assertTrue(any('"천재교육 체크체크 수학 중2 1학기 2-1" "정답과 해설"' in q for q in queries))
         self.assertTrue(any("site:tistory.com" in q and "site:blog.naver.com" in q for q in queries))
 
