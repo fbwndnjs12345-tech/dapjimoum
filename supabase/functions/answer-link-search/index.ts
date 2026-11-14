@@ -51,28 +51,37 @@ function isSafeSearchUrl(value: string): boolean {
 }
 
 function queriesFor(book: BookRow): string[] {
-  const details = [book.publisher, book.subject, book.grade, book.semester, book.series]
-    .map(value => value?.trim()).filter(Boolean).join(' ');
-  const title = book.title.trim();
+  const title = book.title.trim().replace(/\s*\((?:NE능률|능률|천재교육|비상교육|미래엔|동아출판|금성출판사|YBM|지학사)\)\s*/gi, ' ').replace(/\s+/g, ' ').trim();
   const queries = [
-    `"${title}" 답지 ${details}`,
-    `"${title}" 정답과 해설 ${details}`,
-    `"${title}" site:tistory.com 답지`,
-    `"${title}" site:blog.naver.com 답지`,
-    `"${title}" site:cafe.naver.com 답지`,
+    `"${title}" 답지`,
+    `"${title}" 정답과 해설`,
+    `"${title}" 해설 PDF`,
+    `"${title}" site:tistory.com`,
+    `"${title}" (site:blog.naver.com OR site:cafe.naver.com) 답지`,
   ];
-  return [...new Set(queries.map(value => value.replace(/\s+/g, ' ').trim()))].slice(0, 5);
+  return [...new Set(queries.map(value => value.replace(/\s+/g, ' ').trim()))];
 }
 
-function matchAssessment(book: BookRow, title: string, snippet: string) {
-  const source = `${title} ${snippet}`.toLocaleLowerCase('ko-KR');
-  const titleTokens = book.title.toLocaleLowerCase('ko-KR').split(/\s+/).filter(token => token.length > 1);
-  const titleMatches = titleTokens.filter(token => source.includes(token)).length;
-  const titleRatio = titleTokens.length ? titleMatches / titleTokens.length : 0;
-  const publisherMatches = Boolean(book.publisher && source.includes(book.publisher.toLocaleLowerCase('ko-KR')));
-  const gradeMatches = Boolean(book.grade && source.includes(book.grade.toLocaleLowerCase('ko-KR')));
-  const likely = titleRatio >= 0.8 && (publisherMatches || gradeMatches);
-  return { match_status: likely ? 'likely' : titleRatio < 0.25 ? 'mismatch' : 'uncertain' };
+function matchAssessment(book: BookRow, title: string, snippet: string, url: string) {
+  const source = `${title} ${snippet}`.toLocaleLowerCase('ko-KR').replace(/[()［］【】,.:·_-]/g, ' ');
+  const normalizedBook = book.title.toLocaleLowerCase('ko-KR').replace(/[()［］【】,.:·_-]/g, ' ');
+  const tokens = normalizedBook.match(/[가-힣a-z0-9]+/g) ?? [];
+  const ignored = new Set(['중학', '초등', '고등', '공통', '개정', '교육']);
+  const coreTokens = [...new Set(tokens.filter(token => token.length > 1 && !ignored.has(token) && token !== (book.publisher ?? '').toLocaleLowerCase('ko-KR')))];
+  const requiredNumeric = coreTokens.filter(token => /\d/.test(token));
+  const matched = coreTokens.filter(token => source.includes(token));
+  const titleRatio = coreTokens.length ? matched.length / coreTokens.length : 0;
+  const numericMatch = requiredNumeric.every(token => source.includes(token));
+  const answerSignal = /답지|정답|해설|답안|정답지|정답 및 해설|정답과 해설|\bpdf\b/i.test(source) || /\.pdf(?:$|[?#])/i.test(url);
+  const host = new URL(url).hostname.toLowerCase();
+  const likelySource = /(^|\.)(tistory\.com|blog\.naver\.com|cafe\.naver\.com|m.blog\.naver\.com)$/.test(host) || /\.pdf(?:$|[?#])/i.test(url);
+  const relevant = titleRatio >= 0.6 && numericMatch && (answerSignal || (titleRatio >= 0.85 && likelySource));
+  const likely = relevant && titleRatio >= 0.85 && answerSignal;
+  return {
+    relevant,
+    score: Math.round(titleRatio * 70) + (answerSignal ? 25 : 0) + (likelySource ? 5 : 0),
+    match_status: likely ? 'likely' : relevant ? 'uncertain' : 'mismatch',
+  };
 }
 
 type HtmlSearchResult = { title: string; url: string; description: string; meta_url: { hostname: string }; provider?: string };
@@ -91,6 +100,16 @@ function stripHtml(value: string): string {
     .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')).trim();
 }
 
+function decodeBase64Url(value: string): string | null {
+  try {
+    const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch { return null; }
+}
+
 function extractHref(raw: string, base: string): string | null {
   try {
     const decoded = decodeHtml(raw.replace(/^['"]|['"]$/g, ''));
@@ -98,6 +117,16 @@ function extractHref(raw: string, base: string): string | null {
     if (parsed.hostname.endsWith('google.com') && parsed.pathname === '/url') {
       const target = parsed.searchParams.get('q') ?? parsed.searchParams.get('url');
       if (target) return new URL(target).toString();
+    }
+    if (parsed.hostname.endsWith('bing.com') && parsed.pathname === '/ck/a') {
+      const encoded = parsed.searchParams.get('u');
+      if (encoded?.startsWith('a1')) {
+        const target = decodeBase64Url(encoded.slice(2));
+        if (target && /^https?:\/\//i.test(target)) return new URL(target).toString();
+      }
+      const target = parsed.searchParams.get('url');
+      if (target) return new URL(target).toString();
+      return null;
     }
     if (parsed.hostname.includes('duckduckgo.com') && parsed.pathname.includes('/l/')) {
       const target = parsed.searchParams.get('uddg');
@@ -457,6 +486,8 @@ Deno.serve(async (request) => {
           const title = (result.title ?? '').trim().slice(0, 500);
           const snippet = (result.description ?? '').trim().slice(0, 2000);
           const url = new URL(candidateUrl);
+          const assessment = matchAssessment(book, title, snippet, candidateUrl);
+          if (!assessment.relevant) continue;
           unique.set(identity, {
             title: title || url.hostname,
             url: candidateUrl,
@@ -464,7 +495,7 @@ Deno.serve(async (request) => {
             host: result.meta_url?.hostname ?? url.hostname,
             query: resultQueries[resultIndex] ?? '',
             provider: result.provider,
-            match_status: matchAssessment(book, title, snippet).match_status,
+            match_status: assessment.match_status,
             link_type: url.pathname.toLowerCase().endsWith('.pdf') ? 'PDF' : '웹페이지',
           });
         }
