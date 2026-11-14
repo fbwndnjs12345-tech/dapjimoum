@@ -101,7 +101,7 @@ export function SearchPage() {
           (gradeFilter === '전체' || book.grade?.trim() === gradeFilter) &&
           (semesterFilter === '전체' || book.semester?.trim() === semesterFilter);
       });
-      const countsByBook = new Map(linkCounts.map(item => [item.book_id, item]));
+      const countsByBook = new Map(linkCounts.map(item => [item.book_id, item] as const));
       if (query && sortBy !== 'latest') return filtered.sort((a, b) =>
         scoreBookSearch(b, query) - scoreBookSearch(a, query) ||
         (countsByBook.get(b.id)?.click_count ?? 0) - (countsByBook.get(a.id)?.click_count ?? 0)
