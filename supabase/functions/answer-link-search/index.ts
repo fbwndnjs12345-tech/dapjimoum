@@ -113,9 +113,11 @@ function matchAssessment(book: BookRow, title: string, snippet: string, url: str
   const numericMatch = numericTokens.every(token => sourceText.includes(token));
   const publisherMatch = Boolean(publisher && sourceText.includes(publisher));
   const hasDistinctiveMatch = matchedTokens.length > 0;
+  // Exact-title community pages may be reviewed even when snippets omit answer/PDF terms.
+  const exactTitleCommunityMatch = likelyCommunity && titleRatio >= 0.75;
   const relevant = !isBlockedHost && hasDistinctiveMatch && numericMatch &&
     titleRatio >= (tokens.length <= 2 ? 0.5 : 0.4) &&
-    answerSignal;
+    (answerSignal || exactTitleCommunityMatch);
   const score = Math.max(0, Math.min(100, Math.round(
     titleRatio * 55 + (numericMatch ? 15 : 0) + (answerSignal ? 15 : 0) +
     (publisherMatch ? 10 : 0) + (isPdf ? 5 : 0)
@@ -221,8 +223,18 @@ function parseSearchHtml(engine: string, html: string, base: string): HtmlSearch
     }
   } else if (engine === 'bing') {
     for (const match of html.matchAll(/<li\b[^>]*class=["'][^"']*b_algo[^"']*["'][^>]*>[\s\S]*?<\/li>/gi)) blocks.push(match[0]);
-  } else {
-    for (const match of html.matchAll(/<div\b[^>]*class=["'][^"']*result[^"']*["'][^>]*>[\s\S]*?<\/div>/gi)) blocks.push(match[0]);
+  } else if (engine === 'duckduckgo') {
+    // DDG cards contain nested divs; parse result anchors globally.
+    const anchorPattern = /<a\b(?=[^>]*class=["'][^"']*result__a[^"']*["'])[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+    for (const match of html.matchAll(anchorPattern)) {
+      const url = extractHref(match[1], base);
+      if (!url || !isSafeSearchUrl(url)) continue;
+      const title = stripHtml(match[2]);
+      if (!title || seen.has(canonicalUrl(url))) continue;
+      seen.add(canonicalUrl(url));
+      results.push({ title, url, description: '', meta_url: { hostname: new URL(url).hostname }, provider: 'duckduckgo_html' });
+    }
+    return results.slice(0, 10);
   }
   for (const block of blocks) {
     const anchor = engine === 'duckduckgo'
@@ -392,18 +404,28 @@ async function searchWithProviders(query: string, signal: AbortSignal, mode: 'na
   return { results: [...unique.values()], warnings: errors };
 }
 
+let googleBlockedUntil = 0;
+
 async function searchWithoutApi(query: string, signal: AbortSignal, reserveSlot: () => Promise<void>): Promise<SearchResultBatch> {
-  const engines = ['google', 'bing', 'duckduckgo'] as const;
-  const settled = await Promise.allSettled(engines.map(engine => searchPublicHtml(engine, query, signal, reserveSlot)));
-  const results: HtmlSearchResult[] = [];
-  const errors: string[] = [];
-  for (let i = 0; i < settled.length; i++) {
-    const item = settled[i];
-    if (item.status === 'fulfilled') results.push(...item.value);
-    else errors.push(`${engines[i]}: ${item.reason instanceof Error ? item.reason.message : '검색 실패'}`);
-  }
+  // Sequential fallback avoids burst requests that trigger provider throttling.
+  const engines = ['bing', 'duckduckgo', 'google'] as const;
   const unique = new Map<string, HtmlSearchResult>();
-  for (const item of results) if (!unique.has(canonicalUrl(item.url))) unique.set(canonicalUrl(item.url), item);
+  const errors: string[] = [];
+  for (const engine of engines) {
+    if (engine === 'google' && Date.now() < googleBlockedUntil) continue;
+    if (unique.size >= 8) break;
+    try {
+      const rows = await searchPublicHtml(engine, query, signal, reserveSlot);
+      for (const row of rows) {
+        const key = canonicalUrl(row.url);
+        if (!unique.has(key)) unique.set(key, row);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '검색 실패';
+      errors.push(`${engine}: ${message}`);
+      if (engine === 'google' && /429|자동 요청 확인/i.test(message)) googleBlockedUntil = Date.now() + 10 * 60 * 1000;
+    }
+  }
   if (!unique.size && errors.length) throw new Error(errors.join(' / ').slice(0, 1000));
   return attachSearchWarnings([...unique.values()], errors);
 }
@@ -440,14 +462,17 @@ Deno.serve(async (request) => {
   const action = payload.action;
   if (!isServiceInvocation) {
     const requiredPermission = action === 'pause' || action === 'resume' ? 'search.control' : 'search.run';
-    const { data: roleData, error: roleError } = await admin
-      .from('admin_user_roles')
-      .select('admin_role_permissions(permission_key)')
-      .eq('user_id', actorUserId)
-      .maybeSingle();
-    if (roleError) return json({ error: '관리자 권한 정보를 확인하지 못했습니다: ' + roleError.message }, 500);
-    const permissionRows = (roleData?.admin_role_permissions ?? []) as Array<{ permission_key: string }>;
-    if (!permissionRows.some(row => row.permission_key === requiredPermission)) {
+    // Evaluate the permission RPC with the authenticated user's JWT.
+    // The service-role admin client has no auth.uid() and is not granted EXECUTE.
+    const permissionClient = createClient(supabaseUrl, anonKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${bearer}` } },
+    });
+    const { data: hasPermission, error: permissionError } = await permissionClient.rpc('has_admin_permission', {
+      p_permission: requiredPermission,
+    });
+    if (permissionError) return json({ error: '관리자 권한 확인 실패: ' + permissionError.message }, 500);
+    if (hasPermission !== true) {
       return json({ error: '이 작업을 실행할 권한이 없습니다. 관리자에게 검색 운영 권한을 요청하세요.' }, 403);
     }
   }
