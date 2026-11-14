@@ -451,10 +451,12 @@ Deno.serve(async (request) => {
     if (providerMode === 'kakao' && !kakaoRestApiKey) return json({ error: '카카오 API가 선택되었지만 REST API 키가 설정되지 않았습니다. Supabase Edge Function Secrets를 확인하세요.' }, 400);
     let selectedIds = Array.isArray(payload.selectedBookIds) ? [...new Set(payload.selectedBookIds.filter(id => typeof id === 'string'))] : [];
     let queueReason: 'new_book' | 'user_request' | 'link_health' | 'manual' = 'manual';
+    let queuePriority = 50;
     if (action === 'scheduled_queue_start') {
       const { data: queued, error: queueError } = await admin.from('answer_link_search_queue').select('book_id,reason,priority').eq('status','queued').lte('available_at',new Date().toISOString()).order('priority',{ascending:false}).order('created_at',{ascending:true}).limit(200);
       if (queueError) return json({ error: '검색 대기열 조회 실패: ' + queueError.message }, 500);
       selectedIds = [...new Set((queued ?? []).map(row => row.book_id))];
+      queuePriority = Math.max(50, ...(queued ?? []).map(row => Number(row.priority ?? 50)));
       if (!selectedIds.length) return json({ queued: false, message: '처리할 자동 검색 대기 항목이 없습니다.' });
       queueReason = queued?.some(row => row.reason === 'user_request') ? 'user_request' : queued?.some(row => row.reason === 'link_health') ? 'link_health' : 'new_book';
     }
@@ -497,6 +499,7 @@ Deno.serve(async (request) => {
       provider_mode: providerMode,
       book_ids: targets.map(book => book.id),
       trigger_source: triggerSource,
+      priority: queuePriority,
     }).select('id,status,book_ids,started_at,provider_mode').single();
     if (error?.code === '23505') {
       const { data: activeRun } = await admin.from('answer_link_search_runs').select('id,status,book_ids,processed_books,candidate_count,api_requests,provider_mode,started_at').eq('status','running').maybeSingle();
