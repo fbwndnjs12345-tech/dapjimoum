@@ -25,8 +25,8 @@ export function SearchFilters({ books, dataStatus, searchQuery, setSearchQuery, 
   const grades = optionsFor(book => book.grade);
   const semesters = optionsFor(book => book.semester);
   return (
-          <div className="bg-white p-5 rounded-3xl border border-[#E5E8EB] space-y-5 h-fit shadow-sm">
-            <div className="flex items-center justify-between border-b border-[#F2F4F6] pb-3">
+          <div className="mobile-filter-panel bg-white p-5 rounded-3xl border border-[#E5E8EB] space-y-5 h-fit shadow-sm">
+            <div className="mobile-filter-heading flex items-center justify-between border-b border-[#F2F4F6] pb-3">
               <span className="font-bold text-sm text-[#191F28] flex items-center gap-1.5">
                 <Filter className="w-4 h-4 text-[#3182F6]" /> 상세 필터
               </span>

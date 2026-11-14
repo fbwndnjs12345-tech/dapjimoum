@@ -10,8 +10,8 @@ type HeaderProps = {
 
 export function Header({ navigateTo, currentRoute, bookmarks, isAdminLoggedIn, onLogout }: HeaderProps) {
   return (
-    <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-[#F2F4F6] h-[64px] flex items-center transition-all">
-      <div className="w-full max-w-[1100px] mx-auto px-5 flex items-center justify-between">
+    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-[#F2F4F6] min-h-[64px] flex items-center transition-all">
+      <div className="w-full max-w-[1100px] mx-auto px-4 sm:px-5 py-2 sm:py-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-0">
         {/* Brand */}
         <div 
           onClick={() => navigateTo('/')}
@@ -25,10 +25,10 @@ export function Header({ navigateTo, currentRoute, bookmarks, isAdminLoggedIn, o
         </div>
 
         {/* Right Navigation */}
-        <nav className="flex items-center gap-2 sm:gap-4 text-sm font-medium text-[#4E5968]">
+        <nav aria-label="주요 메뉴" className="flex w-full sm:w-auto items-center justify-between sm:justify-end gap-1 sm:gap-3 text-sm font-medium text-[#4E5968] overflow-x-auto">
           <button 
             onClick={() => navigateTo('/search')}
-            className={`px-3 py-1.5 rounded-full transition-all ${
+            className={`min-h-10 px-3 py-2 rounded-xl whitespace-nowrap transition-all ${
               currentRoute === '/search' 
                 ? 'bg-[#F2F4F6] text-[#191F28] font-bold' 
                 : 'hover:bg-[#F9FAFB] hover:text-[#191F28]'
@@ -40,7 +40,7 @@ export function Header({ navigateTo, currentRoute, bookmarks, isAdminLoggedIn, o
           <button 
             onClick={() => navigateTo('/bookmarks')}
             title="저장한 교재"
-            className={`px-3 py-1.5 rounded-full transition-all flex items-center gap-1 ${
+            className={`min-h-10 px-3 py-2 rounded-xl whitespace-nowrap transition-all flex items-center gap-1 ${
               currentRoute === '/bookmarks' 
                 ? 'bg-[#F2F4F6] text-[#3182F6] font-bold' 
                 : 'hover:bg-[#F9FAFB] hover:text-[#191F28]'
@@ -55,19 +55,19 @@ export function Header({ navigateTo, currentRoute, bookmarks, isAdminLoggedIn, o
             )}
           </button>
 
-          <div className="flex items-center gap-2 pl-2 border-l border-[#F2F4F6]">
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2 pl-2 sm:pl-3 border-l border-[#F2F4F6]">
             {isAdminLoggedIn ? (
               <>
               <button 
                 onClick={() => navigateTo('/admin')}
-                className="text-xs font-bold px-3 py-1.5 rounded-full bg-[#E8F3FF] text-[#1B64DA] hover:bg-[#D4E8FF] transition-colors flex items-center gap-1"
+                className="min-h-10 text-xs font-bold px-3 py-2 rounded-xl bg-[#E8F3FF] text-[#1B64DA] hover:bg-[#D4E8FF] transition-colors flex items-center gap-1"
               >
                 <Settings className="w-3.5 h-3.5" />
                 <span>관리자</span>
               </button>
               <button 
                 onClick={() => { void onLogout(); }}
-                className="p-1.5 text-[#8B95A1] hover:text-[#191F28] transition-colors"
+                className="min-h-10 min-w-10 flex items-center justify-center p-2 text-[#8B95A1] hover:text-[#191F28] transition-colors"
                 title="로그아웃"
               >
                 <LogOut className="w-4 h-4" />
@@ -76,7 +76,7 @@ export function Header({ navigateTo, currentRoute, bookmarks, isAdminLoggedIn, o
             ) : (
               <button 
                 onClick={() => navigateTo('/login')}
-                className="text-xs font-semibold px-3 py-1.5 rounded-full bg-[#F2F4F6] text-[#4E5968] hover:bg-[#E5E8EB] hover:text-[#191F28] transition-colors"
+                className="min-h-10 whitespace-nowrap text-xs font-semibold px-3 py-2 rounded-xl bg-[#F2F4F6] text-[#4E5968] hover:bg-[#E5E8EB] hover:text-[#191F28] transition-colors"
               >
                 관리자 로그인
               </button>
