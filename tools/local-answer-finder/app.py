@@ -33,7 +33,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 DEFAULT_CONFIG = DATA_DIR / "sources.json"
 OUTPUT = DATA_DIR / "answer-link-candidates.csv"
 BOOKS_CSV = DATA_DIR / "books.csv"
-SELF_TEST_LOG = DATA_DIR / "self-test.log"
+SELF_TEST_LOG = ROOT / "self-test.log"  # CI reads this file beside the packaged test executable.
 
 
 def request_json(url: str, headers: dict[str, str], data: dict | None = None):
