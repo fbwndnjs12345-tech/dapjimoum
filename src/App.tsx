@@ -12,6 +12,7 @@ const AdminLinkSearchPage = lazy(() => import('./app/pages/adminLinkSearch').the
 const AdminSiteContentPage = lazy(() => import('./app/pages/adminSiteContent').then(module => ({ default: module.AdminSiteContentPage })));
 const AdminSearchHistoryPage = lazy(() => import('./app/pages/adminSearchHistory').then(module => ({ default: module.AdminSearchHistoryPage })));
 const AdminRolesPage = lazy(() => import('./app/pages/adminRoles').then(module => ({ default: module.AdminRolesPage })));
+const AdminActivityPage = lazy(() => import('./app/pages/adminActivity').then(module => ({ default: module.AdminActivityPage })));
 
 function loadSavedBookmarks(): string[] {
   try {
@@ -137,6 +138,18 @@ export default function App() {
     window.addEventListener('catalog-data-updated', reloadCatalog);
     return () => window.removeEventListener('catalog-data-updated', reloadCatalog);
   }, [refreshCatalog, isAdminLoggedIn]);
+
+  useEffect(() => {
+    if (isAuthLoading || !isAdminLoggedIn || !currentRoute.startsWith('/admin')) return;
+    let active = true;
+    void import('./lib/supabase/client').then(({ supabase }) => {
+      if (active) return supabase.rpc('record_admin_access_event', { p_event_type: 'admin_page_view', p_route: currentRoute });
+      return undefined;
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [isAuthLoading, isAdminLoggedIn, currentRoute]);
+
+
 
   useEffect(() => {
     try {
@@ -495,7 +508,7 @@ export default function App() {
         ? 'edit'
         : null;
 
-  const isKnownRoute = ['/', '/search', '/bookmarks', '/login', '/admin', '/admin/books', '/admin/books/new', '/admin/links', '/admin/import', '/admin/link-search', '/admin/search-history', '/admin/roles', '/admin/inbox', '/admin/site-content', '/about', '/privacy', '/terms', '/copyright', '/contact'].includes(currentRoute)
+  const isKnownRoute = ['/', '/search', '/bookmarks', '/login', '/admin', '/admin/books', '/admin/books/new', '/admin/links', '/admin/import', '/admin/link-search', '/admin/search-history', '/admin/roles', '/admin/activity', '/admin/inbox', '/admin/site-content', '/about', '/privacy', '/terms', '/copyright', '/contact'].includes(currentRoute)
     || currentRoute.startsWith('/books/')
     || currentRoute.startsWith('/go/')
     || (currentRoute.startsWith('/admin/books/') && currentRoute !== '/admin/books/new');
@@ -524,6 +537,7 @@ export default function App() {
           {!isAuthLoading && isAdminLoggedIn && currentRoute === '/admin/link-search' && <Suspense fallback={<div role="status" className="py-16 text-center text-xs text-[#8B95A1]">자동 검색 화면을 불러오고 있습니다.</div>}><AdminLinkSearchPage /></Suspense>}
           {!isAuthLoading && isAdminLoggedIn && currentRoute === '/admin/search-history' && <Suspense fallback={<div role="status" className="py-16 text-center text-xs text-[#8B95A1]">검색 기록을 불러오고 있습니다.</div>}><AdminSearchHistoryPage /></Suspense>}
           {!isAuthLoading && isAdminLoggedIn && currentRoute === '/admin/roles' && <Suspense fallback={<div role="status" className="py-16 text-center text-xs text-[#8B95A1]">관리자 권한을 불러오고 있습니다.</div>}><AdminRolesPage /></Suspense>}
+          {!isAuthLoading && isAdminLoggedIn && currentRoute === '/admin/activity' && <Suspense fallback={<div role="status" className="py-16 text-center text-xs text-[#8B95A1]">관리자 활동 기록을 불러오고 있습니다.</div>}><AdminActivityPage /></Suspense>}
           {!isAuthLoading && isAdminLoggedIn && currentRoute === '/admin/site-content' && <Suspense fallback={<div role="status" className="py-16 text-center text-sm text-[#667085]">사이트 문서를 불러오고 있습니다.</div>}><AdminSiteContentPage /></Suspense>}
           {!isKnownRoute && <section className="max-w-xl mx-auto px-5 py-20 text-center space-y-3"><h1 className="text-xl font-bold text-[#191F28]">페이지를 찾을 수 없습니다</h1><p className="text-sm text-[#8B95A1]">주소가 변경되었거나 페이지가 존재하지 않습니다.</p><a href="/" onClick={event => { event.preventDefault(); navigateTo('/'); }} className="inline-flex mt-3 px-5 py-2.5 bg-[#191F28] text-white text-xs font-bold rounded-2xl">홈으로</a></section>}
         </main>
