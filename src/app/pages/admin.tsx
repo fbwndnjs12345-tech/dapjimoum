@@ -137,12 +137,14 @@ export function renderAdminLayout(content: React.ReactNode) {
             <p className="text-[11px] font-bold tracking-wide text-[#8B95A1]">답지모음 관리자</p>
             <h1 className="mt-1 text-lg sm:text-xl font-extrabold text-[#191F28]">콘텐츠 관리</h1>
           </div>
-          <nav aria-label="관리 메뉴" className="grid grid-cols-2 sm:grid-cols-4 gap-2 border-t border-[#F2F4F6] pt-4">
+          <nav aria-label="관리 메뉴" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 border-t border-[#F2F4F6] pt-4">
             {[
               { path: '/admin', label: '관리 요약', count: null, icon: LayoutDashboard, active: currentRoute === '/admin' },
               { path: '/admin/books', label: '교재 관리', count: books.length, icon: BookOpen, active: currentRoute.startsWith('/admin/books') },
               { path: '/admin/import', label: 'CSV 일괄 등록', count: null, icon: FileSpreadsheet, active: currentRoute === '/admin/import' },
-              { path: '/admin/link-search', label: '답지 링크 자동 검색', count: null, icon: ScanSearch, active: currentRoute === '/admin/link-search' }
+              { path: '/admin/link-search', label: '답지 링크 자동 검색', count: null, icon: ScanSearch, active: currentRoute === '/admin/link-search' },
+              { path: '/admin/inbox', label: '사용자 접수함', count: null, icon: Inbox, active: currentRoute === '/admin/inbox' },
+              { path: '/admin/site-content', label: '사이트 문서 관리', count: null, icon: Globe, active: currentRoute === '/admin/site-content' }
             ].map(item => {
               const Icon = item.icon;
               return <button key={item.path} onClick={() => navigateTo(item.path)} aria-current={item.active ? 'page' : undefined} className={`flex min-h-11 items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-left text-sm sm:text-base font-bold transition-colors ${item.active ? 'border-[#D0D5DD] bg-[#F2F4F6] text-[#191F28]' : 'border-[#E5E8EB] bg-white text-[#4E5968] hover:bg-[#F9FAFB]'}`}>
@@ -172,7 +174,7 @@ type UserSubmission = {
 };
 
 export function AdminDashboard() {
-    const {books, links, navigateTo, catalogStatus, catalogError, refreshCatalog} = useAppContext();
+    const {books, links, navigateTo, catalogStatus, catalogError, refreshCatalog, currentRoute} = useAppContext();
     const [submissions, setSubmissions] = useState<UserSubmission[]>([]);
     const [submissionLoading, setSubmissionLoading] = useState(true);
     const [submissionError, setSubmissionError] = useState('');
@@ -215,10 +217,11 @@ export function AdminDashboard() {
     return renderAdminLayout(
       <div className="space-y-6">
         <div>
-          <h2 className="text-xl font-extrabold text-[#191F28]">관리 요약</h2>
-          <p className="mt-1 text-sm text-[#667085]">교재와 답지 링크 현황을 확인합니다.</p>
+          <h2 className="text-xl font-extrabold text-[#191F28]">{currentRoute === '/admin/inbox' ? '사용자 접수함' : '운영 대시보드'}</h2>
+          <p className="mt-1 text-sm text-[#667085]">{currentRoute === '/admin/inbox' ? '교재 등록 요청과 링크 오류 신고를 처리합니다.' : '교재·링크·검색·사용자 요청 업무로 이동하고 서비스 운영 상태를 확인합니다.'}</p>
           {catalogStatus === 'error' && <div role="alert" className="mt-3 flex flex-col gap-2 rounded-xl border border-[#FDD8D5] bg-[#FFEEEC] p-3 text-sm text-[#B42318] sm:flex-row sm:items-center sm:justify-between"><span>통계를 불러오지 못했습니다. {catalogError}</span><button type="button" onClick={() => void refreshCatalog()} className="font-bold underline">다시 시도</button></div>}
         </div>
+        {currentRoute === '/admin' && <>
         {/* Metric Cards Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="bg-white p-5 rounded-3xl border border-[#E5E8EB] space-y-1 shadow-sm">
@@ -257,7 +260,9 @@ export function AdminDashboard() {
           </button>
         </div>
 
-        <section className="overflow-hidden rounded-2xl border border-[#E5E8EB] bg-white">
+        </>}
+
+        <section id="admin-submissions" className="overflow-hidden rounded-2xl border border-[#E5E8EB] bg-white">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E5E8EB] p-4 sm:p-5">
             <div>
               <h3 className="flex items-center gap-2 text-base font-bold text-[#191F28]"><Inbox className="h-4 w-4" /> 사용자 요청 및 오류 신고</h3>
