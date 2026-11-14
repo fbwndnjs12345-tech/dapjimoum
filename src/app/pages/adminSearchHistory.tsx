@@ -252,7 +252,7 @@ export function AdminSearchHistoryPage() {
 
   const review = async (candidate: Candidate, action: 'approve' | 'reject') => {
     if (busyId) return;
-    if (action === 'approve' && candidate.match_status !== 'likely' && !window.confirm('교재 일치 여부가 불확실한 후보입니다. 실제 링크를 확인한 뒤 승인하시겠습니까?')) return;
+    if (action === 'approve' && !window.confirm('이 후보를 승인하고 공개 답지 링크로 등록할까요? 교재·판본·파일 내용을 확인한 뒤 진행하세요.')) return;
     setBusyId(candidate.id);
     setError('');
     setNotice('');
