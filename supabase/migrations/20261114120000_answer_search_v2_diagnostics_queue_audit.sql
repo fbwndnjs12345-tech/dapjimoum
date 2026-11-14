@@ -25,6 +25,10 @@ begin
   end if;
 end $$;
 
+-- Preserve candidate review rows when 30-day run history is pruned.
+alter table public.answer_link_candidates drop constraint if exists answer_link_candidates_run_id_fkey;
+alter table public.answer_link_candidates add constraint answer_link_candidates_run_id_fkey foreign key (run_id) references public.answer_link_search_runs(id) on delete set null;
+
 create table if not exists public.answer_link_search_attempts (
   id uuid primary key default gen_random_uuid(),
   run_id uuid not null references public.answer_link_search_runs(id) on delete cascade,
@@ -238,10 +242,10 @@ security definer
 set search_path = ''
 as $$
 begin
-  insert into public.answer_link_search_queue(book_id, reason, priority)
+  insert into public.answer_link_search_queue as queue(book_id, reason, priority)
   values (new.id, 'new_book', 100)
   on conflict (book_id) where status in ('queued', 'running')
-  do update set priority = greatest(public.answer_link_search_queue.priority, excluded.priority),
+  do update set priority = greatest(queue.priority, excluded.priority),
                 updated_at = now();
   return new;
 end;
@@ -268,11 +272,11 @@ begin
   end if;
 
   if target_book_id is not null then
-    insert into public.answer_link_search_queue(book_id, reason, priority, requested_count, requested_by)
+    insert into public.answer_link_search_queue as queue(book_id, reason, priority, requested_count, requested_by)
     values (target_book_id, 'user_request', 150, 1, new.submitted_by)
     on conflict (book_id) where status in ('queued', 'running')
-    do update set requested_count = public.answer_link_search_queue.requested_count + 1,
-                  priority = greatest(public.answer_link_search_queue.priority, 150),
+    do update set requested_count = queue.requested_count + 1,
+                  priority = greatest(queue.priority, 150),
                   updated_at = now();
   end if;
   return new;
