@@ -117,7 +117,7 @@ function extractHref(raw: string, base: string): string | null {
       const target = parsed.searchParams.get('q') ?? parsed.searchParams.get('url');
       if (target) return new URL(target).toString();
     }
-    if (parsed.hostname.endsWith('bing.com') && parsed.pathname === '/ck/a') {
+    if ((parsed.hostname === 'bing.com' || parsed.hostname.endsWith('.bing.com')) && parsed.pathname === '/ck/a') {
       const encoded = parsed.searchParams.get('u');
       if (encoded?.startsWith('a1')) {
         const target = decodeBase64Url(encoded.slice(2));
