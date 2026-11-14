@@ -45,6 +45,8 @@ export function AdminLinkSearchPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [busyCandidateId, setBusyCandidateId] = useState<string | null>(null);
+  const [busyRunActionId, setBusyRunActionId] = useState<string | null>(null);
   const pumpGuard = useRef(false);
   const PAGE_SIZE = 25;
 
@@ -81,6 +83,27 @@ export function AdminLinkSearchPage() {
   }, []);
 
   useEffect(() => { void loadData(); }, [loadData]);
+  useEffect(() => {
+    let alive = true;
+    const syncRuns = async () => {
+      const { data, error: syncError } = await supabase.from('answer_link_search_runs').select('*').order('started_at', { ascending: false }).limit(20);
+      if (!alive || syncError || !data) return;
+      setRuns(data as Run[]);
+      const active = (data as Run[]).find(run => run.status === 'running');
+      if (active && !pumpGuard.current) void runBatches(active.id);
+    };
+    void syncRuns();
+    const timer = window.setInterval(() => { void syncRuns(); }, 2500);
+    const channel = supabase.channel('admin-shared-answer-search')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'answer_link_search_runs' }, () => { void syncRuns(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'answer_link_candidates' }, () => { void loadData(); })
+      .subscribe();
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      void supabase.removeChannel(channel);
+    };
+  }, [loadData, runBatches]);
 
   // 진행 중인 검색은 후보 목록 전체를 재조회하지 않고 작업 행만 2초마다 갱신한다.
   useEffect(() => {
