@@ -9,7 +9,7 @@ Windows용 데스크톱 프로그램입니다. 교재명으로 Google 및 Bing�
 3. ZIP을 압축 해제합니다.
 4. 폴더 안의 DapjiMoumFinder.exe를 실행합니다.
 
-이 패키지는 Python, 라이브러리, Playwright Chromium을 함께 포함하므로 별도 Python 설치나 BAT 실행이 필요하지 않습니다.
+이 패키지는 Python, 라이브러리, Playwright Chromium을 함께 포함하므로 별도 Python 설치나 BAT 실행이 필요하지 않습니다. 설정·교재 CSV·검색 결과는 설치 폴더가 아닌 `%LOCALAPPDATA%\\DapjiMoum\\LocalAnswerFinder`에 저장하므로 `Program Files`처럼 쓰기 권한이 제한된 위치에서도 실행할 수 있습니다.
 
 **스마트 앱 컨트롤 관련 주의:** 서명되지 않은 실행 파일은 스마트 앱 컨트롤이 차단할 수 있습니다. EXE 패키징만으로 차단 해제가 보장되지는 않습니다. 현재 빌드에는 코드 서명 인증서가 없습니다. 스마트 앱 컨트롤을 끄거나 우회하지 마세요.
 
@@ -19,7 +19,7 @@ Windows용 데스크톱 프로그램입니다. 교재명으로 Google 및 Bing�
 2. Supabase에서 가져오거나 id,title,publisher,subject,grade,semester,series 열이 있는 CSV를 선택합니다.
 3. 출처 설정 JSON에서 `web_search.enabled`를 true로 두면 Google 및 Bing 공개 검색을 사용합니다. 기본값은 두 검색엔진 모두 활성화입니다.
 4. 공식 자료실도 탐색하려면 `sources` 배열에 출판사명과 자료실 주소를 추가합니다. 공개 웹 검색만 사용할 경우 `sources`를 빈 배열로 둘 수 있습니다.
-5. 탐색 시작을 누르면 `answer-link-candidates.csv`에 결과가 저장됩니다.
+5. 탐색 시작을 누르면 `%LOCALAPPDATA%\\DapjiMoum\\LocalAnswerFinder\\answer-link-candidates.csv`에 결과가 저장됩니다. 교재 목록은 같은 폴더의 `books.csv`, 출처 설정은 `sources.json`에 저장됩니다.
 6. Supabase 로그인 상태에서 검색 후보를 사이트에 등록하면 관리자 검수 대기 목록에 등록됩니다. 후보는 자동 승인되지 않습니다.
 
 후보 등록을 위해 저장소 루트에서 최초 1회 다음 Edge Function을 올바른 Supabase 프로젝트에 배포해야 합니다:
