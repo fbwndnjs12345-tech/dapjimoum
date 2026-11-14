@@ -236,7 +236,6 @@ export function AdminLinkSearchPage() {
           setCandidates(current => current.map(item => item.id === candidate.id ? { ...item, status: 'approved' } : item));
           setNotice('답지 링크 등록 완료. 공개 교재 데이터를 갱신했습니다.');
           await refreshCatalog();
-          window.dispatchEvent(new CustomEvent('catalog-data-updated'));
         }
       } else {
         const { error: rejectError } = await supabase.rpc('reject_answer_link_candidate', { p_candidate_id: candidate.id, p_review_note: reviewNote });
