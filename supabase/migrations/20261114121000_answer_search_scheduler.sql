@@ -136,3 +136,56 @@ select cron.schedule(
      where started_at < now() - interval '30 days'
        and status in ('completed', 'failed', 'paused'); $$
 );
+
+
+create or replace function private.invoke_answer_health_edge()
+returns bigint
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  project_url text;
+  service_role_key text;
+  request_id bigint;
+begin
+  select decrypted_secret into project_url
+  from vault.decrypted_secrets where name = 'dapjimoum_project_url' limit 1;
+  select decrypted_secret into service_role_key
+  from vault.decrypted_secrets where name = 'dapjimoum_service_role_key' limit 1;
+  if coalesce(project_url, '') = '' or coalesce(service_role_key, '') = '' then
+    update public.answer_link_search_settings
+    set scheduler_configured = false,
+        scheduler_last_error = 'Supabase Vault secrets are missing: dapjimoum_project_url / dapjimoum_service_role_key',
+        scheduler_last_tick_at = now()
+    where singleton = true;
+    return null;
+  end if;
+  select net.http_post(
+    url := rtrim(project_url, '/') || '/functions/v1/answer-link-health-check',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'apikey', service_role_key,
+      'Authorization', 'Bearer ' || service_role_key
+    ),
+    body := jsonb_build_object('limit', 50),
+    timeout_milliseconds := 10000
+  ) into request_id;
+  return request_id;
+end;
+$$;
+revoke all on function private.invoke_answer_health_edge() from public, anon, authenticated;
+
+do $$
+begin
+  if exists (select 1 from cron.job where jobname = 'dapjimoum-answer-link-health-check') then
+    perform cron.unschedule('dapjimoum-answer-link-health-check');
+  end if;
+end $$;
+
+-- Daily at 04:30 Korea time. Link failures are enqueued for replacement search.
+select cron.schedule(
+  'dapjimoum-answer-link-health-check',
+  '30 19 * * *',
+  $$ select private.invoke_answer_health_edge(); $$
+);
