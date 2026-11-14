@@ -135,7 +135,12 @@ function AdminSharedSearchStatus({ currentRoute, navigateTo }: { currentRoute: s
       try {
         while (alive) {
           const { data: batch, error: batchError } = await supabase.functions.invoke('answer-link-search', { body: { action: 'batch', runId } });
-          if (batchError) { await delay(1500); continue; }
+          if (batchError) {
+            await delay(1500);
+            const { data: state } = await supabase.from('answer_link_search_runs').select('status').eq('id', runId).maybeSingle();
+            if (!state || state.status !== 'running') break;
+            continue;
+          }
           const { data: latest, error: readError } = await supabase.from('answer_link_search_runs')
             .select('status,next_index,book_ids').eq('id', runId).maybeSingle();
           if (readError || !latest || latest.status !== 'running' || batch?.done) break;
