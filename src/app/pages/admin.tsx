@@ -131,13 +131,13 @@ export function renderAdminLayout(content: React.ReactNode) {
     }
 
     return (
-      <div className="max-w-[1100px] mx-auto px-5 py-8 space-y-6">
+      <div className="max-w-[1320px] mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-5">
         <header className="rounded-3xl border border-[#E5E8EB] bg-white p-4 sm:p-5 space-y-4">
           <div>
             <p className="text-[11px] font-bold tracking-wide text-[#8B95A1]">답지모음 관리자</p>
             <h1 className="mt-1 text-lg sm:text-xl font-extrabold text-[#191F28]">콘텐츠 관리</h1>
           </div>
-          <nav aria-label="관리 메뉴" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 border-t border-[#F2F4F6] pt-4">
+          <nav aria-label="관리 메뉴" className="grid grid-cols-2 sm:grid-cols-4 gap-2 border-t border-[#F2F4F6] pt-4">
             {[
               { path: '/admin', label: '관리 요약', count: null, icon: LayoutDashboard, active: currentRoute === '/admin' },
               { path: '/admin/books', label: '교재 관리', count: books.length, icon: BookOpen, active: currentRoute.startsWith('/admin/books') },
@@ -145,7 +145,7 @@ export function renderAdminLayout(content: React.ReactNode) {
               { path: '/admin/link-search', label: '답지 링크 자동 검색', count: null, icon: ScanSearch, active: currentRoute === '/admin/link-search' }
             ].map(item => {
               const Icon = item.icon;
-              return <button key={item.path} onClick={() => navigateTo(item.path)} aria-current={item.active ? 'page' : undefined} className={`flex min-h-11 items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-left text-sm font-bold transition-colors ${item.active ? 'border-[#D0D5DD] bg-[#F2F4F6] text-[#191F28]' : 'border-[#E5E8EB] bg-white text-[#4E5968] hover:bg-[#F9FAFB]'}`}>
+              return <button key={item.path} onClick={() => navigateTo(item.path)} aria-current={item.active ? 'page' : undefined} className={`flex min-h-11 items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-left text-sm sm:text-base font-bold transition-colors ${item.active ? 'border-[#D0D5DD] bg-[#F2F4F6] text-[#191F28]' : 'border-[#E5E8EB] bg-white text-[#4E5968] hover:bg-[#F9FAFB]'}`}>
                 <span className="flex items-center gap-2"><Icon className="h-4 w-4" />{item.label}</span>
                 {item.count !== null && <span className="text-xs font-semibold text-[#667085]">{catalogStatus === 'success' ? item.count : '—'}</span>}
               </button>;
