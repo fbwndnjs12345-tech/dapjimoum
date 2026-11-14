@@ -103,15 +103,21 @@ Deno.serve(async request => {
       try {
         await reserveSlot();
         let response = await fetch(link.url, { method: 'HEAD', redirect: 'manual', signal: controller.signal });
-        if (response.status === 405 || response.status === 501) {
+        let usedGet = false;
+        const headType = response.headers.get('content-type') ?? '';
+        const pdfExpectedFromUrl = /\.pdf(?:$|[?#])/i.test(link.url);
+        if (response.status === 405 || response.status === 501 || (response.ok && (pdfExpectedFromUrl || headType.toLowerCase().includes('application/pdf')))) {
           await response.body?.cancel().catch(() => undefined);
           await reserveSlot();
           response = await fetch(link.url, { method: 'GET', headers: { Range: 'bytes=0-1023' }, redirect: 'manual', signal: controller.signal });
+          usedGet = true;
         }
         httpStatus = response.status;
         contentType = response.headers.get('content-type');
         const lengthHeader = response.headers.get('content-length');
-        fileSize = lengthHeader && /^\d+$/.test(lengthHeader) ? Number(lengthHeader) : null;
+        const contentRange = response.headers.get('content-range');
+        const totalFromRange = contentRange?.match(/\/(\d+)$/)?.[1];
+        fileSize = totalFromRange ? Number(totalFromRange) : lengthHeader && /^\d+$/.test(lengthHeader) ? Number(lengthHeader) : null;
         if (response.status >= 300 && response.status < 400) {
           status = 'redirected';
           errorMessage = '외부 페이지가 리디렉션을 반환했습니다. 새 주소를 관리자에게 확인해야 합니다.';
@@ -130,7 +136,7 @@ Deno.serve(async request => {
         } else {
           const expectsPdf = /\.pdf(?:$|[?#])/i.test(link.url) || (contentType ?? '').toLowerCase().includes('application/pdf');
           if (expectsPdf) {
-            if (response.bodyUsed) {
+            if (!usedGet || response.bodyUsed) {
               status = 'temporary_error';
               errorMessage = 'PDF 응답 본문을 확인하지 못했습니다.';
             } else {
