@@ -63,13 +63,12 @@ export function AdminSiteContentPage() {
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (authError || !user) throw authError ?? new Error('관리자 로그인이 필요합니다.');
-      const { data, error: saveError } = await supabase.from('site_pages').upsert({
-        slug: selected,
+      const { data, error: saveError } = await supabase.from('site_pages').update({
         title: title.trim().slice(0, 160),
         body: body.trim().slice(0, 50000),
         updated_at: new Date().toISOString(),
         updated_by: user.id,
-      }, { onConflict: 'slug' }).select('slug,title,body,updated_at').single();
+      }).eq('slug', selected).select('slug,title,body,updated_at').single();
       if (saveError) throw saveError;
       setItems(current => [...current.filter(item => item.slug !== selected), data as SitePage]);
       setNotice('저장했습니다. 공개 페이지에 변경 내용이 반영됩니다.');
