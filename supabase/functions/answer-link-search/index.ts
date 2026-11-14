@@ -9,7 +9,7 @@ const corsHeaders = {
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: corsHeaders });
 const PAGE_SIZE = 1000;
-const BATCH_SIZE = 1;
+const BATCH_SIZE = 3;
 
 function readSupabaseKey(legacyName: string, keySetName: string): string | undefined {
   const legacyKey = Deno.env.get(legacyName);
@@ -379,13 +379,21 @@ Deno.serve(async (request) => {
   const serviceKey = readSupabaseKey('SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_SECRET_KEYS');
   if (!bearer || !supabaseUrl || !anonKey || !serviceKey) return json({ error: '인증 또는 서버 설정을 확인해 주세요.' }, 401);
 
-  const authClient = createClient(supabaseUrl, anonKey, { auth: { persistSession: false }, global: { headers: { Authorization: `Bearer ${bearer}` } } });
-  const { data: authData, error: authError } = await authClient.auth.getUser(bearer);
-  if (authError || !authData.user) return json({ error: '로그인이 필요합니다.' }, 401);
-
+  const isServiceInvocation = bearer === serviceKey;
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { data: adminRow, error: adminError } = await admin.from('admin_users').select('user_id').eq('user_id', authData.user.id).maybeSingle();
-  if (adminError || !adminRow) return json({ error: '관리자 권한이 필요합니다.' }, 403);
+  let actorUserId: string;
+  if (isServiceInvocation) {
+    const { data: adminRow, error: adminError } = await admin.from('admin_users').select('user_id').order('created_at', { ascending: true }).limit(1).maybeSingle();
+    if (adminError || !adminRow?.user_id) return json({ error: '예약 검색을 실행할 관리자 계정을 확인할 수 없습니다.' }, 403);
+    actorUserId = adminRow.user_id;
+  } else {
+    const authClient = createClient(supabaseUrl, anonKey, { auth: { persistSession: false }, global: { headers: { Authorization: `Bearer ${bearer}` } } });
+    const { data: authData, error: authError } = await authClient.auth.getUser(bearer);
+    if (authError || !authData.user) return json({ error: '로그인이 필요합니다.' }, 401);
+    const { data: adminRow, error: adminError } = await admin.from('admin_users').select('user_id').eq('user_id', authData.user.id).maybeSingle();
+    if (adminError || !adminRow) return json({ error: '관리자 권한이 필요합니다.' }, 403);
+    actorUserId = authData.user.id;
+  }
 
   let payload: { action?: string; runId?: string; selectedBookIds?: string[]; includeBooksWithLinks?: boolean; reason?: string; providerMode?: 'naver' | 'kakao' | 'web' | 'combined' };
   try { payload = await request.json(); } catch { return json({ error: '요청 본문이 올바르지 않습니다.' }, 400); }
@@ -397,13 +405,21 @@ Deno.serve(async (request) => {
   const providerMode = payload.providerMode ?? 'combined';
   if (!['naver', 'kakao', 'web', 'combined'].includes(providerMode)) return json({ error: '지원하지 않는 검색 경로입니다.' }, 400);
 
-  if (action === 'start') {
-    const { data: activeRuns, error: activeRunsError } = await admin.from('answer_link_search_runs').select('id,status,book_ids,processed_books,candidate_count,api_requests,provider_mode,started_at').eq('status','running').order('started_at',{ascending:false}).limit(1);
+  if (action === 'start' || action === 'scheduled_start' || action === 'scheduled_queue_start') {
+    const { data: activeRuns, error: activeRunsError } = await admin.from('answer_link_search_runs').select('id,status,book_ids,processed_books,candidate_count,api_requests,provider_mode,started_at').in('status',['running','paused']).order('started_at',{ascending:false}).limit(1);
     if (activeRunsError) return json({ error: '기존 검색 작업 확인 실패: ' + activeRunsError.message }, 500);
     if (activeRuns?.length) return json({ error: '이미 공용 검색 작업이 실행 중입니다. 모든 관리자에게 표시되는 기존 작업을 이어서 관리해 주세요.', activeRun: activeRuns[0] }, 409);
     if (providerMode === 'naver' && !naverCredentials) return json({ error: '네이버 API가 선택되었지만 Client ID 또는 Client Secret이 설정되지 않았습니다. Supabase Edge Function Secrets를 확인하세요.' }, 400);
     if (providerMode === 'kakao' && !kakaoRestApiKey) return json({ error: '카카오 API가 선택되었지만 REST API 키가 설정되지 않았습니다. Supabase Edge Function Secrets를 확인하세요.' }, 400);
-    const selectedIds = Array.isArray(payload.selectedBookIds) ? [...new Set(payload.selectedBookIds.filter(id => typeof id === 'string'))] : [];
+    let selectedIds = Array.isArray(payload.selectedBookIds) ? [...new Set(payload.selectedBookIds.filter(id => typeof id === 'string'))] : [];
+    let queueReason: 'new_book' | 'user_request' | 'link_health' | 'manual' = 'manual';
+    if (action === 'scheduled_queue_start') {
+      const { data: queued, error: queueError } = await admin.from('answer_link_search_queue').select('book_id,reason,priority').eq('status','queued').lte('available_at',new Date().toISOString()).order('priority',{ascending:false}).order('created_at',{ascending:true}).limit(200);
+      if (queueError) return json({ error: '검색 대기열 조회 실패: ' + queueError.message }, 500);
+      selectedIds = [...new Set((queued ?? []).map(row => row.book_id))];
+      if (!selectedIds.length) return json({ queued: false, message: '처리할 자동 검색 대기 항목이 없습니다.' });
+      queueReason = queued?.some(row => row.reason === 'user_request') ? 'user_request' : queued?.some(row => row.reason === 'link_health') ? 'link_health' : 'new_book';
+    }
     const books: BookRow[] = [];
     if (selectedIds.length) {
       for (let offset = 0; offset < selectedIds.length; offset += PAGE_SIZE) {
@@ -435,17 +451,23 @@ Deno.serve(async (request) => {
       targets = books.filter(book => !linkedIds.has(book.id));
     }
 
+    if (!targets.length) return json({ run: null, queued: false, message: '검색할 교재가 없습니다.' });
+    const triggerSource = action === 'scheduled_start' ? 'daily_schedule' : action === 'scheduled_queue_start' ? queueReason : 'manual';
     const { data: run, error } = await admin.from('answer_link_search_runs').insert({
-      created_by: authData.user.id,
+      created_by: actorUserId,
       status: 'running',
       provider_mode: providerMode,
       book_ids: targets.map(book => book.id),
+      trigger_source: triggerSource,
     }).select('id,status,book_ids,started_at,provider_mode').single();
     if (error?.code === '23505') {
       const { data: activeRun } = await admin.from('answer_link_search_runs').select('id,status,book_ids,processed_books,candidate_count,api_requests,provider_mode,started_at').eq('status','running').maybeSingle();
       return json({ error: '다른 관리자가 먼저 검색 작업을 시작했습니다. 기존 공용 작업을 확인해 주세요.', activeRun }, 409);
     }
     if (error) return json({ error: '검색 작업을 만들지 못했습니다: ' + error.message }, 500);
+    const targetIds = targets.map(book => book.id);
+    const { error: queueUpdateError } = await admin.from('answer_link_search_queue').update({ status: 'running', run_id: run.id, updated_at: new Date().toISOString() }).in('book_id', targetIds).in('status', ['queued','running']);
+    if (queueUpdateError) return json({ error: '검색 작업은 생성했지만 자동 대기열 연결에 실패했습니다: ' + queueUpdateError.message, run }, 500);
     return json({ run });
   }
 
@@ -471,7 +493,7 @@ Deno.serve(async (request) => {
     if (!previous) return json({ error: '검색 작업을 찾을 수 없거나 접근 권한이 없습니다.' }, 404);
     const failedIds = previous.failed_book_ids ?? [];
     if (failedIds.length === 0) return json({ error: '재시도할 실패 교재가 없습니다.' }, 400);
-    const { data: run, error } = await admin.from('answer_link_search_runs').insert({ created_by: authData.user.id, status: 'running', provider_mode: previous.provider_mode ?? 'combined', book_ids: failedIds }).select('id,status,book_ids,started_at,provider_mode').single();
+    const { data: run, error } = await admin.from('answer_link_search_runs').insert({ created_by: actorUserId, status: 'running', provider_mode: previous.provider_mode ?? 'combined', book_ids: failedIds, trigger_source: 'retry' }).select('id,status,book_ids,started_at,provider_mode').single();
     if (error?.code === '23505') return json({ error: '이미 다른 검색 작업이 실행 중입니다. 기존 작업을 먼저 확인해 주세요.' }, 409);
     if (error) return json({ error: error.message }, 500);
     return json({ run });
