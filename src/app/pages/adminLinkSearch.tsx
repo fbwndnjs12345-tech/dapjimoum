@@ -132,7 +132,7 @@ export function AdminLinkSearchPage() {
     try {
       if (providerMode === 'local') {
         window.open('https://github.com/fbwndnjs12345-tech/dapjimoum/actions/runs/43584387790', '_blank', 'noopener,noreferrer');
-        setNotice('Windows 로컬 탐색기 다운로드 기록을 열었습니다. 실행 기록의 Artifacts에서 '답지모음-로컬-탐색기-Windows'를 내려받으세요. 수집 후보는 관리자 검수함에서 확인할 수 있습니다.');
+        setNotice("Windows 로컬 탐색기 다운로드 기록을 열었습니다. 실행 기록의 Artifacts에서 '답지모음-로컬-탐색기-Windows'를 내려받으세요. 수집 후보는 관리자 검수함에서 확인할 수 있습니다.");
         setBusy(false);
         return;
       }
