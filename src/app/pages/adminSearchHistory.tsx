@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Check, Download, ExternalLink, RefreshCw, Search, ShieldCheck, X } from 'lucide-react';
+import { AlertCircle, Check, Download, ExternalLink, FileSpreadsheet, RefreshCw, Search, ShieldCheck, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase/client';
 import { useAppContext } from '../../state/useAppContext';
 import { renderAdminLayout } from './admin';
@@ -9,6 +9,7 @@ type Run = {
   next_index: number; processed_books: number; candidate_count: number; api_requests: number;
   error_count: number; failed_book_ids: string[]; last_error: string | null;
   started_at: string; finished_at: string | null; provider_mode: string;
+  terminal_reason?: string | null; completed_with_warnings?: boolean;
 };
 type Candidate = {
   id: string; run_id: string | null; book_id: string; title: string; url: string;
@@ -18,6 +19,20 @@ type Candidate = {
   review_note: string | null; reviewed_by: string | null; reviewed_at: string | null;
   created_at: string;
   books: { title: string; publisher: string | null; subject: string | null; grade: string | null; semester: string | null } | null;
+};
+type Attempt = {
+  id: string; run_id: string; book_id: string; provider_mode: string; query: string;
+  status: 'succeeded' | 'partial' | 'no_results' | 'failed' | 'filtered_all';
+  providers_attempted: string[]; providers_with_results: string[];
+  result_count: number; candidate_count: number; filtered_count: number;
+  duration_ms: number; warnings: string[]; error_code: string | null; error_message: string | null;
+  started_at: string; finished_at: string;
+};
+
+const terminalReasonLabel: Record<string, string> = {
+  found_candidates: '후보 발견', no_search_results: '검색 결과 없음', all_filtered: '교재 불일치로 제외',
+  provider_failures: '검색 출처 장애', partial_provider_failure: '일부 출처 장애', book_failures: '교재 처리 실패',
+  cancelled: '취소됨', unknown_legacy: '과거 기록 · 원인 미확인',
 };
 
 const statusLabel: Record<Run['status'], string> = {
@@ -47,6 +62,10 @@ export function AdminSearchHistoryPage() {
   const { refreshCatalog, navigateTo } = useAppContext();
   const [runs, setRuns] = useState<Run[]>([]);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [attempts, setAttempts] = useState<Attempt[]>([]);
+  const [attemptError, setAttemptError] = useState('');
+  const [attemptLoading, setAttemptLoading] = useState(false);
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
   const [selectedRunId, setSelectedRunId] = useState('all');
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('pending');
@@ -58,15 +77,23 @@ export function AdminSearchHistoryPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
-    const [runResponse, candidateResponse] = await Promise.all([
-      supabase.from('answer_link_search_runs').select('*').gte('started_at', new Date(Date.now() - 30 * 86400000).toISOString()).order('started_at', { ascending: false }).limit(200),
-      supabase.from('answer_link_candidates').select('*, books(title,publisher,subject,grade,semester)').order('created_at', { ascending: false }).limit(1000),
+    const since = new Date(Date.now() - 30 * 86400000).toISOString();
+    const [runResponse, firstCandidatePage] = await Promise.all([
+      supabase.from('answer_link_search_runs').select('*').gte('started_at', since).order('started_at', { ascending: false }).limit(500),
+      supabase.from('answer_link_candidates').select('*, books(title,publisher,subject,grade,semester)').order('created_at', { ascending: false }).range(0, 999),
     ]);
-    if (runResponse.error || candidateResponse.error) {
-      setError(runResponse.error?.message ?? candidateResponse.error?.message ?? '검색 기록을 불러오지 못했습니다.');
+    if (runResponse.error || firstCandidatePage.error) {
+      setError(runResponse.error?.message ?? firstCandidatePage.error?.message ?? '검색 기록을 불러오지 못했습니다.');
     } else {
+      const allCandidates = [...(firstCandidatePage.data ?? [])] as Candidate[];
+      for (let offset = 1000; ; offset += 1000) {
+        const page = await supabase.from('answer_link_candidates').select('*, books(title,publisher,subject,grade,semester)').order('created_at', { ascending: false }).range(offset, offset + 999);
+        if (page.error) { setError(page.error.message); break; }
+        allCandidates.push(...(page.data ?? []) as Candidate[]);
+        if ((page.data ?? []).length < 1000) break;
+      }
       setRuns((runResponse.data ?? []) as Run[]);
-      setCandidates((candidateResponse.data ?? []) as Candidate[]);
+      setCandidates(allCandidates);
     }
     setLoading(false);
   }, []);
@@ -79,6 +106,27 @@ export function AdminSearchHistoryPage() {
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [load]);
+
+  useEffect(() => {
+    let active = true;
+    const loadAttempts = async () => {
+      setAttemptLoading(true);
+      setAttemptError('');
+      let request = supabase.from('answer_link_search_attempts').select('*').order('started_at', { ascending: false }).limit(100);
+      if (selectedRunId !== 'all') request = request.eq('run_id', selectedRunId);
+      const response = await request;
+      if (!active) return;
+      if (response.error) {
+        setAttempts([]);
+        setAttemptError('상세 진단 로그는 데이터베이스 진단 마이그레이션 적용 후 표시됩니다.');
+      } else {
+        setAttempts((response.data ?? []) as Attempt[]);
+      }
+      setAttemptLoading(false);
+    };
+    void loadAttempts();
+    return () => { active = false; };
+  }, [selectedRunId]);
 
   const visibleCandidates = useMemo(() => candidates.filter(candidate => {
     if (selectedRunId !== 'all' && candidate.run_id !== selectedRunId) return false;
