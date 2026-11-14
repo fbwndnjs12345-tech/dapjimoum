@@ -178,10 +178,11 @@ def build_queries(book: dict[str, str], max_queries: int = 3) -> list[str]:
     identity = [x for x in (series, subject, grade, semester, edition) if x]
     identity = list(dict.fromkeys(identity))
     full_identity = " ".join(identity) if identity else title
+    publisher_identity = " ".join(x for x in (publisher, *identity) if x) or full_identity
     blog_clause = "(site:tistory.com OR site:blog.naver.com)"
     variants = [
         f'"{title}" "답지"',
-        f'"{full_identity}" "정답과 해설"',
+        f'"{publisher_identity}" "정답과 해설"',
         f'"{full_identity}" {blog_clause} 답지',
     ]
     result = []
