@@ -340,11 +340,11 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     web_enabled=bool(web_cfg.get("enabled",True)); engines=web_cfg.get("engines",["google","bing"])
     if not sources and not web_enabled: raise ValueError("공식 자료실 또는 공개 웹 검색 중 하나 이상을 활성화하세요.")
     terms=config.get("answer_keywords") or ["정답과 해설","정답 해설","정답 및 해설","답지"]
-    delay=max(1.0,float(config.get("request_delay_seconds",2.0))); timeout=int(config.get("page_timeout_ms",20000))
+    delay=max(1.0,float(config.get("request_delay_seconds",1.0))); timeout=int(config.get("page_timeout_ms",20000))
     limit=max(1, min(100, max_pages_override or int(config.get("max_sitemap_urls_per_source",80))))
     search_limit=max(1,min(5,int(web_cfg.get("results_per_engine",5))))
     query_limit=max(1,min(3,int(web_cfg.get("max_queries_per_book",3))))
-    candidate_limit=max(1,min(10,int(web_cfg.get("max_candidates_per_book",5))))
+    candidate_limit=max(1,min(5,int(web_cfg.get("max_candidates_per_book",5))))
     candidates={}; robots_cache={}
     log(callback,f"교재 {len(books)}권 · 공식 출처 {len(sources)}곳 · 공개 검색엔진 {', '.join(engines) if web_enabled else '사용 안 함'}")
     log(callback,f"검색 전략: 교재당 검색어 최대 {query_limit}개 · 엔진별 결과 최대 {search_limit}개 · 최종 후보 최대 {candidate_limit}개")
