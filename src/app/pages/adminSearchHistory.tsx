@@ -218,6 +218,32 @@ export function AdminSearchHistoryPage() {
     downloadText('dapjimoum-search-candidates.csv', '\uFEFF' + [keys.map(csvCell).join(','), ...rows.map(row => keys.map(key => csvCell((row as Record<string, unknown>)[key])).join(','))].join('\r\n'), 'text/csv;charset=utf-8');
   };
 
+  const bulkReview = async (action: 'approve' | 'reject') => {
+    const targets = visibleCandidates.filter(candidate => selectedCandidateIds.includes(candidate.id) && candidate.status === 'pending');
+    if (!targets.length || busyId) return;
+    if (!window.confirm('선택한 ' + targets.length + '개 후보를 ' + (action === 'approve' ? '승인하고 사이트에 등록' : '거절') + '할까요?')) return;
+    setBusyId('bulk');
+    setError('');
+    setNotice('');
+    let success = 0;
+    let duplicates = 0;
+    const failures: string[] = [];
+    for (const candidate of targets) {
+      const result = action === 'approve'
+        ? await supabase.rpc('approve_answer_link_candidate', { p_candidate_id: candidate.id })
+        : await supabase.rpc('reject_answer_link_candidate', { p_candidate_id: candidate.id, p_review_note: '관리자 일괄 검수에서 거절' });
+      if (result.error) failures.push(candidate.title + ': ' + result.error.message);
+      else if (action === 'approve' && result.data === 'duplicate') duplicates += 1;
+      else success += 1;
+    }
+    setSelectedCandidateIds([]);
+    if (action === 'approve' && success > 0) await refreshCatalog();
+    setNotice('처리 완료: ' + success + '개 성공, ' + duplicates + '개 중복' + (failures.length ? ', ' + failures.length + '개 실패' : '') + '.');
+    if (failures.length) setError(failures.slice(0, 5).join(' / '));
+    await load();
+    setBusyId(null);
+  };
+
   const review = async (candidate: Candidate, action: 'approve' | 'reject') => {
     if (busyId) return;
     if (action === 'approve' && candidate.match_status !== 'likely' && !window.confirm('교재 일치 여부가 불확실한 후보입니다. 실제 링크를 확인한 뒤 승인하시겠습니까?')) return;
@@ -298,8 +324,9 @@ export function AdminSearchHistoryPage() {
 
         <div className="grid gap-2 sm:grid-cols-[1fr_190px]"><label className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#98A2B3]" /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="교재명·후보 제목·URL 검색" className="min-h-11 w-full rounded-lg border border-[#D0D5DD] pl-9 pr-3 text-sm outline-none focus:border-[#667085]" /></label><select value={statusFilter} onChange={event => setStatusFilter(event.target.value)} className="min-h-11 rounded-lg border border-[#D0D5DD] px-3 text-sm"><option value="pending">검수 대기</option><option value="all">모든 상태</option><option value="approved">승인</option><option value="rejected">거절</option><option value="duplicate">중복</option><option value="unverified">확인 필요</option></select></div>
 
-        <p className="text-xs text-[#667085]">표시 후보 {visibleCandidates.length}개</p>
+        <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-[#667085]">표시 후보 {visibleCandidates.length}개 · 선택 {selectedCandidateIds.length}개</p><div className="flex gap-2"><button type="button" onClick={() => void bulkReview('approve')} disabled={busyId !== null || !selectedCandidateIds.some(id => visibleCandidates.some(candidate => candidate.id === id && candidate.status === 'pending'))} className="min-h-9 rounded-lg bg-[#191F28] px-3 text-xs font-bold text-white disabled:opacity-40">선택 승인·등록</button><button type="button" onClick={() => void bulkReview('reject')} disabled={busyId !== null || !selectedCandidateIds.some(id => visibleCandidates.some(candidate => candidate.id === id && candidate.status === 'pending'))} className="min-h-9 rounded-lg border border-[#D0D5DD] px-3 text-xs font-semibold disabled:opacity-40">선택 거절</button></div></div>
         {loading ? <p className="py-8 text-center text-sm text-[#667085]">후보를 불러오는 중입니다.</p> : visibleCandidates.length === 0 ? <div className="rounded-xl border border-dashed border-[#D0D5DD] bg-[#F9FAFB] p-8 text-center"><p className="text-sm font-semibold text-[#344054]">조건에 맞는 후보가 없습니다.</p><p className="mt-1 text-xs text-[#667085]">{selectedRun ? '이 실행에서는 저장된 후보가 발견되지 않았습니다.' : '선택한 상태나 검색어에 해당하는 후보가 없습니다.'}</p></div> : <div className="space-y-3">{visibleCandidates.map(candidate => <article key={candidate.id} className="rounded-xl border border-[#EAECF0] p-3 sm:p-4">
+          {candidate.status === 'pending' && <label className="mb-2 inline-flex items-center gap-2 text-xs text-[#475467]"><input type="checkbox" checked={selectedCandidateIds.includes(candidate.id)} onChange={event => setSelectedCandidateIds(ids => event.target.checked ? [...new Set([...ids, candidate.id])] : ids.filter(id => id !== candidate.id))} />이 후보 선택</label>}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0 flex-1"><p className="text-sm font-bold text-[#191F28]">{candidate.books?.title ?? '교재 정보 없음'}</p><p className="mt-1 text-xs text-[#667085]">{[candidate.books?.publisher,candidate.books?.subject,candidate.books?.grade,candidate.books?.semester].filter(Boolean).join(' · ')}</p><a href={candidate.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex break-all text-sm font-semibold text-[#344054] underline">{candidate.title} <ExternalLink className="ml-1 h-3 w-3 shrink-0" /></a><p className="mt-1 break-all text-xs text-[#667085]">{candidate.url}</p>{candidate.snippet && <p className="mt-2 text-xs leading-5 text-[#475467]">{candidate.snippet}</p>}<p className="mt-2 break-words text-xs text-[#667085]">출처: {candidate.source_name ?? '미확인'} · 검색어: {candidate.query}</p></div>
             <div className="flex shrink-0 flex-wrap items-center gap-2"><span className="rounded-full bg-[#F2F4F6] px-2.5 py-1 text-xs font-semibold text-[#344054]">{candidateStatusLabel[candidate.status]}</span><span className="rounded-full bg-[#F9FAFB] px-2.5 py-1 text-xs text-[#475467]">{candidate.match_status === 'likely' ? '일치 가능성 높음' : candidate.match_status === 'mismatch' ? '불일치 가능' : '추가 검수 필요'}</span></div></div>
           {candidate.status === 'pending' && <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => void review(candidate, 'approve')} disabled={busyId === candidate.id} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-[#191F28] px-3 text-xs font-bold text-white disabled:opacity-50">{busyId === candidate.id ? '처리 중…' : <><Check className="h-4 w-4" />승인하고 사이트에 등록</>}</button><button type="button" onClick={() => void review(candidate, 'reject')} disabled={busyId === candidate.id} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#D0D5DD] px-3 text-xs font-semibold text-[#344054] disabled:opacity-50"><X className="h-4 w-4" />거절</button></div>}
