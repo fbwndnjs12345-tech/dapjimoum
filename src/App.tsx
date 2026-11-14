@@ -95,7 +95,7 @@ export default function App() {
 
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportTargetLink, setReportTargetLink] = useState<AnswerLink | null>(null);
-  const [reportReason, setReportReason] = useState('깨진 링크 / 페이지 없음');
+  const [reportReason, setReportReason] = useState('깨진 링크 / 페이지 접속 불가');
 
   const [confirmDeleteDialog, setConfirmDeleteDialog] = useState(null);
 
@@ -422,10 +422,11 @@ export default function App() {
                     const { supabase } = await import('./lib/supabase/client');
                     const { error } = await supabase.from('user_submissions').insert({
                       submission_type: 'link_report',
-                      book_title: reportTargetLink.title,
+                      book_title: books.find(book => book.id === reportTargetLink.book_id)?.title ?? reportTargetLink.title,
                       answer_link_id: reportTargetLink.id,
                       answer_link_title: reportTargetLink.title,
-                      reason: reportReason
+                      reason: reportReason,
+                      details: reportTargetLink.url
                     });
                     if (error) throw error;
                     setIsReportModalOpen(false);
