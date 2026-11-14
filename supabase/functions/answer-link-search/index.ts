@@ -68,7 +68,7 @@ function matchAssessment(book: BookRow, title: string, snippet: string, url: str
   const tokens = normalizedBook.match(/[가-힣a-z0-9]+/g) ?? [];
   const ignored = new Set(['중학', '초등', '고등', '공통', '개정', '교육']);
   const coreTokens = [...new Set(tokens.filter(token => token.length > 1 && !ignored.has(token) && token !== (book.publisher ?? '').toLocaleLowerCase('ko-KR')))];
-  const requiredNumeric = coreTokens.filter(token => /\d/.test(token));
+  const requiredNumeric = coreTokens.filter(token => /\d/.test(token) && !/^[1-3]학년$/.test(token) && !/^[12]학기$/.test(token));
   const matched = coreTokens.filter(token => source.includes(token));
   const titleRatio = coreTokens.length ? matched.length / coreTokens.length : 0;
   const numericMatch = requiredNumeric.every(token => source.includes(token));
@@ -79,7 +79,6 @@ function matchAssessment(book: BookRow, title: string, snippet: string, url: str
   const likely = relevant && titleRatio >= 0.85 && answerSignal;
   return {
     relevant,
-    score: Math.round(titleRatio * 70) + (answerSignal ? 25 : 0) + (likelySource ? 5 : 0),
     match_status: likely ? 'likely' : relevant ? 'uncertain' : 'mismatch',
   };
 }
