@@ -9,7 +9,6 @@ const corsHeaders = {
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: corsHeaders });
 const PAGE_SIZE = 1000;
-const BATCH_SIZE = 1;
 
 function readSupabaseKey(legacyName: string, keySetName: string): string | undefined {
   const legacyKey = Deno.env.get(legacyName);
@@ -96,14 +95,30 @@ function matchAssessment(book: BookRow, title: string, snippet: string, url: str
   const likelyCommunity = /(^|\.)(tistory\.com|blog\.naver\.com|cafe\.naver\.com|m\.blog\.naver\.com)$/.test(host);
   const isPdf = /\.pdf(?:$|[?#])/i.test(url);
   const numericMatch = numericTokens.every(token => sourceText.includes(token));
+  const publisherMatch = Boolean(publisher && sourceText.includes(publisher));
   const hasDistinctiveMatch = matchedTokens.length > 0;
   const relevant = !isBlockedHost && hasDistinctiveMatch && numericMatch &&
     titleRatio >= (tokens.length <= 2 ? 0.5 : 0.4) &&
     answerSignal;
-  const likely = relevant && answerSignal && titleRatio >= 0.75;
+  const score = Math.max(0, Math.min(100, Math.round(
+    titleRatio * 55 + (numericMatch ? 15 : 0) + (answerSignal ? 15 : 0) +
+    (publisherMatch ? 10 : 0) + (isPdf ? 5 : 0)
+  )));
+  const likely = relevant && score >= 75;
   return {
     relevant,
     match_status: likely ? 'likely' : relevant ? 'uncertain' : 'mismatch',
+    match_score: score,
+    match_evidence: {
+      title_ratio: Number(titleRatio.toFixed(3)),
+      matched_tokens: matchedTokens,
+      missing_tokens: tokens.filter(token => !sourceText.includes(token)),
+      numeric_match: numericMatch,
+      answer_signal: answerSignal,
+      publisher_match: publisherMatch,
+      pdf_url: isPdf,
+      source_host: host,
+    },
   };
 }
 
@@ -125,6 +140,10 @@ function classifySource(hostname: string, publisher: string | null): 'official' 
 }
 
 type HtmlSearchResult = { title: string; url: string; description: string; meta_url: { hostname: string }; provider?: string };
+type SearchResultBatch = HtmlSearchResult[] & { warnings?: string[] };
+function attachSearchWarnings(results: HtmlSearchResult[], warnings: string[]): SearchResultBatch {
+  return Object.assign(results, { warnings });
+}
 
 function decodeHtml(value: string): string {
   return value
@@ -210,13 +229,14 @@ function parseSearchHtml(engine: string, html: string, base: string): HtmlSearch
   return results.slice(0, 10);
 }
 
-async function searchPublicHtml(engine: 'google' | 'bing' | 'duckduckgo', query: string, signal: AbortSignal): Promise<HtmlSearchResult[]> {
+async function searchPublicHtml(engine: 'google' | 'bing' | 'duckduckgo', query: string, signal: AbortSignal, reserveSlot: () => Promise<void>): Promise<HtmlSearchResult[]> {
   const encoded = encodeURIComponent(query);
   const endpoints: Record<typeof engine, string> = {
     google: `https://www.google.com/search?q=${encoded}&num=10&hl=ko&gl=kr`,
     bing: `https://www.bing.com/search?q=${encoded}&count=10&setlang=ko-KR`,
     duckduckgo: `https://html.duckduckgo.com/html/?q=${encoded}`,
   };
+  await reserveSlot();
   const response = await fetch(endpoints[engine], {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -236,7 +256,7 @@ async function searchPublicHtml(engine: 'google' | 'bing' | 'duckduckgo', query:
   return results;
 }
 
-async function searchKakao(query: string, apiKey: string, signal: AbortSignal): Promise<HtmlSearchResult[]> {
+async function searchKakao(query: string, apiKey: string, signal: AbortSignal, reserveSlot: () => Promise<void>): Promise<SearchResultBatch> {
   const endpoints = [
     { provider: 'kakao_blog', url: 'https://dapi.kakao.com/v2/search/blog' },
     { provider: 'kakao_cafe', url: 'https://dapi.kakao.com/v2/search/cafe' },
@@ -247,6 +267,7 @@ async function searchKakao(query: string, apiKey: string, signal: AbortSignal): 
     endpoint.searchParams.set('query', query);
     endpoint.searchParams.set('size', '10');
     endpoint.searchParams.set('sort', 'accuracy');
+    await reserveSlot();
     const response = await fetch(endpoint, {
       method: 'GET',
       headers: { Authorization: `KakaoAK ${apiKey}`, Accept: 'application/json' },
@@ -280,10 +301,10 @@ async function searchKakao(query: string, apiKey: string, signal: AbortSignal): 
     else errors.push(item.reason instanceof Error ? item.reason.message : 'Daum 검색 실패');
   }
   if (!results.length && errors.length === endpoints.length) throw new Error(errors.join(' / ').slice(0, 1000));
-  return results;
+  return attachSearchWarnings(results, errors);
 }
 
-async function searchNaverApiHub(query: string, clientId: string, clientSecret: string, signal: AbortSignal): Promise<HtmlSearchResult[]> {
+async function searchNaverApiHub(query: string, clientId: string, clientSecret: string, signal: AbortSignal, reserveSlot: () => Promise<void>): Promise<SearchResultBatch> {
   const endpoints = [
     { provider: 'naver_blog', path: '/search/v1/blog' },
     { provider: 'naver_cafe', path: '/search/v1/cafearticle' },
@@ -293,6 +314,7 @@ async function searchNaverApiHub(query: string, clientId: string, clientSecret: 
     endpoint.searchParams.set('query', query);
     endpoint.searchParams.set('display', '10');
     endpoint.searchParams.set('format', 'json');
+    await reserveSlot();
     const response = await fetch(endpoint, {
       method: 'GET',
       headers: {
@@ -327,21 +349,23 @@ async function searchNaverApiHub(query: string, clientId: string, clientSecret: 
     else errors.push(item.reason instanceof Error ? item.reason.message : 'NAVER API HUB 검색 실패');
   }
   if (!results.length && errors.length === endpoints.length) throw new Error(errors.join(' / ').slice(0, 1000));
-  return results;
+  return attachSearchWarnings(results, errors);
 }
 
-async function searchWithProviders(query: string, signal: AbortSignal, mode: 'naver' | 'kakao' | 'web' | 'combined', kakaoKey?: string, naverCredentials?: { clientId: string; clientSecret: string }) {
-  const tasks: Array<Promise<HtmlSearchResult[]>> = [];
-  if (mode === 'web' || mode === 'combined') tasks.push(searchWithoutApi(query, signal));
-  if ((mode === 'kakao' || mode === 'combined') && kakaoKey) tasks.push(searchKakao(query, kakaoKey, signal));
-  if ((mode === 'naver' || mode === 'combined') && naverCredentials) tasks.push(searchNaverApiHub(query, naverCredentials.clientId, naverCredentials.clientSecret, signal));
+async function searchWithProviders(query: string, signal: AbortSignal, mode: 'naver' | 'kakao' | 'web' | 'combined', kakaoKey: string | undefined, naverCredentials: { clientId: string; clientSecret: string } | undefined, reserveSlot: () => Promise<void>) {
+  const tasks: Array<Promise<SearchResultBatch>> = [];
+  if (mode === 'web' || mode === 'combined') tasks.push(searchWithoutApi(query, signal, reserveSlot));
+  if ((mode === 'kakao' || mode === 'combined') && kakaoKey) tasks.push(searchKakao(query, kakaoKey, signal, reserveSlot));
+  if ((mode === 'naver' || mode === 'combined') && naverCredentials) tasks.push(searchNaverApiHub(query, naverCredentials.clientId, naverCredentials.clientSecret, signal, reserveSlot));
   if (!tasks.length) throw new Error(mode === 'naver' ? '네이버 API 키가 설정되지 않았습니다.' : '카카오 API 키가 설정되지 않았습니다.');
   const settled = await Promise.allSettled(tasks);
   const results: HtmlSearchResult[] = [];
   const errors: string[] = [];
   for (const item of settled) {
-    if (item.status === 'fulfilled') results.push(...item.value);
-    else errors.push(item.reason instanceof Error ? item.reason.message : '검색 실패');
+    if (item.status === 'fulfilled') {
+      results.push(...item.value);
+      errors.push(...(item.value.warnings ?? []));
+    } else errors.push(item.reason instanceof Error ? item.reason.message : '검색 실패');
   }
   const unique = new Map<string, HtmlSearchResult>();
   for (const item of results) {
@@ -352,9 +376,9 @@ async function searchWithProviders(query: string, signal: AbortSignal, mode: 'na
   return { results: [...unique.values()], warnings: errors };
 }
 
-async function searchWithoutApi(query: string, signal: AbortSignal) {
+async function searchWithoutApi(query: string, signal: AbortSignal, reserveSlot: () => Promise<void>): Promise<SearchResultBatch> {
   const engines = ['google', 'bing', 'duckduckgo'] as const;
-  const settled = await Promise.allSettled(engines.map(engine => searchPublicHtml(engine, query, signal)));
+  const settled = await Promise.allSettled(engines.map(engine => searchPublicHtml(engine, query, signal, reserveSlot)));
   const results: HtmlSearchResult[] = [];
   const errors: string[] = [];
   for (let i = 0; i < settled.length; i++) {
@@ -365,7 +389,7 @@ async function searchWithoutApi(query: string, signal: AbortSignal) {
   const unique = new Map<string, HtmlSearchResult>();
   for (const item of results) if (!unique.has(canonicalUrl(item.url))) unique.set(canonicalUrl(item.url), item);
   if (!unique.size && errors.length) throw new Error(errors.join(' / ').slice(0, 1000));
-  return [...unique.values()];
+  return attachSearchWarnings([...unique.values()], errors);
 }
 
 Deno.serve(async (request) => {
@@ -379,73 +403,102 @@ Deno.serve(async (request) => {
   const serviceKey = readSupabaseKey('SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_SECRET_KEYS');
   if (!bearer || !supabaseUrl || !anonKey || !serviceKey) return json({ error: '인증 또는 서버 설정을 확인해 주세요.' }, 401);
 
-  const authClient = createClient(supabaseUrl, anonKey, { auth: { persistSession: false }, global: { headers: { Authorization: `Bearer ${bearer}` } } });
-  const { data: authData, error: authError } = await authClient.auth.getUser(bearer);
-  if (authError || !authData.user) return json({ error: '로그인이 필요합니다.' }, 401);
-
+  const isServiceInvocation = bearer === serviceKey;
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { data: adminRow, error: adminError } = await admin.from('admin_users').select('user_id').eq('user_id', authData.user.id).maybeSingle();
-  if (adminError || !adminRow) return json({ error: '관리자 권한이 필요합니다.' }, 403);
+  let actorUserId: string;
+  if (isServiceInvocation) {
+    const { data: adminRow, error: adminError } = await admin.from('admin_users').select('user_id').order('created_at', { ascending: true }).limit(1).maybeSingle();
+    if (adminError || !adminRow?.user_id) return json({ error: '예약 검색을 실행할 관리자 계정을 확인할 수 없습니다.' }, 403);
+    actorUserId = adminRow.user_id;
+  } else {
+    const authClient = createClient(supabaseUrl, anonKey, { auth: { persistSession: false }, global: { headers: { Authorization: `Bearer ${bearer}` } } });
+    const { data: authData, error: authError } = await authClient.auth.getUser(bearer);
+    if (authError || !authData.user) return json({ error: '로그인이 필요합니다.' }, 401);
+    const { data: adminRow, error: adminError } = await admin.from('admin_users').select('user_id').eq('user_id', authData.user.id).maybeSingle();
+    if (adminError || !adminRow) return json({ error: '관리자 권한이 필요합니다.' }, 403);
+    actorUserId = authData.user.id;
+  }
 
   let payload: { action?: string; runId?: string; selectedBookIds?: string[]; includeBooksWithLinks?: boolean; reason?: string; providerMode?: 'naver' | 'kakao' | 'web' | 'combined' };
   try { payload = await request.json(); } catch { return json({ error: '요청 본문이 올바르지 않습니다.' }, 400); }
   const action = payload.action;
+  if (!isServiceInvocation) {
+    const requiredPermission = action === 'pause' || action === 'resume' ? 'search.control' : 'search.run';
+    const { data: roleData, error: roleError } = await admin
+      .from('admin_user_roles')
+      .select('admin_role_permissions(permission_key)')
+      .eq('user_id', actorUserId)
+      .maybeSingle();
+    if (roleError) return json({ error: '관리자 권한 정보를 확인하지 못했습니다: ' + roleError.message }, 500);
+    const permissionRows = (roleData?.admin_role_permissions ?? []) as Array<{ permission_key: string }>;
+    if (!permissionRows.some(row => row.permission_key === requiredPermission)) {
+      return json({ error: '이 작업을 실행할 권한이 없습니다. 관리자에게 검색 운영 권한을 요청하세요.' }, 403);
+    }
+  }
   const kakaoRestApiKey = Deno.env.get('KAKAO_REST_API_KEY')?.trim();
   const naverClientId = Deno.env.get('NAVER_API_HUB_CLIENT_ID')?.trim();
   const naverClientSecret = Deno.env.get('NAVER_API_HUB_CLIENT_SECRET')?.trim();
   const naverCredentials = naverClientId && naverClientSecret ? { clientId: naverClientId, clientSecret: naverClientSecret } : undefined;
-  const providerMode = payload.providerMode ?? 'combined';
+  const { data: savedSearchSettings } = await admin.from('answer_link_search_settings').select('provider_mode').eq('singleton', true).maybeSingle();
+  const providerMode = payload.providerMode ?? savedSearchSettings?.provider_mode ?? 'combined';
   if (!['naver', 'kakao', 'web', 'combined'].includes(providerMode)) return json({ error: '지원하지 않는 검색 경로입니다.' }, 400);
 
-  if (action === 'start') {
-    const { data: activeRuns, error: activeRunsError } = await admin.from('answer_link_search_runs').select('id,status,book_ids,processed_books,candidate_count,api_requests,provider_mode,started_at').eq('status','running').order('started_at',{ascending:false}).limit(1);
+  if (action === 'start' || action === 'scheduled_start' || action === 'scheduled_queue_start') {
+    const { data: activeRuns, error: activeRunsError } = await admin.from('answer_link_search_runs').select('id,status,book_ids,processed_books,candidate_count,api_requests,provider_mode,started_at').in('status',['running','paused']).order('started_at',{ascending:false}).limit(1);
     if (activeRunsError) return json({ error: '기존 검색 작업 확인 실패: ' + activeRunsError.message }, 500);
     if (activeRuns?.length) return json({ error: '이미 공용 검색 작업이 실행 중입니다. 모든 관리자에게 표시되는 기존 작업을 이어서 관리해 주세요.', activeRun: activeRuns[0] }, 409);
     if (providerMode === 'naver' && !naverCredentials) return json({ error: '네이버 API가 선택되었지만 Client ID 또는 Client Secret이 설정되지 않았습니다. Supabase Edge Function Secrets를 확인하세요.' }, 400);
     if (providerMode === 'kakao' && !kakaoRestApiKey) return json({ error: '카카오 API가 선택되었지만 REST API 키가 설정되지 않았습니다. Supabase Edge Function Secrets를 확인하세요.' }, 400);
-    const selectedIds = Array.isArray(payload.selectedBookIds) ? [...new Set(payload.selectedBookIds.filter(id => typeof id === 'string'))] : [];
+    let selectedIds = Array.isArray(payload.selectedBookIds) ? [...new Set(payload.selectedBookIds.filter(id => typeof id === 'string'))] : [];
+    let queueReason: 'new_book' | 'user_request' | 'link_health' | 'manual' = 'manual';
+    let queuePriority = 50;
+    if (action === 'scheduled_queue_start') {
+      const { data: queued, error: queueError } = await admin.from('answer_link_search_queue').select('book_id,reason,priority').eq('status','queued').lte('available_at',new Date().toISOString()).order('priority',{ascending:false}).order('created_at',{ascending:true}).limit(200);
+      if (queueError) return json({ error: '검색 대기열 조회 실패: ' + queueError.message }, 500);
+      selectedIds = [...new Set((queued ?? []).map(row => row.book_id))];
+      queuePriority = Math.max(50, ...(queued ?? []).map(row => Number(row.priority ?? 50)));
+      if (!selectedIds.length) return json({ queued: false, message: '처리할 자동 검색 대기 항목이 없습니다.' });
+      queueReason = queued?.some(row => row.reason === 'user_request') ? 'user_request' : queued?.some(row => row.reason === 'link_health') ? 'link_health' : 'new_book';
+    }
+    if (!selectedIds.length) {
+      const { data: prioritized, error: priorityError } = await admin.rpc('get_answer_link_search_priorities', {
+        p_include_books_with_links: Boolean(payload.includeBooksWithLinks),
+      });
+      if (priorityError) return json({ error: '검색 우선순위 계산 실패: ' + priorityError.message }, 500);
+      const prioritizedRows = (prioritized ?? []) as Array<{ book_id: string; priority_score: number; priority_reasons?: Record<string, unknown> }>;
+      selectedIds = prioritizedRows.map(row => row.book_id);
+      if (action === 'scheduled_start' && prioritized?.length) {
+        queuePriority = Number(prioritized[0].priority_score ?? 50);
+      }
+    }
+
     const books: BookRow[] = [];
-    if (selectedIds.length) {
-      for (let offset = 0; offset < selectedIds.length; offset += PAGE_SIZE) {
-        const ids = selectedIds.slice(offset, offset + PAGE_SIZE);
-        const { data, error } = await admin.from('books').select('id,title,publisher,subject,grade,semester,series').in('id', ids);
-        if (error) return json({ error: `교재 목록 조회 실패: ${error.message}` }, 500);
-        books.push(...(data ?? []) as BookRow[]);
-      }
-    } else {
-      for (let offset = 0; ; offset += PAGE_SIZE) {
-        const { data, error } = await admin.from('books').select('id,title,publisher,subject,grade,semester,series').order('created_at', { ascending: false }).range(offset, offset + PAGE_SIZE - 1);
-        if (error) return json({ error: `교재 목록 조회 실패: ${error.message}` }, 500);
-        const page = (data ?? []) as BookRow[];
-        books.push(...page);
-        if (page.length < PAGE_SIZE) break;
-      }
+    for (let offset = 0; offset < selectedIds.length; offset += PAGE_SIZE) {
+      const ids = selectedIds.slice(offset, offset + PAGE_SIZE);
+      const { data, error } = await admin.from('books').select('id,title,publisher,subject,grade,semester,series').in('id', ids);
+      if (error) return json({ error: `교재 목록 조회 실패: ${error.message}` }, 500);
+      books.push(...(data ?? []) as BookRow[]);
     }
+    const targets = books;
 
-    let targets = books;
-    if (!selectedIds.length && !payload.includeBooksWithLinks) {
-      const linkedIds = new Set<string>();
-      for (let offset = 0; ; offset += PAGE_SIZE) {
-        const { data, error } = await admin.from('answer_links').select('book_id').range(offset, offset + PAGE_SIZE - 1);
-        if (error) return json({ error: `기존 답지 링크 조회 실패: ${error.message}` }, 500);
-        const page = data ?? [];
-        page.forEach(row => linkedIds.add(row.book_id));
-        if (page.length < PAGE_SIZE) break;
-      }
-      targets = books.filter(book => !linkedIds.has(book.id));
-    }
-
+    if (!targets.length) return json({ run: null, queued: false, message: '검색할 교재가 없습니다.' });
+    const triggerSource = action === 'scheduled_start' ? 'daily_schedule' : action === 'scheduled_queue_start' ? queueReason : 'manual';
     const { data: run, error } = await admin.from('answer_link_search_runs').insert({
-      created_by: authData.user.id,
+      created_by: actorUserId,
       status: 'running',
       provider_mode: providerMode,
       book_ids: targets.map(book => book.id),
+      trigger_source: triggerSource,
+      priority: queuePriority,
     }).select('id,status,book_ids,started_at,provider_mode').single();
     if (error?.code === '23505') {
       const { data: activeRun } = await admin.from('answer_link_search_runs').select('id,status,book_ids,processed_books,candidate_count,api_requests,provider_mode,started_at').eq('status','running').maybeSingle();
       return json({ error: '다른 관리자가 먼저 검색 작업을 시작했습니다. 기존 공용 작업을 확인해 주세요.', activeRun }, 409);
     }
     if (error) return json({ error: '검색 작업을 만들지 못했습니다: ' + error.message }, 500);
+    const targetIds = targets.map(book => book.id);
+    const { error: queueUpdateError } = await admin.from('answer_link_search_queue').update({ status: 'running', run_id: run.id, updated_at: new Date().toISOString() }).in('book_id', targetIds).in('status', ['queued','running']);
+    if (queueUpdateError) return json({ error: '검색 작업은 생성했지만 자동 대기열 연결에 실패했습니다: ' + queueUpdateError.message, run }, 500);
     return json({ run });
   }
 
@@ -471,7 +524,7 @@ Deno.serve(async (request) => {
     if (!previous) return json({ error: '검색 작업을 찾을 수 없거나 접근 권한이 없습니다.' }, 404);
     const failedIds = previous.failed_book_ids ?? [];
     if (failedIds.length === 0) return json({ error: '재시도할 실패 교재가 없습니다.' }, 400);
-    const { data: run, error } = await admin.from('answer_link_search_runs').insert({ created_by: authData.user.id, status: 'running', provider_mode: previous.provider_mode ?? 'combined', book_ids: failedIds }).select('id,status,book_ids,started_at,provider_mode').single();
+    const { data: run, error } = await admin.from('answer_link_search_runs').insert({ created_by: actorUserId, status: 'running', provider_mode: previous.provider_mode ?? 'combined', book_ids: failedIds, trigger_source: 'retry' }).select('id,status,book_ids,started_at,provider_mode').single();
     if (error?.code === '23505') return json({ error: '이미 다른 검색 작업이 실행 중입니다. 기존 작업을 먼저 확인해 주세요.' }, 409);
     if (error) return json({ error: error.message }, 500);
     return json({ run });
@@ -485,8 +538,21 @@ Deno.serve(async (request) => {
     const runProviderMode = (ownedRun.provider_mode ?? 'combined') as 'naver' | 'kakao' | 'web' | 'combined';
     if (runProviderMode === 'naver' && !naverCredentials) return json({ error: '이 작업은 네이버 API로 시작되었지만 현재 API 인증 정보가 없습니다. Secrets 설정 후 다시 이어서 실행하세요.' }, 400);
     if (runProviderMode === 'kakao' && !kakaoRestApiKey) return json({ error: '이 작업은 카카오 API로 시작되었지만 현재 API 키가 없습니다. Secrets 설정 후 다시 이어서 실행하세요.' }, 400);
+    const { data: runSettings } = await admin.from('answer_link_search_settings').select('max_concurrency,retry_limit,requests_per_minute').eq('singleton', true).maybeSingle();
+    const batchSize = Math.max(1, Math.min(5, Number(runSettings?.max_concurrency ?? 1)));
+    const retryLimit = Math.max(0, Math.min(5, Number(runSettings?.retry_limit ?? 2)));
+    const requestsPerMinute = Math.max(1, Math.min(300, Number(runSettings?.requests_per_minute ?? 30)));
+    const reserveSlot = async () => {
+      for (let waitAttempt = 0; waitAttempt < 30; waitAttempt++) {
+        const { data, error } = await admin.rpc('reserve_answer_search_request', { p_limit: requestsPerMinute });
+        if (error) throw new Error('검색 요청 한도 관리 실패: ' + error.message);
+        if (data === true) return;
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+      throw new Error('검색 요청 한도 대기 시간이 초과되었습니다. 다음 실행에서 다시 시도합니다.');
+    };
     const lockToken = crypto.randomUUID();
-    const { data: claim, error: claimError } = await admin.rpc('claim_answer_link_search_batch', { p_run_id: payload.runId, p_lock_token: lockToken, p_batch_size: BATCH_SIZE });
+    const { data: claim, error: claimError } = await admin.rpc('claim_answer_link_search_batch', { p_run_id: payload.runId, p_lock_token: lockToken, p_batch_size: batchSize });
     if (claimError) return json({ error: `검색 배치를 가져오지 못했습니다: ${claimError.message}` }, 500);
     if (!claim) return json({ busy: true });
     const bookIds = (claim.book_ids ?? []) as string[];
@@ -516,39 +582,98 @@ Deno.serve(async (request) => {
         const results: HtmlSearchResult[] = [];
         const resultQueries: string[] = [];
         const providerWarnings: string[] = [];
+        const diagnostics: Array<{
+          query: string; startedAt: string; durationMs: number; retryCount: number;
+          status: 'succeeded' | 'partial' | 'no_results' | 'failed' | 'filtered_all';
+          resultCount: number; candidateCount: number; filteredCount: number;
+          warnings: string[]; providersAttempted: string[]; providersWithResults: string[];
+          errorMessage: string | null;
+        }> = [];
+        const attemptedProviders = runProviderMode === 'web'
+          ? ['google_html', 'bing_html', 'duckduckgo_html']
+          : runProviderMode === 'kakao'
+            ? ['kakao_blog', 'kakao_cafe', 'kakao_web']
+            : runProviderMode === 'naver'
+              ? ['naver_blog', 'naver_cafe']
+              : ['google_html', 'bing_html', 'duckduckgo_html', ...(kakaoRestApiKey ? ['kakao_blog', 'kakao_cafe', 'kakao_web'] : []), ...(naverCredentials ? ['naver_blog', 'naver_cafe'] : [])];
         const queryResults = await Promise.allSettled(queries.map(async query => {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 12_000);
-          try {
-            return { query, result: await searchWithProviders(query, controller.signal, runProviderMode, kakaoRestApiKey, naverCredentials) };
-          } finally { clearTimeout(timeout); }
+          const started = Date.now();
+          const startedAt = new Date(started).toISOString();
+          let retryCount = 0;
+          let lastError: unknown = null;
+          while (retryCount <= retryLimit) {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 90_000);
+            try {
+              const result = await searchWithProviders(query, controller.signal, runProviderMode, kakaoRestApiKey, naverCredentials, reserveSlot);
+              clearTimeout(timeout);
+              if (result.results.length > 0 || result.warnings.length === 0 || retryCount >= retryLimit) {
+                return { query, startedAt, durationMs: Date.now() - started, retryCount, result };
+              }
+              lastError = new Error(result.warnings.join(' / ').slice(0, 1000));
+            } catch (error) {
+              clearTimeout(timeout);
+              lastError = error;
+            }
+            if (retryCount < retryLimit) {
+              await new Promise(resolve => setTimeout(resolve, Math.min(8000, 1000 * (2 ** retryCount))));
+              retryCount += 1;
+            } else {
+              break;
+            }
+          }
+          throw lastError instanceof Error ? lastError : new Error('검색 재시도 한도를 초과했습니다.');
         }));
-        for (const item of queryResults) {
+        for (let index = 0; index < queryResults.length; index++) {
+          const item = queryResults[index];
           if (item.status === 'rejected') {
-            providerWarnings.push(item.reason instanceof Error ? item.reason.message : '검색 실패');
+            const message = item.reason instanceof Error ? item.reason.message : '검색 실패';
+            providerWarnings.push(message);
+            diagnostics.push({
+              query: queries[index], startedAt: new Date().toISOString(), durationMs: 0, retryCount: retryLimit,
+              status: 'failed', resultCount: 0, candidateCount: 0, filteredCount: 0,
+              warnings: [message], providersAttempted: attemptedProviders, providersWithResults: [], errorMessage: message,
+            });
             continue;
           }
-          results.push(...item.value.result.results);
-          resultQueries.push(...item.value.result.results.map(() => item.value.query));
-          providerWarnings.push(...item.value.result.warnings);
+          const { query, result, startedAt, durationMs, retryCount } = item.value;
+          results.push(...result.results);
+          resultQueries.push(...result.results.map(() => query));
+          providerWarnings.push(...result.warnings);
+          const providersWithResults = [...new Set(result.results.map(row => row.provider ?? 'unknown'))];
+          diagnostics.push({
+            query, startedAt, durationMs, retryCount,
+            status: result.results.length ? (result.warnings.length ? 'partial' : 'succeeded') : (result.warnings.length ? 'failed' : 'no_results'),
+            resultCount: result.results.length, candidateCount: 0, filteredCount: 0,
+            warnings: result.warnings, providersAttempted: attemptedProviders, providersWithResults, errorMessage: result.warnings.join(' / ').slice(0, 1200) || null,
+          });
         }
-        apiRequests += queries.length * (runProviderMode === 'web' ? 3 : runProviderMode === 'kakao' ? 3 : runProviderMode === 'naver' ? 2 : 3 + (kakaoRestApiKey ? 3 : 0) + (naverCredentials ? 2 : 0));
+        apiRequests += diagnostics.reduce((sum, diagnostic) => sum + diagnostic.providersAttempted.length * (diagnostic.retryCount + 1), 0);
         if (providerWarnings.length) errors.push(`${book.title}: 일부 검색 경로 실패 - ${[...new Set(providerWarnings)].join(' / ').slice(0, 800)}`);
 
+        const diagnosticByQuery = new Map(diagnostics.map(item => [item.query, item]));
         const { data: existingLinks, error: linksError } = await admin.from('answer_links').select('url').eq('book_id', book.id);
         if (linksError) throw linksError;
         const existingUrls = new Set((existingLinks ?? []).map(row => canonicalUrl(row.url)));
-        const unique = new Map<string, { title: string; url: string; snippet: string; host: string; query: string; provider?: string; match_status: string; link_type: string }>();
+        const unique = new Map<string, { title: string; url: string; snippet: string; host: string; query: string; provider?: string; match_status: string; match_score: number; match_evidence: Record<string, unknown>; link_type: string }>();
         for (const [resultIndex, result] of results.entries()) {
           const candidateUrl = result.url?.trim() ?? '';
-          if (!candidateUrl || !isSafeSearchUrl(candidateUrl)) continue;
+          const diagnostic = diagnosticByQuery.get(resultQueries[resultIndex] ?? '');
+          if (!candidateUrl || !isSafeSearchUrl(candidateUrl)) {
+            if (diagnostic) diagnostic.filteredCount += 1;
+            continue;
+          }
           const identity = canonicalUrl(candidateUrl);
           if (unique.has(identity)) continue;
           const title = (result.title ?? '').trim().slice(0, 500);
           const snippet = (result.description ?? '').trim().slice(0, 2000);
           const url = new URL(candidateUrl);
           const assessment = matchAssessment(book, title, snippet, candidateUrl);
-          if (!assessment.relevant) continue;
+          if (!assessment.relevant) {
+            if (diagnostic) diagnostic.filteredCount += 1;
+            continue;
+          }
+          if (diagnostic) diagnostic.candidateCount += 1;
           unique.set(identity, {
             title: title || url.hostname,
             url: candidateUrl,
@@ -557,9 +682,47 @@ Deno.serve(async (request) => {
             query: resultQueries[resultIndex] ?? '',
             provider: result.provider,
             match_status: assessment.match_status,
+            match_score: assessment.match_score,
+            match_evidence: assessment.match_evidence,
             link_type: url.pathname.toLowerCase().endsWith('.pdf') ? 'PDF' : '웹페이지',
           });
         }
+
+        for (const diagnostic of diagnostics) {
+          if (diagnostic.resultCount > 0 && diagnostic.candidateCount === 0 && diagnostic.filteredCount > 0) diagnostic.status = 'filtered_all';
+        }
+        const { error: diagnosticError } = await admin.from('answer_link_search_attempts').insert(diagnostics.map(diagnostic => ({
+          run_id: payload.runId,
+          book_id: book.id,
+          provider_mode: runProviderMode,
+          query: diagnostic.query,
+          status: diagnostic.status,
+          providers_attempted: diagnostic.providersAttempted,
+          providers_with_results: diagnostic.providersWithResults,
+          result_count: diagnostic.resultCount,
+          candidate_count: diagnostic.candidateCount,
+          filtered_count: diagnostic.filteredCount,
+          duration_ms: diagnostic.durationMs,
+          warnings: diagnostic.warnings,
+          error_code: diagnostic.status === 'failed' ? (diagnostic.errorMessage?.match(/(401|403|429|timeout|abort|인증|한도|차단)/i)?.[0] ?? 'provider_error') : null,
+          error_message: diagnostic.errorMessage,
+          details: {
+            retry_count: diagnostic.retryCount,
+            result_count_by_provider: results.reduce<Record<string, number>>((counts, row, index) => {
+              if (resultQueries[index] === diagnostic.query) {
+                const provider = row.provider ?? 'unknown';
+                counts[provider] = (counts[provider] ?? 0) + 1;
+              }
+              return counts;
+            }, {}),
+            unconfigured_providers: runProviderMode === 'combined'
+              ? [...(!kakaoRestApiKey ? ['kakao_api'] : []), ...(!naverCredentials ? ['naver_api'] : [])]
+              : [],
+          },
+          started_at: diagnostic.startedAt,
+          finished_at: new Date().toISOString(),
+        })));
+        if (diagnosticError) errors.push(`${book.title}: 검색 진단 저장 실패 - ${diagnosticError.message}`);
 
         for (const candidate of unique.values()) {
           const identity = canonicalUrl(candidate.url);
@@ -576,6 +739,8 @@ Deno.serve(async (request) => {
             query: candidate.provider ? `[${candidate.provider}] ${candidate.query}` : candidate.query,
             snippet: candidate.snippet,
             match_status: candidate.match_status,
+            match_score: candidate.match_score,
+            match_evidence: candidate.match_evidence,
             status: isDuplicate ? 'duplicate' : 'pending',
           };
           if (isDuplicate) {

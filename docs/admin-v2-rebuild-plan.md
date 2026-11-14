@@ -1,0 +1,188 @@
+# 관리자·답지 자동 검색 V2 재구축 계획
+
+## 목표
+
+기존 관리자 기능과 데이터를 보존하면서 관리자 경험과 답지 검색 운영을 실행 단위 중심으로 재구성한다. 운영 데이터베이스를 초기화하거나 기존 테이블을 교체하지 않는다.
+
+## 기준 브랜치와 운영 자산
+
+- 기준 코드: `feat/admin-workspace-multitab-content`의 PR #16 head `c3fbc79f61ef23c9c73842aef9571edd0901531b`
+- 작업 브랜치: `feat/admin-search-workspace-v2`
+- Supabase 프로젝트: `puafssyzhrjjpsxzmkxr`
+- 현재 활성 Edge Functions: `answer-link-search` v16, `answer-link-import-candidates` v2
+- 기존 관리자 기능: 대시보드, 교재 CRUD, CSV 가져오기, 답지 링크 관리, 답지 후보 검색·검수, 사용자 접수함, 사이트 문서 관리
+
+## 데이터 보존 기준
+
+2026-11-14 읽기 전용 집계 결과:
+
+| 테이블 | 행 수 |
+| --- | ---: |
+| books | 1,762 |
+| answer_links | 26 |
+| answer_link_search_runs | 7 |
+| answer_link_candidates | 171 |
+| user_submissions | 2 |
+| site_pages | 5 |
+| admin_users | 1 |
+
+- 기존 교재, 답지 링크, 사용자 접수, 관리자, 사이트 문서 및 검색 후보의 PK를 보존한다.
+- 신규 기능은 기존 테이블 확장 또는 별도 테이블 추가로 구현한다.
+- 운영 DB에 대한 파괴적 변경, 초기화, 대량 덮어쓰기 금지.
+- 배포 전 별도 백업 및 복원 검증 절차가 필요하다.
+- 오래된 검색 실행 기록 30일 정리는 검색 이력에만 적용한다. 승인된 답지 링크와 검수 감사 기록은 정리 대상에서 제외한다.
+
+## 확정 제품 요구사항
+
+### 검색 실행과 후보
+
+- 실행별 검색 기록·후보 상세 보기와 전체 실행 통합 후보 보기 모두 제공.
+- 교재 개별 선택 검색, 전체 교재 검색, 신규 교재 자동 검색을 지원.
+- 실행마다 실행 ID, 선택 교재, 공급자, 시작/종료 시간, 상태, 진행률, 결과, 실패 원인을 보존.
+- 후보는 실행 ID로 격리하며 전체 후보 화면에서는 실행·교재·출처·상태 필터를 제공.
+- 개별·일괄 승인 및 거절, 승인 즉시 기존 `answer_links`에 반영.
+- 중복 URL은 정규화 후 차단하고 원래 후보·검수 기록을 보존.
+- 낮은 신뢰도 후보는 별도 검수 큐로 분류하며 자동 승인하지 않는다.
+- CSV·XLSX·JSON 내보내기 및 과거 실행 결과 비교 제공.
+
+### 진단과 복구
+
+- 출처별 시도, 성공, 결과 수, 응답 코드, 제한/차단/인증 오류, 소요 시간 기록.
+- 검색어별 결과 수, 후보 제외 사유, 교재 일치 평가 근거 기록.
+- 진짜 무결과와 공급자 실패, 차단, 시간 초과, 인증 실패, 후보 필터 제외를 서로 다른 종료 상태로 구분.
+- 일부 출처가 실패하면 성공한 출처 결과는 보존하고 실패한 출처만 재시도.
+- 일시정지·재개·취소·실패 교재만 재시도.
+- 재시도 횟수와 한도, 백오프를 적용해 무한 재시도 방지.
+- 브라우저·Windows 클라이언트가 종료되어도 서버 작업 상태와 lease를 기준으로 복구.
+- 클라이언트 탭이 백그라운드에서 작업의 유일한 실행 주체가 되지 않도록 서버 작업자/스케줄러 구조를 별도 설계.
+
+### 출처와 정확도
+
+- 공급자별 adapter 구조로 검색 API와 공개 웹 검색을 분리.
+- 네이버 블로그/카페, 카카오 블로그/카페/웹, 일반 검색엔진, 출판사 및 공개 학습자료 페이지를 가능한 범위에서 검색.
+- CAPTCHA, 로그인 벽, 접근 제한, robots 정책, 서비스 약관을 우회하지 않는다.
+- 출처별로 실제 지원 여부와 장애 상태를 표시하며, '모든 인터넷 출처 검색'을 보장한다고 표현하지 않는다.
+- 교재명·출판사·학년·학기·과목·판본, 페이지 제목·본문, PDF 메타데이터/텍스트를 가능한 범위에서 평가.
+- 외부 파일은 외부에 유지하고 파일 메타데이터와 검사 결과만 저장.
+- 저작권/접근 권한이 확인되지 않은 파일을 복제·재배포하지 않는다.
+
+### 관리자 UX와 권한
+
+- 흰색 기반의 단순한 SaaS 대시보드, PC/태블릿/모바일 반응형.
+- 메뉴: 대시보드, 교재, 답지 검색, 실행 기록, 전체 후보, 검수함, 사용자 접수함, 사이트 콘텐츠, 관리자 활동, 설정.
+- 빠른 실행 버튼과 단계별 안내.
+- 검색 현황은 실행별로 상세 표시: 교재 진행, 출처별 시도, 검색어, 결과, 제외 사유, 오류 로그.
+- 여러 관리자의 동시 작업, 행 단위 충돌 방지, 승인 중복 방지.
+- 관리자 역할/기능별 권한, 중요 작업 확인, 로그인·접근·변경 감사 로그.
+
+### 예약 검색
+
+- 기본 매일 06:00 Asia/Seoul.
+- 신규 교재 등록 및 기존 답지 링크 장애 시 추가 작업 생성.
+- 우선순위는 답지 미등록, 신규 교재, 사용자 요청 수, 검색 실패 횟수, 마지막 검색 시각, 링크 상태를 반영하며 관리자가 조정 가능.
+- 공급자 쿼터, 동시성, 서버 부하에 맞춰 속도 조절.
+- 스케줄러는 서버 측에서 동작해야 한다. 현재 프로젝트에서는 `pg_cron` extension이 설치되어 있지 않고 `cron.job` 관계도 확인되지 않았다. 스케줄 구현 전 공식 Supabase Cron/Edge Function 스케줄링 설정을 검증하고 별도 migration 및 운영자 검토를 거친다.
+
+## 점검 중 발견한 현재 문제
+
+- 최근 실행 중 2건은 처리 교재가 완료되었지만 후보 0개, 오류 0개로 단순 완료 처리되어 있다. 실제 무결과인지 공급자별 검색 결과가 파싱/필터 단계에서 사라졌는지 구분할 출처별 시도 로그가 없다.
+- 5건은 일시정지 상태다. 일부는 `Search batch lock expired or does not belong to this request` 오류가 기록되어 있다.
+- 이전 실행에는 `BRAVE_SEARCH_API_KEY 서버 설정이 필요합니다.` 오류가 저장되어 있다.
+- 검색 Edge Function은 활성 v16이다. 코드상 Google/Bing/DuckDuckGo HTML 및 구성된 네이버/카카오 API adapter를 사용한다. 모든 공급자가 항상 접근 가능하다고 가정하지 말고 각 공급자의 실패 상태를 독립적으로 기록해야 한다.
+- Supabase 보안 Advisor가 RLS 정책이 없는 `admin_users`, `answer_link_click_events` 테이블을 보고하고 있다.
+- 공개 스키마의 일부 SECURITY DEFINER RPC가 authenticated 또는 anon에 실행 가능하다는 경고가 있다. 현재 호출 경로와 권한 검증을 확인한 뒤 최소 권한으로 조정한다.
+- `site_pages.updated_by` 외래 키 인덱스가 누락되었다는 성능 경고가 있다.
+- 현재 관리자 화면은 검색 실행과 후보 검수를 한 페이지에 함께 보여주며 후보 조회가 최대 500개로 제한되어 있다. 전체 171개 현재 후보는 표시 가능하지만, 향후에는 서버 페이지네이션이 필요하다.
+
+## 구현 단계와 배포 게이트
+
+1. 현재 코드·RLS·RPC·Edge Function·배포 설정을 문서화하고 테스트 기준선을 만든다.
+2. 새 관리자 화면을 기존 데이터 API 위에 구축하고 기존 화면으로 되돌릴 수 있는 경로를 유지한다.
+3. 검색 실행/출처별 진단 스키마를 추가하는 비파괴 migration을 준비한다.
+4. 검색 엔진 adapter, 출처별 재시도, 종료 상태 판정, 실행별 결과 조회를 구현한다.
+5. 후보 점수/근거, 검수 이력, 동시 관리자 충돌 방지를 구현한다.
+6. 서버 측 예약·복구 작업과 Windows 클라이언트 동기화를 구현한다.
+7. 단위·통합·실제 Supabase 읽기/쓰기·권한·모바일·복구·백업/복원 시나리오를 테스트한다.
+8. 행 수와 주요 데이터 checksum을 전후 비교하고, 롤백 계획이 검증된 경우에만 운영 전환한다.
+
+## 배포 금지 조건
+
+- 기존 데이터 수 또는 주요 데이터 checksum 불일치
+- 권한 우회, RLS 오류, 관리자 아닌 계정의 관리자 작업 성공
+- 0 후보 종료 상태에서 출처별 진단 누락
+- 실행 재개/lease 충돌/중복 승인 테스트 실패
+- 모바일에서 주요 작업 수행 불가
+- 백업 복원 테스트 실패
+- CI, 타입 검사, 빌드 또는 필수 E2E 테스트 실패
+
+운영 Supabase schema/Edge Function/스케줄 변경은 별도 migration 및 테스트 결과를 확인하기 전까지 수행하지 않는다.
+
+
+## V2 implementation status (2026-11-14)
+
+### Added to the draft branch
+
+- New guided 3-step search execution screen; search controls are separated from history and candidate review.
+- New /admin/search-history screen with run isolation, unified candidate review, pagination across candidate rows, bulk approve/reject, CSV/JSON/XLSX export, provider attempt details and terminal diagnosis.
+- Search Edge Function now records query-level attempts, provider lists, result/candidate/filter counts, warnings, durations, retry counts and error messages.
+- Search provider adapters retain partial provider failures instead of silently discarding them.
+- Global request-per-minute reservation is backed by Postgres so browser and scheduled workers share one budget.
+- Batch size, retry limit, provider mode and requests-per-minute are configurable in /admin/search-settings.
+- Daily schedule checks the configured time in Asia/Seoul; default remains 06:00.
+- New books and matching user requests are added to a priority queue; failed queue items receive bounded exponential retries.
+- Daily link checker checks HTTP status and PDF file signature without following redirects. Broken/redirected/invalid-PDF links are queued for replacement search.
+- Candidate score and explainable matching evidence are stored. Scores are heuristics based on search-result title/snippet and URL metadata, not a guarantee that the external PDF's full text was parsed.
+- Administrator roles: super admin, search operator, reviewer, content manager and support. Existing admins are seeded as super admins.
+- Database RLS and candidate review RPCs check the role permissions. Last-super-admin demotion is guarded.
+- Administrator route access and data-change audit events are stored separately.
+- Dashboard includes run status, candidate backlog, duplicate count, broken-link count, queue size, pending user requests and recent activity.
+- Windows local program shortcut points to the currently verified GitHub Actions artifact run; local candidate import function is retained.
+- Added CI jobs for web build, Deno Edge Function typecheck and non-destructive schema contract checks.
+
+### Migration order
+
+1. 20261114120000_answer_search_v2_diagnostics_queue_audit.sql
+2. 20261114121000_answer_search_scheduler.sql
+3. 20261114122000_admin_role_permissions.sql
+4. 20261114123000_answer_search_global_rate_limit.sql
+5. 20261114124000_answer_link_health_fields.sql
+6. 20261114125000_answer_candidate_match_scoring.sql
+
+All migrations are additive or replace existing policies/functions with permission-aware equivalents. They do not delete catalog rows. The 30-day retention job deletes only completed/failed/paused run rows and associated query-attempt rows; candidate rows are retained with run_id = NULL, and audit events are retained.
+
+### Required server setup before scheduled work is considered active
+
+The scheduler migration installs pg_cron and pg_net, then schedules:
+- configurable daily search time (default 06:00 Asia/Seoul),
+- one batch worker tick per minute,
+- new-book/user-request queue worker every five minutes,
+- daily link/PDF health check at 04:30 Asia/Seoul,
+- daily 30-day run-history retention at 04:00 Asia/Seoul.
+
+The jobs intentionally do nothing until the following two Supabase Vault secrets exist:
+- dapjimoum_project_url
+- dapjimoum_service_role_key
+
+The service-role secret must be entered only in Supabase Vault (or the trusted Supabase dashboard), never in the browser, repository, CI logs or ChatGPT messages. The secret names are visible in the admin settings screen; secret values are not.
+
+### Current validation and remaining deployment gates
+
+- A read-only live Supabase inventory confirmed existing rows: books 1,762; answer_links 26; runs 7; candidates 171; user_submissions 2; site_pages 5; admin_users 1.
+- The currently connected Supabase Vault had no decrypted secrets at the time of inspection. Scheduled Edge Function calls therefore cannot be considered active yet.
+- No V2 migration has been applied to the production database, and no V2 Edge Function has been deployed.
+- No production data has been modified by this V2 work.
+- CI has already exposed and corrected one Edge Function candidate-type error and one web JSX string-quoting error. Re-run the complete CI after the latest commits.
+- The schema contract check is static. It is not a substitute for applying migrations to an isolated database and running real SQL/RLS/backup-restore tests.
+- The project owner must provide an isolated Supabase staging branch or a separately provisioned staging project to test migrations and restore procedures before production migration. Creating a Supabase database branch may incur additional charges; do not create one without cost approval.
+- A full PDF text extraction pipeline is not implemented. Current PDF validation checks the HTTP response, content type and %PDF- signature; candidate scoring uses search snippets and URL/title evidence. Do not claim that the full PDF body has been semantically analyzed.
+- The current local Windows artifact is the previously verified package from Actions run 43584387790; a new package must be built and QA-tested after the API/schema changes if the local client itself is changed.
+
+### Deployment order after staging QA
+
+1. Create and test a full database backup and restore.
+2. Apply the migrations in order to staging.
+3. Deploy answer-link-search and answer-link-health-check Edge Functions to staging.
+4. Add the two Vault secrets in staging and verify Cron HTTP responses in net._http_response and cron.job_run_details.
+5. Run end-to-end tests for scheduled/manual search, queue retries, PDF health checks, role-based access, audit events, and 30-day retention.
+6. Compare all preserved data counts and checksums.
+7. Only after staging and restore tests pass, schedule production migration/deployment with rollback steps.

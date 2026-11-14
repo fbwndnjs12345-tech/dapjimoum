@@ -125,42 +125,22 @@ type SharedSearchRun = {
 
 function AdminSharedSearchStatus({ currentRoute, navigateTo }: { currentRoute: string; navigateTo: (path: string) => void }) {
   const [run, setRun] = useState<SharedSearchRun | null>(null);
+  const [schedulerConfigured, setSchedulerConfigured] = useState(false);
   useEffect(() => {
     let alive = true;
-    let workerRunning = false;
-    const delay = (ms: number) => new Promise(resolve => window.setTimeout(resolve, ms));
-    const runSharedBatches = async (runId: string) => {
-      if (workerRunning || currentRoute === '/admin/link-search') return;
-      workerRunning = true;
-      try {
-        while (alive) {
-          const { data: batch, error: batchError } = await supabase.functions.invoke('answer-link-search', { body: { action: 'batch', runId } });
-          if (batchError) {
-            await delay(1500);
-            const { data: state } = await supabase.from('answer_link_search_runs').select('status').eq('id', runId).maybeSingle();
-            if (!state || state.status !== 'running') break;
-            continue;
-          }
-          const { data: latest, error: readError } = await supabase.from('answer_link_search_runs')
-            .select('status,next_index,book_ids').eq('id', runId).maybeSingle();
-          if (readError || !latest || latest.status !== 'running' || batch?.done) break;
-          if (batch?.busy) await delay(1000);
-        }
-      } finally {
-        workerRunning = false;
-        if (alive) void sync();
-      }
-    };
     const sync = async () => {
-      const { data, error } = await supabase.from('answer_link_search_runs')
-        .select('id,status,book_ids,processed_books,candidate_count,api_requests,provider_mode')
-        .eq('status', 'running').order('started_at', { ascending: false }).limit(1).maybeSingle();
-      if (!alive || error) return;
-      setRun(data as SharedSearchRun | null);
-      if (data && currentRoute !== '/admin/link-search') void runSharedBatches(data.id);
+      const [runResponse, settingsResponse] = await Promise.all([
+        supabase.from('answer_link_search_runs')
+          .select('id,status,book_ids,processed_books,candidate_count,api_requests,provider_mode')
+          .eq('status', 'running').order('started_at', { ascending: false }).limit(1).maybeSingle(),
+        supabase.from('answer_link_search_settings').select('scheduler_configured').eq('singleton', true).maybeSingle(),
+      ]);
+      if (!alive) return;
+      if (!runResponse.error) setRun(runResponse.data as SharedSearchRun | null);
+      if (!settingsResponse.error) setSchedulerConfigured(Boolean(settingsResponse.data?.scheduler_configured));
     };
     void sync();
-    const timer = window.setInterval(() => { void sync(); }, 3000);
+    const timer = window.setInterval(() => { void sync(); }, 5000);
     const channel = supabase.channel('admin-global-search-status')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'answer_link_search_runs' }, () => { void sync(); })
       .subscribe();
@@ -169,13 +149,13 @@ function AdminSharedSearchStatus({ currentRoute, navigateTo }: { currentRoute: s
       window.clearInterval(timer);
       void supabase.removeChannel(channel);
     };
-  }, [currentRoute]);
+  }, []);
   if (!run || currentRoute === '/admin/link-search') return null;
   const total = Math.max(1, run.book_ids.length);
   const progress = Math.min(100, Math.round(run.processed_books / total * 100));
   return <section role="status" className="rounded-2xl border border-[#D0D5DD] bg-[#F9FAFB] p-3 sm:p-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <div><p className="text-sm font-bold text-[#191F28]">공용 답지 자동 검색 실행 중</p><p className="mt-1 text-xs text-[#667085]">다른 관리자 화면에서도 진행 중인 작업을 공유하고 있습니다.</p></div>
+      <div><p className="text-sm font-bold text-[#191F28]">공용 답지 자동 검색 실행 중</p><p className="mt-1 text-xs text-[#667085]">{schedulerConfigured ? '서버 작업자가 진행 상황을 처리합니다. 브라우저를 닫아도 실행은 이어집니다.' : '서버 예약 인증 설정 전입니다. 검색 실행 화면을 열어두어야 작업이 계속 진행됩니다.'}</p></div>
       <button type="button" onClick={() => navigateTo('/admin/link-search')} className="min-h-10 rounded-lg bg-[#191F28] px-3 py-2 text-xs font-bold text-white">검색 현황 보기</button>
     </div>
     <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#EAECF0]"><div className="h-full rounded-full bg-[#344054] transition-all" style={{ width: progress + '%' }} /></div>
@@ -214,6 +194,10 @@ export function renderAdminLayout(content: React.ReactNode) {
               { path: '/admin/books', label: '교재 관리', count: books.length, icon: BookOpen, active: currentRoute.startsWith('/admin/books') },
               { path: '/admin/import', label: 'CSV 일괄 등록', count: null, icon: FileSpreadsheet, active: currentRoute === '/admin/import' },
               { path: '/admin/link-search', label: '답지 링크 자동 검색', count: null, icon: ScanSearch, active: currentRoute === '/admin/link-search' },
+              { path: '/admin/search-history', label: '검색 기록·후보 검수', count: null, icon: RefreshCw, active: currentRoute === '/admin/search-history' },
+              { path: '/admin/roles', label: '관리자 권한', count: null, icon: Lock, active: currentRoute === '/admin/roles' },
+              { path: '/admin/activity', label: '관리자 활동 기록', count: null, icon: RefreshCw, active: currentRoute === '/admin/activity' },
+              { path: '/admin/search-settings', label: '자동 검색 설정', count: null, icon: RefreshCw, active: currentRoute === '/admin/search-settings' },
               { path: '/admin/inbox', label: '사용자 접수함', count: null, icon: Inbox, active: currentRoute === '/admin/inbox' },
               { path: '/admin/site-content', label: '사이트 문서 관리', count: null, icon: Globe, active: currentRoute === '/admin/site-content' }
             ].map(item => {
@@ -251,6 +235,14 @@ export function AdminDashboard() {
     const [submissionLoading, setSubmissionLoading] = useState(true);
     const [submissionError, setSubmissionError] = useState('');
     const [updatingSubmissionId, setUpdatingSubmissionId] = useState<string | null>(null);
+    const [operationMetrics, setOperationMetrics] = useState({
+      running: 0, completed: 0, failed: 0, pendingCandidates: 0, duplicateCandidates: 0,
+      brokenLinks: 0, queuedBooks: 0, pendingRequests: 0, successRate: 0,
+    });
+    const [recentAdminActivity, setRecentAdminActivity] = useState<Array<{ id: string; action: string; entity_type: string; entity_id: string; actor_email: string | null; created_at: string }>>([]);
+    const [metricsLoading, setMetricsLoading] = useState(false);
+    const [metricsSchemaReady, setMetricsSchemaReady] = useState(false);
+    const [metricsWarning, setMetricsWarning] = useState('');
     const loadSubmissions = async () => {
       setSubmissionLoading(true);
       setSubmissionError('');
@@ -266,6 +258,45 @@ export function AdminDashboard() {
       }
     };
     useEffect(() => { if (currentRoute === '/admin/inbox') void loadSubmissions(); }, [currentRoute]);
+    useEffect(() => {
+      if (currentRoute !== '/admin') return;
+      let alive = true;
+      const loadOperations = async () => {
+        setMetricsLoading(true);
+        const since = new Date(Date.now() - 30 * 86400000).toISOString();
+        const [runs, pending, duplicates, broken, queue, requests, activity] = await Promise.all([
+          supabase.from('answer_link_search_runs').select('id,status').gte('started_at', since).limit(1000),
+          supabase.from('answer_link_candidates').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+          supabase.from('answer_link_candidates').select('id', { count: 'exact', head: true }).eq('status', 'duplicate'),
+          supabase.from('answer_links').select('id', { count: 'exact', head: true }).in('health_status', ['broken','redirected','invalid_pdf']),
+          supabase.from('answer_link_search_queue').select('id', { count: 'exact', head: true }).eq('status', 'queued'),
+          supabase.from('user_submissions').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+          supabase.rpc('admin_list_activity_events'),
+        ]);
+        if (!alive) return;
+        const schemaReady = !broken.error && !queue.error;
+        setMetricsSchemaReady(schemaReady);
+        setMetricsWarning(schemaReady ? '' : '검색 진단·대기열 마이그레이션 적용 전입니다. 기존 통계는 보존되며 새 지표는 스키마 적용 후 표시됩니다.');
+        const runRows = runs.data ?? [];
+        const completed = runRows.filter(row => row.status === 'completed').length;
+        const failed = runRows.filter(row => row.status === 'failed').length;
+        setOperationMetrics({
+          running: runRows.filter(row => row.status === 'running').length,
+          completed, failed,
+          pendingCandidates: pending.count ?? 0,
+          duplicateCandidates: duplicates.count ?? 0,
+          brokenLinks: broken.count ?? 0,
+          queuedBooks: queue.count ?? 0,
+          pendingRequests: requests.count ?? 0,
+          successRate: completed + failed ? Math.round(completed / (completed + failed) * 100) : 0,
+        });
+        if (!activity.error) setRecentAdminActivity((activity.data ?? []).slice(0, 5) as typeof recentAdminActivity);
+        setMetricsLoading(false);
+      };
+      void loadOperations();
+      const timer = window.setInterval(() => { void loadOperations(); }, 30000);
+      return () => { alive = false; window.clearInterval(timer); };
+    }, [currentRoute]);
     const updateSubmissionStatus = async (submission: UserSubmission, status: UserSubmission['status']) => {
       setUpdatingSubmissionId(submission.id);
       setSubmissionError('');
@@ -313,6 +344,26 @@ export function AdminDashboard() {
             <div className="text-2xl font-extrabold text-[#3182F6]">{catalogStatus === 'success' ? `${totalClicks.toLocaleString()}회` : catalogStatus === 'loading' ? '불러오는 중' : '조회 실패'}</div>
           </div>
         </div>
+
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-2"><div><h3 className="font-bold text-[#191F28]">검색·데이터 품질 현황</h3><p className="mt-1 text-xs text-[#667085]">최근 30일 실행과 현재 검수 대기 현황 · {metricsLoading ? '갱신 중' : '30초마다 자동 갱신'}</p></div><button type="button" onClick={() => navigateTo('/admin/search-history')} className="text-xs font-semibold text-[#344054] underline">상세 기록</button></div>
+          {metricsWarning && <p role="status" className="rounded-xl border border-[#D0D5DD] bg-[#F9FAFB] p-3 text-xs text-[#475467]">{metricsWarning}</p>}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">검색 진행 중</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{operationMetrics.running}</p></div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">검색 성공률</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{operationMetrics.successRate}%</p></div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">미검수 후보</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{metricsSchemaReady ? operationMetrics.pendingCandidates : '—'}</p></div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">중복 후보</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{metricsSchemaReady ? operationMetrics.duplicateCandidates : '—'}</p></div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">링크 오류</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{metricsSchemaReady ? operationMetrics.brokenLinks : '—'}</p></div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">자동 검색 대기</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{metricsSchemaReady ? operationMetrics.queuedBooks : '—'}</p></div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">사용자 요청 대기</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{operationMetrics.pendingRequests}</p></div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4"><p className="text-xs text-[#667085]">최근 검색 실패</p><p className="mt-1 text-2xl font-extrabold tabular-nums">{operationMetrics.failed}</p></div>
+          </div>
+          <div className="flex flex-wrap gap-2"><button type="button" onClick={() => navigateTo('/admin/link-search')} className="min-h-10 rounded-xl bg-[#191F28] px-3 text-xs font-bold text-white">검색 실행</button><button type="button" onClick={() => navigateTo('/admin/inbox')} className="min-h-10 rounded-xl border border-[#D0D5DD] bg-white px-3 text-xs font-semibold text-[#344054]">사용자 접수함</button><button type="button" onClick={() => navigateTo('/admin/search-settings')} className="min-h-10 rounded-xl border border-[#D0D5DD] bg-white px-3 text-xs font-semibold text-[#344054]">자동 검색 설정</button></div>
+        </section>
+        <section className="rounded-2xl border border-[#E5E8EB] bg-white p-4 sm:p-5">
+          <div className="flex items-center justify-between gap-2"><h3 className="font-bold text-[#191F28]">최근 관리자 활동</h3><button type="button" onClick={() => navigateTo('/admin/activity')} className="text-xs font-semibold text-[#344054] underline">전체 보기</button></div>
+          {recentAdminActivity.length === 0 ? <p className="py-5 text-xs text-[#667085]">활동 기록이 없거나 조회 권한이 없습니다.</p> : <div className="mt-3 divide-y divide-[#EAECF0]">{recentAdminActivity.map(event => <div key={event.id} className="flex flex-wrap items-center justify-between gap-2 py-2"><div><p className="text-xs font-semibold text-[#344054]">{event.action} · {event.entity_type}</p><p className="mt-1 text-[11px] text-[#667085]">{event.actor_email ?? '시스템'} · {event.entity_id}</p></div><time className="text-[11px] text-[#98A2B3]">{new Date(event.created_at).toLocaleString('ko-KR')}</time></div>)}</div>}
+        </section>
 
         {/* Action Toolbar */}
         <div className="flex flex-col sm:flex-row gap-2">
