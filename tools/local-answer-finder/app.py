@@ -51,7 +51,7 @@ class FinderApp:
         self.password = tk.StringVar()
         self.status = tk.StringVar(value="Supabase에서 교재를 불러오거나 CSV 파일을 선택하세요.")
         self.headed = tk.BooleanVar(value=True)
-        self.max_pages = tk.StringVar(value="500")
+        self.max_pages = tk.StringVar(value="80")
         self._build()
         self.root.after(150, self._poll)
 
@@ -132,7 +132,7 @@ class FinderApp:
             if example.exists():
                 self.config_text.insert("1.0", example.read_text(encoding="utf-8"))
             else:
-                self.config_text.insert("1.0", json.dumps({"sources": [], "max_sitemap_urls_per_source": 500, "request_delay_seconds": 1.5, "page_timeout_ms": 20000, "answer_keywords": ["정답과 해설", "정답 해설", "답지"]}, ensure_ascii=False, indent=2))
+                self.config_text.insert("1.0", json.dumps({"sources": [], "max_sitemap_urls_per_source": 80, "request_delay_seconds": 1.0, "page_timeout_ms": 20000, "answer_keywords": ["정답과 해설", "정답 해설", "답지"]}, ensure_ascii=False, indent=2))
         cfgbuttons = ttk.Frame(sourcecard)
         cfgbuttons.pack(fill="x")
         ttk.Button(cfgbuttons, text="설정 저장 및 검사", command=self.save_config, style="Accent.TButton").pack(side="left")
@@ -246,12 +246,15 @@ class FinderApp:
             engines = web_cfg.get("engines", ["google", "bing"])
             if web_enabled and (not isinstance(engines, list) or not engines or any(x not in ("google", "bing") for x in engines)):
                 raise ValueError("web_search.engines에는 google 또는 bing을 하나 이상 지정하세요.")
-            results_per_engine = int(web_cfg.get("results_per_engine", 8))
-            if results_per_engine < 1 or results_per_engine > 20:
-                raise ValueError("검색엔진별 결과 수는 1~20 사이여야 합니다.")
-            max_queries = int(web_cfg.get("max_queries_per_book", 8))
-            if max_queries < 1 or max_queries > 10:
-                raise ValueError("교재별 검색어 수는 1~10 사이여야 합니다.")
+            results_per_engine = int(web_cfg.get("results_per_engine", 5))
+            if results_per_engine < 1 or results_per_engine > 5:
+                raise ValueError("검색엔진별 결과 수는 1~5 사이여야 합니다.")
+            max_queries = int(web_cfg.get("max_queries_per_book", 3))
+            if max_queries < 1 or max_queries > 3:
+                raise ValueError("교재별 검색어 수는 1~3 사이여야 합니다.")
+            max_candidates = int(web_cfg.get("max_candidates_per_book", 5))
+            if max_candidates < 1 or max_candidates > 5:
+                raise ValueError("교재별 최종 후보 수는 1~5 사이여야 합니다.")
             seen = set()
             for index, source in enumerate(sources, 1):
                 if not isinstance(source, dict):
@@ -268,12 +271,12 @@ class FinderApp:
                     if normalized in seen:
                         raise ValueError(f"중복된 자료실 주소: {normalized}")
                     seen.add(normalized)
-            delay = float(config.get("request_delay_seconds", 1.5))
+            delay = float(config.get("request_delay_seconds", 1.0))
             timeout = int(config.get("page_timeout_ms", 20000))
-            pages = int(config.get("max_sitemap_urls_per_source", 500))
+            pages = int(config.get("max_sitemap_urls_per_source", 80))
             terms = config.get("answer_keywords")
-            if not math.isfinite(delay) or delay < 1 or timeout < 1000 or pages < 1:
-                raise ValueError("요청 간격은 1초 이상, 페이지 시간 제한은 1000ms 이상, 최대 페이지는 1 이상이어야 합니다.")
+            if not math.isfinite(delay) or delay < 1 or timeout < 1000 or pages < 1 or pages > 100:
+                raise ValueError("요청 간격은 1초 이상, 페이지 시간 제한은 1000ms 이상, 출처별 최대 페이지는 1~100이어야 합니다.")
             if not isinstance(terms, list) or not terms or any(not isinstance(term, str) or not term.strip() for term in terms):
                 raise ValueError("answer_keywords는 비어 있지 않은 문자열 배열이어야 합니다.")
             DEFAULT_CONFIG.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

@@ -163,48 +163,34 @@ def search_google_page(page, query: str, limit: int = 10, allow_manual: bool = F
     return results
 
 
-def build_queries(book: dict[str, str], max_queries: int = 8) -> list[str]:
-    """Build combined, book-specific queries rather than searching generic fragments."""
+def build_queries(book: dict[str, str], max_queries: int = 3) -> list[str]:
+    """Build a small set of high-intent queries while retaining blog coverage."""
     title = (book.get("title") or "").strip()
     if not title:
         return []
-
     series = (book.get("series") or "").strip()
     publisher = (book.get("publisher") or "").strip()
     subject = (book.get("subject") or "").strip()
     grade = (book.get("grade") or "").strip()
     semester = (book.get("semester") or "").strip()
-
-    # Keep the edition in the query even when the CSV metadata is incomplete.
     edition_match = re.search(r"(?<![0-9])([1-3])\s*[-–]\s*([12])(?![0-9])", title)
     edition = f"{edition_match.group(1)}-{edition_match.group(2)}" if edition_match else ""
     identity = [x for x in (series, subject, grade, semester, edition) if x]
     identity = list(dict.fromkeys(identity))
     full_identity = " ".join(identity) if identity else title
-    publisher_identity = " ".join(x for x in (publisher, *identity) if x)
-    platform_clause = "(site:tistory.com OR site:blog.naver.com OR site:blogspot.com OR site:brunch.co.kr OR site:velog.io OR site:wordpress.com OR site:cafe.naver.com)"
-
-    # Each query combines the distinctive book identity with answer intent.
-    # Platform-restricted searches are separate so one large OR expression
-    # cannot cause the search engine to silently ignore individual platforms.
+    publisher_identity = " ".join(x for x in (publisher, *identity) if x) or full_identity
+    blog_clause = "(site:tistory.com OR site:blog.naver.com)"
     variants = [
         f'"{title}" "답지"',
-        f'"{title}" "정답과 해설"',
-        f'"{full_identity}" "답지"',
-        f'"{full_identity}" "정답" "해설"',
-        f'"{publisher_identity}" "답지"' if publisher else f'"{full_identity}" "해설"',
-        f'"{title}" {platform_clause} 답지',
-        f'"{full_identity}" site:tistory.com 답지',
-        f'"{full_identity}" site:blog.naver.com 답지',
-        f'"{full_identity}" site:blogspot.com 답지',
-        f'"{full_identity}" site:cafe.naver.com 답지',
+        f'"{publisher_identity}" "정답과 해설"',
+        f'"{full_identity}" {blog_clause} 답지',
     ]
     result = []
     for query in variants:
         query = " ".join(query.split())
         if query and query not in result:
             result.append(query)
-        if len(result) >= max(1, min(10, max_queries)):
+        if len(result) >= max(1, min(3, max_queries)):
             break
     return result
 
@@ -354,13 +340,14 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     web_enabled=bool(web_cfg.get("enabled",True)); engines=web_cfg.get("engines",["google","bing"])
     if not sources and not web_enabled: raise ValueError("공식 자료실 또는 공개 웹 검색 중 하나 이상을 활성화하세요.")
     terms=config.get("answer_keywords") or ["정답과 해설","정답 해설","정답 및 해설","답지"]
-    delay=max(1.0,float(config.get("request_delay_seconds",2.0))); timeout=int(config.get("page_timeout_ms",20000))
-    limit=max_pages_override or int(config.get("max_sitemap_urls_per_source",500))
-    search_limit=max(1,min(20,int(web_cfg.get("results_per_engine",8))))
-    query_limit=max(1,min(10,int(web_cfg.get("max_queries_per_book",8))))
+    delay=max(1.0,float(config.get("request_delay_seconds",1.0))); timeout=int(config.get("page_timeout_ms",20000))
+    limit=max(1, min(100, max_pages_override or int(config.get("max_sitemap_urls_per_source",80))))
+    search_limit=max(1,min(5,int(web_cfg.get("results_per_engine",5))))
+    query_limit=max(1,min(3,int(web_cfg.get("max_queries_per_book",3))))
+    candidate_limit=max(1,min(5,int(web_cfg.get("max_candidates_per_book",5))))
     candidates={}; robots_cache={}
     log(callback,f"교재 {len(books)}권 · 공식 출처 {len(sources)}곳 · 공개 검색엔진 {', '.join(engines) if web_enabled else '사용 안 함'}")
-    log(callback,f"검색 전략: 교재당 최대 {query_limit}개 검색어 · 엔진별 검색 결과 최대 {search_limit}개")
+    log(callback,f"검색 전략: 교재당 검색어 최대 {query_limit}개 · 엔진별 결과 최대 {search_limit}개 · 최종 후보 최대 {candidate_limit}개")
     with sync_playwright() as p:
         browser=p.chromium.launch(headless=not headed); context=browser.new_context(user_agent=USER_AGENT,locale="ko-KR")
         page=context.new_page(); page.set_default_navigation_timeout(timeout)
@@ -398,7 +385,19 @@ h1{font-size:22px;margin:0 0 12px}p{line-height:1.7;color:#475569}small{color:#6
                  "source_type":source_label,"snippet":str(snippet or "")[:1200],"match_score":score,
                  "match_status":status,"matched_answer_terms":matched,
                  "link_type":"PDF" if parsed.path.lower().endswith(".pdf") else "웹페이지","search_query":query}
-            if key not in candidates or score>int(candidates[key].get("match_score",0)): candidates[key]=row
+            if key in candidates:
+                if score > int(candidates[key].get("match_score", 0)):
+                    candidates[key] = row
+                return
+            book_key = book.get("id") or book.get("title")
+            same_book = [(candidate_key, candidate) for candidate_key, candidate in candidates.items()
+                         if candidate_key[0] == book_key]
+            if len(same_book) >= candidate_limit:
+                weakest_key, weakest = min(same_book, key=lambda item: int(item[1].get("match_score", 0)))
+                if score <= int(weakest.get("match_score", 0)):
+                    return
+                candidates.pop(weakest_key, None)
+            candidates[key] = row
         try:
             for source in sources:
                 if stop_event is not None and stop_event.is_set(): break

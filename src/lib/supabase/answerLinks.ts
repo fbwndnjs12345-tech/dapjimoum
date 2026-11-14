@@ -118,3 +118,15 @@ export async function recordAnswerLinkClick(linkId: string, clickId: string): Pr
   if (error) throw error;
   return data as number;
 }
+
+export type AnswerLinkCount = { book_id: string; link_count: number; click_count: number };
+
+export async function getPublicAnswerLinkCounts(): Promise<AnswerLinkCount[]> {
+  const { data, error } = await supabase.rpc('get_public_answer_link_counts');
+  if (error) throw error;
+  return ((data ?? []) as Array<{ book_id: string; link_count: number | string; click_count: number | string }>).map(row => ({
+    book_id: row.book_id,
+    link_count: Number(row.link_count),
+    click_count: Number(row.click_count)
+  }));
+}

@@ -1,17 +1,62 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
-import type { AnswerLink, Book } from '../../types/book';
+import type { Book } from '../../types/book';
+import type { AnswerLinkCount } from '../../lib/supabase/answerLinks';
 import { isPlaceholderBook } from '../../lib/catalog';
 
 import { useAppContext } from '../../state/useAppContext';
 import { BookCard } from '../../components/books/BookCard';
 import { SearchFilters } from '../../components/search/SearchFilters';
 
+function searchTokens(value: string): string[] {
+  return (value.toLocaleLowerCase('ko-KR').normalize('NFKC').match(/[가-힣]+|[a-z]+|[0-9]+/g) ?? [])
+    .filter(token => token.length > 0);
+}
+
+function normalizeSearchValue(value: string): string {
+  return value.toLocaleLowerCase('ko-KR').normalize('NFKC').replace(/[\s·ㆍ_\-–—()[\]{}:：,.]+/g, '');
+}
+
+function isOneEditAway(left: string, right: string): boolean {
+  if (Math.abs(left.length - right.length) > 1 || Math.min(left.length, right.length) < 4) return false;
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < left.length && j < right.length) {
+    if (left[i] === right[j]) { i += 1; j += 1; continue; }
+    edits += 1;
+    if (edits > 1) return false;
+    if (left.length > right.length) i += 1;
+    else if (right.length > left.length) j += 1;
+    else { i += 1; j += 1; }
+  }
+  if (i < left.length || j < right.length) edits += 1;
+  return edits <= 1;
+}
+
+function scoreBookSearch(book: Book, query: string): number {
+  const fields = [book.title, book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.description]
+    .filter((value): value is string => Boolean(value));
+  const normalizedQuery = normalizeSearchValue(query);
+  if (!normalizedQuery) return 1;
+  if (fields.some(value => normalizeSearchValue(value) === normalizedQuery)) return 120;
+  if (normalizeSearchValue(book.title).includes(normalizedQuery)) return 110;
+  if (fields.some(value => normalizeSearchValue(value).includes(normalizedQuery))) return 100;
+  const queryParts = searchTokens(query);
+  const fieldParts = fields.flatMap(searchTokens);
+  if (!queryParts.length) return 0;
+  const hits = queryParts.filter(token => fieldParts.some(field => field === token || (token.length >= 2 && field.startsWith(token)) || isOneEditAway(token, field)));
+  const ratio = hits.length / queryParts.length;
+  if (ratio === 1) return 80 + Math.min(15, queryParts.length * 3);
+  if (queryParts.length >= 2 && ratio >= 0.75) return 50 + ratio * 20;
+  return 0;
+}
+
 export function SearchPage() {
     const {bookmarks, searchQuery, setSearchQuery, subjectFilter, setSubjectFilter, gradeFilter, setGradeFilter, semesterFilter, setSemesterFilter, publisherFilter, setPublisherFilter, sortBy, setSortBy, setIsRequestModalOpen, navigateTo, toggleBookmark} = useAppContext();
     const [allBooks, setAllBooks] = useState<Book[]>([]);
-    const [links, setLinks] = useState<AnswerLink[]>([]);
+    const [linkCounts, setLinkCounts] = useState<AnswerLinkCount[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState('');
     const [reloadKey, setReloadKey] = useState(0);
@@ -26,16 +71,16 @@ export function SearchPage() {
         }
         if (isCurrentRequest) { setIsLoading(true); setLoadError(''); }
         try {
-          const [{ getBooks }, { getAnswerLinks }] = await Promise.all([
+          const [{ getBooks }, { getPublicAnswerLinkCounts }] = await Promise.all([
             import('../../lib/supabase/books'),
             import('../../lib/supabase/answerLinks')
           ]);
-          const [books, answerLinks] = await Promise.all([getBooks(), getAnswerLinks()]);
-          if (isCurrentRequest) { setAllBooks(books); setLinks(answerLinks); }
+          const [books, counts] = await Promise.all([getBooks(), getPublicAnswerLinkCounts()]);
+          if (isCurrentRequest) { setAllBooks(books); setLinkCounts(counts); }
         } catch (error) {
           if (isCurrentRequest) {
             setAllBooks([]);
-            setLinks([]);
+            setLinkCounts([]);
             setLoadError(error instanceof Error ? error.message : '교재 데이터를 불러오지 못했습니다.');
           }
         } finally {
@@ -47,25 +92,27 @@ export function SearchPage() {
     }, [reloadKey]);
 
     const displayedBooks = useMemo(() => {
-      const query = searchQuery.trim().toLocaleLowerCase();
+      const query = searchQuery.trim();
       const filtered = allBooks.filter(book => !isPlaceholderBook(book)).filter(book => {
-        const matchesQuery = !query || [book.title, book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.description]
-          .some(value => value?.toLocaleLowerCase().includes(query));
+        const matchesQuery = !query || scoreBookSearch(book, query) > 0;
         return matchesQuery &&
           (publisherFilter === '전체' || book.publisher?.trim() === publisherFilter) &&
           (subjectFilter === '전체' || book.subject?.trim() === subjectFilter) &&
           (gradeFilter === '전체' || book.grade?.trim() === gradeFilter) &&
           (semesterFilter === '전체' || book.semester?.trim() === semesterFilter);
       });
-      const clicksByBook = new Map<string, number>();
-      links.forEach(link => clicksByBook.set(link.book_id, (clicksByBook.get(link.book_id) ?? 0) + link.click_count));
+      const countsByBook = new Map(linkCounts.map(item => [item.book_id, item] as const));
+      if (query && sortBy !== 'latest') return filtered.sort((a, b) =>
+        scoreBookSearch(b, query) - scoreBookSearch(a, query) ||
+        (countsByBook.get(b.id)?.click_count ?? 0) - (countsByBook.get(a.id)?.click_count ?? 0)
+      );
       if (sortBy === 'popular') return filtered.sort((a, b) =>
-        (clicksByBook.get(b.id) ?? 0) - (clicksByBook.get(a.id) ?? 0) ||
+        (countsByBook.get(b.id)?.click_count ?? 0) - (countsByBook.get(a.id)?.click_count ?? 0) ||
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
       if (sortBy === 'latest') return filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-      return filtered;
-    }, [allBooks, links, searchQuery, publisherFilter, subjectFilter, gradeFilter, semesterFilter, sortBy]);
+      return filtered.sort((a, b) => scoreBookSearch(b, query) - scoreBookSearch(a, query));
+    }, [allBooks, linkCounts, searchQuery, publisherFilter, subjectFilter, gradeFilter, semesterFilter, sortBy]);
     const visibleCatalog = useMemo(() => allBooks.filter(book => !isPlaceholderBook(book)), [allBooks]);
 
     return (
@@ -86,7 +133,7 @@ export function SearchPage() {
               onChange={(e) => setSortBy(e.target.value)}
               className="px-3.5 py-2 bg-white border border-[#E5E8EB] rounded-2xl text-xs font-bold text-[#191F28] outline-none focus:border-[#3182F6]"
             >
-              <option value="popular">{links.some(link => link.click_count > 0) ? '인기순 (조회수)' : '클릭 기록 없음 · 최신순'}</option>
+              <option value="popular">{linkCounts.some(link => link.click_count > 0) ? '인기순 (조회수)' : '클릭 기록 없음 · 최신순'}</option>
               <option value="latest">최신 등록순</option>
               <option value="relevance">관련도순</option>
             </select>
@@ -140,10 +187,10 @@ export function SearchPage() {
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {displayedBooks.map(book => {
-                  const bookLinks = links.filter(l => l.book_id === book.id);
+                  const bookLinks = linkCounts.find(item => item.book_id === book.id);
                   const isBookmarked = bookmarks.includes(book.id);
 
-                  return <BookCard key={book.id} book={book} linksCount={bookLinks.length} isBookmarked={isBookmarked} onOpen={() => navigateTo(`/books/${book.id}`, { id: book.id })} onToggleBookmark={(event) => toggleBookmark(book.id, event)} />;
+                  return <BookCard key={book.id} book={book} linksCount={bookLinks?.link_count ?? 0} isBookmarked={isBookmarked} onOpen={() => navigateTo(`/books/${book.id}`, { id: book.id })} onToggleBookmark={(event) => toggleBookmark(book.id, event)} />;
                 })}
               </div>
             )}

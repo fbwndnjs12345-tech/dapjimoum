@@ -91,10 +91,11 @@ export default function App() {
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [requestBookName, setRequestBookName] = useState('');
   const [requestBookPublisher, setRequestBookPublisher] = useState('');
+  const [isSubmissionSubmitting, setIsSubmissionSubmitting] = useState(false);
 
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [reportTargetLink, setReportTargetLink] = useState<AnswerLink | null>(null);
-  const [reportReason, setReportReason] = useState('깨진 링크 / 페이지 없음');
+  const [reportReason, setReportReason] = useState('깨진 링크 / 페이지 접속 불가');
 
   const [confirmDeleteDialog, setConfirmDeleteDialog] = useState(null);
 
@@ -293,18 +294,34 @@ export default function App() {
               원하는 교재의 답지가 없나요? 교재명과 출판사를 알려주시면 등록 여부를 확인하겠습니다.
             </p>
 
-            <form onSubmit={(e) => {
+            <form onSubmit={async (e) => {
               e.preventDefault();
-              if (!requestBookName) return;
-              setIsRequestModalOpen(false);
-              setRequestBookName('');
-              setRequestBookPublisher('');
-              showToast('답지 요청이 성공적으로 접수되었습니다!', 'success');
+              const bookTitle = requestBookName.trim();
+              if (!bookTitle || isSubmissionSubmitting) return;
+              setIsSubmissionSubmitting(true);
+              try {
+                const { supabase } = await import('./lib/supabase/client');
+                const { error } = await supabase.from('user_submissions').insert({
+                  submission_type: 'book_request',
+                  book_title: bookTitle,
+                  publisher: requestBookPublisher.trim() || null
+                });
+                if (error) throw error;
+                setIsRequestModalOpen(false);
+                setRequestBookName('');
+                setRequestBookPublisher('');
+                showToast('답지 등록 요청이 접수되었습니다.', 'success');
+              } catch (error) {
+                showToast(error instanceof Error ? error.message : '요청을 저장하지 못했습니다. 다시 시도해 주세요.', 'error');
+              } finally {
+                setIsSubmissionSubmitting(false);
+              }
             }} className="space-y-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-[#333D4B]">교재명 *</label>
                 <input
                   type="text"
+                  maxLength={200}
                   placeholder="예: 쎈 고등 수학(하), 자이스토리 영어"
                   value={requestBookName}
                   onChange={(e) => setRequestBookName(e.target.value)}
@@ -317,6 +334,7 @@ export default function App() {
                 <label className="text-xs font-bold text-[#333D4B]">출판사</label>
                 <input
                   type="text"
+                  maxLength={120}
                   placeholder="예: 좋은책신사고, 비상교육"
                   value={requestBookPublisher}
                   onChange={(e) => setRequestBookPublisher(e.target.value)}
@@ -334,9 +352,10 @@ export default function App() {
                 </button>
                 <button
                   type="submit"
-                  className="w-1/2 py-3 bg-[#3182F6] text-white font-bold text-sm rounded-2xl hover:bg-[#1B64DA] shadow-md shadow-[#3182F6]/20 transition-colors"
+                  disabled={isSubmissionSubmitting}
+                  className="w-1/2 py-3 bg-[#3182F6] text-white font-bold text-sm rounded-2xl hover:bg-[#1B64DA] shadow-md shadow-[#3182F6]/20 transition-colors disabled:opacity-60"
                 >
-                  요청 제출
+                  {isSubmissionSubmitting ? '접수 중…' : '요청 제출'}
                 </button>
               </div>
             </form>
@@ -398,13 +417,33 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setIsReportModalOpen(false);
-                  showToast('신고가 접수되었습니다. 빠르게 점검하겠습니다.', 'info');
+                onClick={async () => {
+                  if (!reportTargetLink || isSubmissionSubmitting) return;
+                  setIsSubmissionSubmitting(true);
+                  try {
+                    const { supabase } = await import('./lib/supabase/client');
+                    const { error } = await supabase.from('user_submissions').insert({
+                      submission_type: 'link_report',
+                      book_title: books.find(book => book.id === reportTargetLink.book_id)?.title ?? reportTargetLink.title,
+                      answer_link_id: reportTargetLink.id,
+                      answer_link_title: reportTargetLink.title.slice(0, 300),
+                      reason: reportReason,
+                      details: reportTargetLink.url.slice(0, 1000)
+                    });
+                    if (error) throw error;
+                    setIsReportModalOpen(false);
+                    setReportTargetLink(null);
+                    showToast('오류 신고가 접수되었습니다.', 'success');
+                  } catch (error) {
+                    showToast(error instanceof Error ? error.message : '신고를 저장하지 못했습니다. 다시 시도해 주세요.', 'error');
+                  } finally {
+                    setIsSubmissionSubmitting(false);
+                  }
                 }}
-                className="w-1/2 py-3 bg-[#F04438] text-white font-bold text-sm rounded-2xl hover:bg-[#D92D20]"
+                disabled={isSubmissionSubmitting}
+                className="w-1/2 py-3 bg-[#F04438] text-white font-bold text-sm rounded-2xl hover:bg-[#D92D20] disabled:opacity-60"
               >
-                신고 보내기
+                {isSubmissionSubmitting ? '접수 중…' : '신고 보내기'}
               </button>
             </div>
           </div>
