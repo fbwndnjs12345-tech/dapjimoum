@@ -94,3 +94,20 @@ select cron.schedule(
   $$ select private.invoke_answer_search_edge('scheduled_queue_start', null); $$
 );
 
+
+-- Keep run history for 30 days. Candidate review records survive with run_id = NULL,
+-- and the separate audit table is intentionally not pruned by this job.
+do $$
+begin
+  if exists (select 1 from cron.job where jobname = 'dapjimoum-answer-search-history-retention') then
+    perform cron.unschedule('dapjimoum-answer-search-history-retention');
+  end if;
+end $$;
+
+select cron.schedule(
+  'dapjimoum-answer-search-history-retention',
+  '0 19 * * *',
+  $$ delete from public.answer_link_search_runs
+     where started_at < now() - interval '30 days'
+       and status in ('completed', 'failed', 'paused'); $$
+);
