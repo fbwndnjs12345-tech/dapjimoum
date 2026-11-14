@@ -18,8 +18,22 @@ from tkinter import filedialog, messagebox, ttk
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 if getattr(sys, "frozen", False):
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(ROOT / "ms-playwright")
-DEFAULT_CONFIG = ROOT / "sources.json"
-OUTPUT = ROOT / "answer-link-candidates.csv"
+# Keep writable user data out of the installation directory. Windows commonly
+# installs or extracts applications under locations where normal users cannot
+# write (for example Program Files or a protected Downloads folder).
+def _user_data_dir() -> Path:
+    base = os.environ.get("LOCALAPPDATA")
+    if base:
+        return Path(base) / "DapjiMoum" / "LocalAnswerFinder"
+    return Path.home() / "AppData" / "Local" / "DapjiMoum" / "LocalAnswerFinder"
+
+
+DATA_DIR = _user_data_dir()
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DEFAULT_CONFIG = DATA_DIR / "sources.json"
+OUTPUT = DATA_DIR / "answer-link-candidates.csv"
+BOOKS_CSV = DATA_DIR / "books.csv"
+SELF_TEST_LOG = DATA_DIR / "self-test.log"
 
 
 def request_json(url: str, headers: dict[str, str], data: dict | None = None):
@@ -128,11 +142,14 @@ class FinderApp:
         if DEFAULT_CONFIG.exists():
             self.config_text.insert("1.0", DEFAULT_CONFIG.read_text(encoding="utf-8"))
         else:
+            # Read-only packaged resources stay beside the EXE; editable settings
+            # are initialized in the per-user writable data directory.
             example = ROOT / "sources.example.json"
             if example.exists():
-                self.config_text.insert("1.0", example.read_text(encoding="utf-8"))
+                initial_config = example.read_text(encoding="utf-8")
             else:
-                self.config_text.insert("1.0", json.dumps({"sources": [], "max_sitemap_urls_per_source": 500, "request_delay_seconds": 1.5, "page_timeout_ms": 20000, "answer_keywords": ["정답과 해설", "정답 해설", "답지"]}, ensure_ascii=False, indent=2))
+                initial_config = json.dumps({"sources": [], "max_sitemap_urls_per_source": 500, "request_delay_seconds": 1.5, "page_timeout_ms": 20000, "answer_keywords": ["정답과 해설", "정답 해설", "답지"], "web_search": {"enabled": True, "engines": ["google", "bing"], "results_per_engine": 8, "max_queries_per_book": 8}}, ensure_ascii=False, indent=2)
+            self.config_text.insert("1.0", initial_config)
         cfgbuttons = ttk.Frame(sourcecard)
         cfgbuttons.pack(fill="x")
         ttk.Button(cfgbuttons, text="설정 저장 및 검사", command=self.save_config, style="Accent.TButton").pack(side="left")
@@ -316,7 +333,7 @@ class FinderApp:
                     offset += limit
                 if not rows:
                     raise RuntimeError("교재가 0권 조회됐습니다. 관리자 계정의 books 읽기 권한과 Supabase URL을 확인하세요.")
-                path = ROOT / "books.csv"
+                path = BOOKS_CSV
                 fields = ["id", "title", "publisher", "subject", "grade", "semester", "series"]
                 with path.open("w", encoding="utf-8-sig", newline="") as f:
                     writer = csv.DictWriter(f, fieldnames=fields)
@@ -489,12 +506,12 @@ def self_test():
             if page.title() != "DapjiMoum smoke test":
                 raise RuntimeError("Chromium 페이지 테스트 실패")
             browser.close()
-        (ROOT / "self-test.log").write_text("SELF-TEST PASSED: config, matching, Tk, Playwright Chromium\\n", encoding="utf-8")
+        (SELF_TEST_LOG).write_text("SELF-TEST PASSED: config, matching, Tk, Playwright Chromium\\n", encoding="utf-8")
         return 0
     except Exception as exc:
         print(f"SELF-TEST FAILED: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
         try:
-            (ROOT / "self-test.log").write_text(f"SELF-TEST FAILED: {type(exc).__name__}: {exc}\\n", encoding="utf-8")
+            (ROOT / "SELF_TEST_LOG.name).write_text(f"SELF-TEST FAILED: {type(exc).__name__}: {exc}\\n", encoding="utf-8")
         except Exception:
             pass
         return 1
