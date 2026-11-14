@@ -163,6 +163,181 @@ export function AdminLinkSearchPage() {
     };
   }, [loadData, runBatches]);
 
+
+
+  const startSearch = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      if (providerMode === 'local') {
+        window.open('https://github.com/fbwndnjs12345-tech/dapjimoum/actions/workflows/build-local-answer-finder.yml', '_blank', 'noopener,noreferrer');
+        setNotice('로컬 프로그램 빌드 페이지를 열었습니다. Windows용 탐색기를 내려받아 실행하면 후보가 이 관리자 검토 목록에 등록됩니다.');
+        setBusy(false);
+        return;
+      }
+      const result = await invoke({ action: 'start', includeBooksWithLinks, selectedBookIds, providerMode });
+      await loadData();
+      const newRun = result.run as Run;
+      if (newRun.book_ids.length === 0) {
+        setNotice('검색 대상 교재가 없습니다.');
+        setBusy(false);
+        return;
+      }
+      void runBatches(newRun.id);
+    } catch (startError) { setError(errorText(startError)); setBusy(false); }
+  };
+
+  const pauseSearch = async (runId: string) => {
+    setBusyRunActionId(runId);
+    try { await invoke({ action: 'pause', runId }); setNotice('공용 검색 작업을 중지했습니다. 모든 관리자 화면에 반영됩니다.'); await loadData(); }
+    catch (pauseError) { setError(errorText(pauseError)); }
+    finally { setBusyRunActionId(null); }
+  };
+
+  const resumeSearch = async (run: Run) => {
+    setBusyRunActionId(run.id);
+    try { await invoke({ action: 'resume', runId: run.id }); setNotice('검색을 이어서 실행합니다.'); await loadData(); void runBatches(run.id); }
+    catch (resumeError) { setError(errorText(resumeError)); }
+    finally { setBusyRunActionId(null); }
+  };
+
+  const continueSearch = async (run: Run) => {
+    if (busy) return;
+    if (run.status === 'paused') await resumeSearch(run);
+    else if (run.status === 'running') void runBatches(run.id);
+  };
+
+  const retryFailed = async (run: Run) => {
+    try {
+      const result = await invoke({ action: 'retry', runId: run.id });
+      await loadData();
+      void runBatches((result.run as Run).id);
+    } catch (retryError) { setError(errorText(retryError)); }
+  };
+
+  const updateCandidateStatus = async (candidate: Candidate, status: 'approved' | 'rejected') => {
+    if (status === 'approved' && candidate.match_status !== 'likely' && !window.confirm('교재 일치 여부가 불확실한 후보입니다. 링크를 검토한 뒤 승인하시겠습니까?')) return;
+    const reviewNote = null;
+    setError('');
+    setBusyCandidateId(candidate.id);
+    try {
+      if (status === 'approved') {
+        const { data, error: approvalError } = await supabase.rpc('approve_answer_link_candidate', { p_candidate_id: candidate.id });
+        if (approvalError) throw approvalError;
+        if (data === 'duplicate') {
+          setCandidates(current => current.map(item => item.id === candidate.id ? { ...item, status: 'duplicate' } : item));
+          setNotice('이미 등록된 URL이라 중복으로 처리했습니다.');
+        } else {
+          const { data: savedLink, error: verifyError } = await supabase.from('answer_links').select('id').eq('book_id', candidate.book_id).eq('url', candidate.url).maybeSingle();
+          if (verifyError) throw verifyError;
+          if (!savedLink) throw new Error('승인 함수는 성공했지만 답지 링크 테이블에서 등록 결과를 확인하지 못했습니다.');
+          setCandidates(current => current.map(item => item.id === candidate.id ? { ...item, status: 'approved' } : item));
+          setNotice('답지 링크 등록 완료. 공개 교재 데이터를 갱신했습니다.');
+          await refreshCatalog();
+          window.dispatchEvent(new CustomEvent('catalog-data-updated'));
+        }
+      } else {
+        const { error: rejectError } = await supabase.rpc('reject_answer_link_candidate', { p_candidate_id: candidate.id, p_review_note: reviewNote });
+        if (rejectError) throw rejectError;
+        setNotice('후보를 거절했습니다.');
+      }
+      await loadData();
+    } catch (updateError) { setError(errorText(updateError)); }
+    finally { setBusyCandidateId(null); }
+  };
+
+  const updateSourceType = async (candidate: Candidate, sourceType: Candidate['source_type']) => {
+    try {
+      const { error: sourceError } = await supabase.rpc('set_answer_link_candidate_source_type', { p_candidate_id: candidate.id, p_source_type: sourceType });
+      if (sourceError) throw sourceError;
+      await loadData();
+    } catch (sourceError) { setError(errorText(sourceError)); }
+  };
+
+  const approveSelected = async () => {
+    const selected = candidates.filter(candidate => selectedCandidateIds.includes(candidate.id) && candidate.status === 'pending' && candidate.match_status === 'likely');
+    if (!selected.length) { setError('일치 가능성이 높은 검토 대기 후보를 선택해 주세요.'); return; }
+    if (!window.confirm(`${selected.length}개 후보를 승인합니다. 기존 URL 중복은 승인 단계에서 다시 확인됩니다. 진행할까요?`)) return;
+    setReviewBusy(true);
+    setError('');
+    let approved = 0;
+    let duplicate = 0;
+    const failures: string[] = [];
+    for (const candidate of selected) {
+      const { data, error: approvalError } = await supabase.rpc('approve_answer_link_candidate', { p_candidate_id: candidate.id });
+      if (approvalError) failures.push(`${candidate.title}: ${approvalError.message}`);
+      else if (data === 'duplicate') duplicate += 1;
+      else approved += 1;
+    }
+    setReviewBusy(false);
+    setSelectedCandidateIds([]);
+    setNotice(`일괄 처리: ${approved}개 승인, ${duplicate}개 중복 처리${failures.length ? `, ${failures.length}개 실패` : ''}`);
+    if (failures.length) setError(failures.join('\n'));
+    await Promise.all([loadData(), refreshCatalog()]);
+  };
+
+  // 일치 가능성이 높은 대기 후보는 선택/페이지 이동 없이 한 번에 승인한다.
+  const approveAllLikely = async () => {
+    const eligible = candidates.filter(candidate => candidate.status === 'pending' && candidate.match_status === 'likely');
+    if (!eligible.length) { setNotice('일괄 승인할 후보가 없습니다.'); return; }
+    if (!window.confirm(`일치 가능성이 높은 후보 ${eligible.length}개를 모두 답지 링크로 등록합니다. 중복 URL은 자동 제외됩니다. 진행할까요?`)) return;
+    setReviewBusy(true);
+    setError('');
+    setNotice('후보를 승인하고 있습니다. 창을 닫지 마세요.');
+    let approved = 0;
+    let duplicate = 0;
+    const failures: string[] = [];
+    try {
+      for (let offset = 0; offset < eligible.length; offset += 5) {
+        const group = eligible.slice(offset, offset + 5);
+        const results = await Promise.all(group.map(async candidate => {
+          const result = await supabase.rpc('approve_answer_link_candidate', { p_candidate_id: candidate.id });
+          return { candidate, ...result };
+        }));
+        for (const result of results) {
+          if (result.error) failures.push(`${result.candidate.title}: ${result.error.message}`);
+          else if (result.data === 'duplicate') duplicate += 1;
+          else approved += 1;
+        }
+        setNotice(`승인 처리 중: ${Math.min(offset + group.length, eligible.length)}/${eligible.length}`);
+      }
+      setSelectedCandidateIds([]);
+      setNotice(`일괄 처리 완료: ${approved}개 승인, ${duplicate}개 중복 제외, ${failures.length}개 실패`);
+      if (failures.length) setError(failures.join('\n'));
+      await Promise.all([loadData(), refreshCatalog()]);
+    } catch (approvalError) {
+      setError(errorText(approvalError));
+    } finally {
+      setReviewBusy(false);
+    }
+  };
+
+  const uniqueValues = (key: 'publisher' | 'subject' | 'grade') => [...new Set(candidates.map(item => item.books?.[key]?.trim()).filter((value): value is string => Boolean(value)))].sort((a, b) => a.localeCompare(b, 'ko'));
+  const filteredCandidates = useMemo(() => candidates.filter(candidate => {
+    const fields = [candidate.title, candidate.url, candidate.source_name, candidate.books?.title, candidate.books?.publisher, candidate.books?.subject, candidate.books?.grade, candidate.books?.semester].filter(Boolean).join(' ').toLocaleLowerCase('ko-KR');
+    if (query.trim() && !fields.includes(query.trim().toLocaleLowerCase('ko-KR'))) return false;
+    if (publisherFilter !== '전체' && candidate.books?.publisher !== publisherFilter) return false;
+    if (subjectFilter !== '전체' && candidate.books?.subject !== subjectFilter) return false;
+    if (gradeFilter !== '전체' && candidate.books?.grade !== gradeFilter) return false;
+    if (filter === 'official') return candidate.source_type === 'official';
+    if (filter === 'general') return candidate.source_type === 'general';
+    if (filter === 'verified') return candidate.match_status === 'likely';
+    if (filter === 'unverified') return candidate.status === 'unverified' || candidate.match_status !== 'likely';
+    if (filter === 'duplicate') return candidate.status === 'duplicate';
+    return filter === 'all' || candidate.status === filter;
+  }), [candidates, filter, gradeFilter, publisherFilter, query, subjectFilter]);
+  const totalPages = Math.max(1, Math.ceil(filteredCandidates.length / PAGE_SIZE));
+  const pageRows = filteredCandidates.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const pageEligibleCandidates = pageRows.filter(candidate => candidate.status === 'pending' && candidate.match_status === 'likely');
+  const selectableBooks = books.filter(book => bookSearch.trim() && [book.title, book.publisher, book.subject, book.grade, book.semester].some(value => value?.toLocaleLowerCase('ko-KR').includes(bookSearch.trim().toLocaleLowerCase('ko-KR')))).slice(0, 10);
+  const pendingCount = candidates.filter(candidate => candidate.status === 'pending').length;
+  const liveRun = activeRunId ? runs.find(run => run.id === activeRunId) : runs.find(run => run.status === 'running');
+  const liveProgress = liveRun ? Math.min(100, Math.round((liveRun.processed_books / Math.max(1, liveRun.book_ids.length)) * 100)) : 0;
+  const liveBookId = liveRun && liveRun.book_ids.length ? liveRun.book_ids[Math.min(liveRun.processed_books, liveRun.book_ids.length - 1)] : null;
+  const liveBook = liveBookId ? books.find(book => book.id === liveBookId) : null;
+
   const content = <div className="space-y-6">
     <header className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
       <div><h2 className="text-xl font-extrabold text-[#191F28]">답지 링크 자동 검색</h2><p className="mt-1 text-sm text-[#667085]">검색 결과는 검토 후보로만 저장됩니다. 관리자 승인 전에는 교재 답지 목록에 등록되지 않습니다.</p></div>
@@ -181,7 +356,7 @@ export function AdminLinkSearchPage() {
           ['kakao', '카카오 API', '다음 블로그·카페·웹문서'],
           ['web', '공개 웹 검색', 'Google·Bing·DuckDuckGo'],
           ['local', '로컬 프로그램', 'Windows 브라우저 탐색기'],
-        ] as const).map(([value, title, description]) => <button key={value} type="button" onClick={() => setProviderMode(value)} aria-pressed={providerMode === value} className={`rounded-xl border p-3 text-left transition ${providerMode === value ? 'border-[#191F28] bg-[#F2F4F7] ring-1 ring-[#191F28]' : 'border-[#D0D5DD] bg-white hover:bg-[#F9FAFB]'}`}><span className="block text-sm font-bold text-[#191F28]">{title}</span><span className="mt-1 block text-[11px] leading-4 text-[#667085]">{description}</span></button>)}
+        ] as const).map(([value, title, description]) => <button key={value} type="button" onClick={() => setProviderMode(value)} className={`rounded-xl border p-3 text-left transition ${providerMode === value ? 'border-[#191F28] bg-[#F2F4F7] ring-1 ring-[#191F28]' : 'border-[#D0D5DD] bg-white hover:bg-[#F9FAFB]'}`}><span className="block text-sm font-bold text-[#191F28]">{title}</span><span className="mt-1 block text-[11px] leading-4 text-[#667085]">{description}</span></button>)}
       </div>
       {providerMode === 'local' ? <div className="rounded-xl border border-[#D0D5DD] bg-[#F9FAFB] p-3 text-xs leading-5 text-[#475467]">로컬 탐색기는 Windows PC에서 실행됩니다. GitHub Actions에서 최신 Windows 프로그램을 내려받아 실행하세요. Supabase 관리자 로그인을 연결하면 검색 후보가 이 검토 목록으로 전송됩니다. <a className="font-bold underline" href="https://github.com/fbwndnjs12345-tech/dapjimoum/actions/workflows/build-local-answer-finder.yml" target="_blank" rel="noreferrer">로컬 프로그램 다운로드 페이지 열기</a></div> : <div className="rounded-xl border border-[#EAECF0] bg-[#F9FAFB] p-3 text-xs leading-5 text-[#475467]">{providerMode === 'naver' ? 'NAVER_API_HUB_CLIENT_ID와 NAVER_API_HUB_CLIENT_SECRET 설정이 필요합니다.' : providerMode === 'kakao' ? 'KAKAO_REST_API_KEY 설정이 필요합니다.' : providerMode === 'web' ? '별도 API 키 없이 공개 검색 페이지를 조회합니다. 검색엔진의 자동화 차단에 따라 결과가 제한될 수 있습니다.' : '설정된 네이버·카카오 API와 공개 웹 검색을 함께 조회합니다. API가 설정되지 않은 경로는 건너뛰고, 실패한 경로는 오류로 기록합니다.'}</div>}
       <div className="grid gap-3 md:grid-cols-2">
@@ -194,7 +369,7 @@ export function AdminLinkSearchPage() {
         <div className="flex flex-col justify-end gap-3">
           <label className="flex items-start gap-2 text-xs text-[#475467]"><input type="checkbox" checked={includeBooksWithLinks} onChange={event => setIncludeBooksWithLinks(event.target.checked)} className="mt-0.5 accent-[#191F28]" />이미 답지 링크가 있는 교재도 재검색</label>
           <p className="text-xs text-[#667085]">선택된 교재가 있으면 선택 교재만 검색합니다. 없으면 {includeBooksWithLinks ? '전체 교재' : '답지 링크 미등록 교재'}를 검색합니다.</p>
-          <button type="button" onClick={() => void startSearch()} disabled={busy || isLoading || runs.some(run => run.status === 'running')} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#191F28] px-4 py-3 text-sm font-bold text-white hover:bg-[#333D4B] disabled:opacity-50"><Play className="h-4 w-4" />{providerMode === 'local' ? 'Windows 프로그램 다운로드' : runs.some(run => run.status === 'running') ? '공용 검색 작업 실행 중' : busy ? '시작 요청 중…' : '검색 시작'}</button>
+          <button type="button" onClick={() => void startSearch()} disabled={busy || isLoading || runs.some(run => run.status === 'running')} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#191F28] px-4 py-3 text-sm font-bold text-white hover:bg-[#333D4B] disabled:opacity-50"><Play className="h-4 w-4" />{providerMode === 'local' ? '로컬 프로그램 열기' : runs.some(run => run.status === 'running') ? '공용 검색 작업 실행 중' : busy ? '시작 요청 중…' : '검색 시작'}</button>
         </div>
       </div>
     </section>
