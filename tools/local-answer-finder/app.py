@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import datetime
 import json
 import math
 import os
@@ -41,10 +42,17 @@ def request_json(url: str, headers: dict[str, str], data: dict | None = None):
     req = urllib.request.Request(url, data=payload, headers=headers, method="POST" if payload else "GET")
     try:
         with urllib.request.urlopen(req, timeout=30) as response:
-            return json.loads(response.read().decode("utf-8"))
+            raw = response.read().decode("utf-8")
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError("Supabase 응답을 JSON으로 읽지 못했습니다. 프로젝트 URL과 네트워크 연결을 확인하세요.") from exc
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"Supabase 요청 실패 ({exc.code}): {detail[:500]}") from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        reason = getattr(exc, "reason", exc)
+        raise RuntimeError(f"네트워크 연결 실패: {reason}. 인터넷 연결과 방화벽 설정을 확인하세요.") from exc
 
 
 class FinderApp:
@@ -263,6 +271,12 @@ class FinderApp:
         self.log.insert("end", text + "\n")
         self.log.see("end")
         self.log.configure(state="disabled")
+        try:
+            stamp = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+            with (DATA_DIR / "app.log").open("a", encoding="utf-8") as handle:
+                handle.write(f"[{stamp}] {text}\n")
+        except OSError:
+            pass
 
     def _poll(self):
         try:
