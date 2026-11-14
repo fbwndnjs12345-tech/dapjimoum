@@ -1,12 +1,42 @@
+import { useEffect, useState } from 'react';
 import { Mail, ShieldCheck, ExternalLink } from 'lucide-react';
+import { supabase } from '../../lib/supabase/client';
 
 type SiteInfoPageProps = { route: string };
 
 const updatedDate = '2026년 10월 9일';
 
 export function SiteInfoPage({ route }: SiteInfoPageProps) {
+  const [editablePage, setEditablePage] = useState<{ title: string; body: string; updated_at: string } | null>(null);
+  useEffect(() => {
+    let active = true;
+    const slug = route.replace(/^\\//, '');
+    void supabase.from('site_pages').select('title,body,updated_at').eq('slug', slug).maybeSingle()
+      .then(({ data }) => { if (active && data) setEditablePage(data); });
+    return () => { active = false; };
+  }, [route]);
   const contactEmail = import.meta.env.VITE_CONTACT_EMAIL?.trim();
   const title = route === '/about' ? '서비스 소개' : route === '/privacy' ? '개인정보처리방침' : route === '/copyright' ? '저작권 및 링크 정책' : route === '/terms' ? '이용약관' : '문의 및 오류 신고';
+
+  if (editablePage) {
+    const blocks = editablePage.body.split(/\\n{2,}/).map(block => block.trim()).filter(Boolean);
+    return <article className="mx-auto w-full max-w-3xl px-4 sm:px-5 py-8 sm:py-14">
+      <nav aria-label="Breadcrumb" className="mb-6 text-sm text-[#667085]"><a href="/" className="hover:text-[#191F28]">답지모음</a><span className="mx-2">›</span><span>{editablePage.title}</span></nav>
+      <header className="mb-8 border-b border-[#E5E8EB] pb-6"><h1 className="text-2xl font-extrabold tracking-tight text-[#191F28] sm:text-3xl">{editablePage.title}</h1><p className="mt-3 text-sm text-[#667085]">최종 수정: {new Intl.DateTimeFormat('ko-KR',{dateStyle:'long'}).format(new Date(editablePage.updated_at))}</p></header>
+      <div className="space-y-5 text-sm leading-7 text-[#475467]">
+        {blocks.map((block,index) => {
+          const lines=block.split('\\n');
+          const heading=lines[0].startsWith('# ') ? lines[0].slice(2) : null;
+          const content=heading ? lines.slice(1) : lines;
+          const isList=content.length>0 && content.every(line => line.startsWith('- '));
+          return <section key={index} className="space-y-2">
+            {heading && <h2 className="text-lg font-bold text-[#191F28]">{heading}</h2>}
+            {isList ? <ul className="list-disc space-y-1 pl-5">{content.map((line,i)=><li key={i}>{line.slice(2)}</li>)}</ul> : content.map((line,i)=><p key={i}>{line}</p>)}
+          </section>;
+        })}
+      </div>
+    </article>;
+  }
 
   return (
     <article className="mx-auto w-full max-w-3xl px-5 py-10 sm:py-14">
