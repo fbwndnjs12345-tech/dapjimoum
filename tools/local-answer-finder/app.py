@@ -253,8 +253,8 @@ class FinderApp:
             if max_queries < 1 or max_queries > 3:
                 raise ValueError("교재별 검색어 수는 1~3 사이여야 합니다.")
             max_candidates = int(web_cfg.get("max_candidates_per_book", 5))
-            if max_candidates < 1 or max_candidates > 10:
-                raise ValueError("교재별 최종 후보 수는 1~10 사이여야 합니다.")
+            if max_candidates < 1 or max_candidates > 5:
+                raise ValueError("교재별 최종 후보 수는 1~5 사이여야 합니다.")
             seen = set()
             for index, source in enumerate(sources, 1):
                 if not isinstance(source, dict):
