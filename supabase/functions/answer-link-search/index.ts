@@ -9,7 +9,7 @@ const corsHeaders = {
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: corsHeaders });
 const PAGE_SIZE = 1000;
-const BATCH_SIZE = 2;
+const BATCH_SIZE = 1;
 
 function readSupabaseKey(legacyName: string, keySetName: string): string | undefined {
   const legacyKey = Deno.env.get(legacyName);
@@ -438,7 +438,7 @@ Deno.serve(async (request) => {
       status: 'running',
       provider_mode: providerMode,
       book_ids: targets.map(book => book.id),
-    }).select('id,status,book_ids,started_at').single();
+    }).select('id,status,book_ids,started_at,provider_mode').single();
     if (error) return json({ error: `검색 작업을 만들지 못했습니다: ${error.message}` }, 500);
     return json({ run });
   }
@@ -519,8 +519,9 @@ Deno.serve(async (request) => {
             resultQueries.push(...queryResults.results.map(() => query));
             providerWarnings.push(...queryResults.warnings);
           } finally { clearTimeout(timeout); }
-          apiRequests += runProviderMode === 'web' ? 3 : runProviderMode === 'kakao' ? 3 : runProviderMode === 'naver' ? 2 : 8;
+          apiRequests += runProviderMode === 'web' ? 3 : runProviderMode === 'kakao' ? 3 : runProviderMode === 'naver' ? 2 : 3 + (kakaoRestApiKey ? 3 : 0) + (naverCredentials ? 2 : 0);
         }
+        if (providerWarnings.length) errors.push(`${book.title}: 일부 검색 경로 실패 - ${[...new Set(providerWarnings)].join(' / ').slice(0, 800)}`);
 
         const { data: existingLinks, error: linksError } = await admin.from('answer_links').select('url').eq('book_id', book.id);
         if (linksError) throw linksError;
