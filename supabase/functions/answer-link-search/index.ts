@@ -69,7 +69,6 @@ function queriesFor(book: BookRow): string[] {
   const title = cleanBookTitle(book);
   const variants = [
     `"${title}" 답지`,
-    `"${title}" 정답 해설`,
     `"${title}" 답지 PDF`,
     `"${title}" site:tistory.com 답지`,
     `"${title}" site:blog.naver.com OR site:cafe.naver.com 답지`,
