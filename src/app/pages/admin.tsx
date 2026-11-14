@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Lock, Globe, Plus, Search, BookOpen, LayoutDashboard, RefreshCw, FileSpreadsheet, ScanSearch } from 'lucide-react';
+import { AlertCircle, Lock, Globe, Plus, Search, BookOpen, LayoutDashboard, RefreshCw, FileSpreadsheet, ScanSearch, Inbox } from 'lucide-react';
 import { useAppContext } from '../../state/useAppContext';
 import type { AnswerLink, Book } from '../../types/book';
 
@@ -158,8 +158,55 @@ export function renderAdminLayout(content: React.ReactNode) {
     );
 }
 
+type UserSubmission = {
+  id: string;
+  submission_type: 'book_request' | 'link_report';
+  book_title: string;
+  publisher: string | null;
+  answer_link_id: string | null;
+  answer_link_title: string | null;
+  reason: string | null;
+  details: string | null;
+  status: 'pending' | 'in_progress' | 'resolved' | 'rejected';
+  created_at: string;
+};
+
 export function AdminDashboard() {
     const {books, links, navigateTo, catalogStatus, catalogError, refreshCatalog} = useAppContext();
+    const [submissions, setSubmissions] = useState<UserSubmission[]>([]);
+    const [submissionLoading, setSubmissionLoading] = useState(true);
+    const [submissionError, setSubmissionError] = useState('');
+    const [updatingSubmissionId, setUpdatingSubmissionId] = useState<string | null>(null);
+    const loadSubmissions = async () => {
+      setSubmissionLoading(true);
+      setSubmissionError('');
+      try {
+        const { supabase } = await import('../../lib/supabase/client');
+        const { data, error } = await supabase.from('user_submissions').select('*').order('created_at', { ascending: false }).limit(100);
+        if (error) throw error;
+        setSubmissions((data ?? []) as UserSubmission[]);
+      } catch (error) {
+        setSubmissionError(getAdminDataError(error));
+      } finally {
+        setSubmissionLoading(false);
+      }
+    };
+    useEffect(() => { void loadSubmissions(); }, []);
+    const updateSubmissionStatus = async (submission: UserSubmission, status: UserSubmission['status']) => {
+      setUpdatingSubmissionId(submission.id);
+      setSubmissionError('');
+      try {
+        const { supabase } = await import('../../lib/supabase/client');
+        const { error } = await supabase.from('user_submissions').update({ status, updated_at: new Date().toISOString() }).eq('id', submission.id);
+        if (error) throw error;
+        setSubmissions(current => current.map(item => item.id === submission.id ? { ...item, status } : item));
+      } catch (error) {
+        setSubmissionError(getAdminDataError(error));
+      } finally {
+        setUpdatingSubmissionId(null);
+      }
+    };
+    const pendingSubmissions = submissions.filter(item => item.status === 'pending').length;
     const totalBooks = books.length;
     const totalLinks = links.length;
     const verifiedLinks = links.filter(l => l.verified).length;
@@ -209,6 +256,38 @@ export function AdminDashboard() {
             <span>교재별 답지 링크 관리</span>
           </button>
         </div>
+
+        <section className="overflow-hidden rounded-2xl border border-[#E5E8EB] bg-white">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E5E8EB] p-4 sm:p-5">
+            <div>
+              <h3 className="flex items-center gap-2 text-base font-bold text-[#191F28]"><Inbox className="h-4 w-4" /> 사용자 요청 및 오류 신고</h3>
+              <p className="mt-1 text-xs text-[#667085]">새 요청 {pendingSubmissions}건 · 최근 100건 표시</p>
+            </div>
+            <button type="button" onClick={() => void loadSubmissions()} disabled={submissionLoading} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-[#D0D5DD] px-3 py-2 text-xs font-semibold text-[#344054] disabled:opacity-50"><RefreshCw className="h-3.5 w-3.5" />새로고침</button>
+          </div>
+          {submissionError && <p role="alert" className="m-4 rounded-lg border border-[#FDD8D5] bg-[#FFEEEC] p-3 text-xs text-[#B42318]">{submissionError}</p>}
+          {submissionLoading ? <p role="status" className="p-8 text-center text-sm text-[#667085]">사용자 요청을 불러오는 중입니다.</p> : submissions.length === 0 ? <p className="p-8 text-center text-sm text-[#667085]">접수된 요청이나 신고가 없습니다.</p> : <div className="divide-y divide-[#EAECF0]">
+            {submissions.map(item => <article key={item.id} className="space-y-3 p-4 sm:p-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${item.submission_type === 'book_request' ? 'bg-[#EFF8FF] text-[#175CD3]' : 'bg-[#FEF3F2] text-[#B42318]'}`}>{item.submission_type === 'book_request' ? '답지 등록 요청' : '오류 링크 신고'}</span>
+                <span className="rounded-full bg-[#F2F4F6] px-2.5 py-1 text-[11px] font-semibold text-[#475467]">{item.status === 'pending' ? '대기' : item.status === 'in_progress' ? '처리 중' : item.status === 'resolved' ? '완료' : '반려'}</span>
+                <time className="ml-auto text-[11px] text-[#98A2B3]">{new Date(item.created_at).toLocaleString('ko-KR')}</time>
+              </div>
+              <div>
+                <h4 className="break-words text-sm font-bold text-[#191F28]">{item.book_title}</h4>
+                {item.publisher && <p className="mt-1 text-xs text-[#667085]">출판사: {item.publisher}</p>}
+                {item.answer_link_title && <p className="mt-1 break-all text-xs text-[#667085]">신고 링크: {item.answer_link_title}</p>}
+                {item.reason && <p className="mt-1 text-xs text-[#475467]">신고 사유: {item.reason}</p>}
+                {item.details && <p className="mt-2 whitespace-pre-wrap text-xs text-[#475467]">{item.details}</p>}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => void updateSubmissionStatus(item, 'in_progress')} disabled={updatingSubmissionId === item.id || item.status === 'in_progress'} className="min-h-9 rounded-lg border border-[#D0D5DD] px-3 py-2 text-xs font-semibold text-[#344054] disabled:opacity-40">처리 중</button>
+                <button type="button" onClick={() => void updateSubmissionStatus(item, 'resolved')} disabled={updatingSubmissionId === item.id || item.status === 'resolved'} className="min-h-9 rounded-lg bg-[#191F28] px-3 py-2 text-xs font-semibold text-white disabled:opacity-40">완료 처리</button>
+                <button type="button" onClick={() => void updateSubmissionStatus(item, 'rejected')} disabled={updatingSubmissionId === item.id || item.status === 'rejected'} className="min-h-9 rounded-lg border border-[#D0D5DD] px-3 py-2 text-xs font-semibold text-[#667085] disabled:opacity-40">반려</button>
+              </div>
+            </article>)}
+          </div>}
+        </section>
 
         {/* Table of Recent Books */}
         <div className="bg-white rounded-2xl border border-[#E5E8EB] overflow-hidden">
