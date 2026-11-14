@@ -61,3 +61,19 @@ jobs:
         run: pip install pglast
       - name: Parse V2 migrations
         run: python scripts/verify-admin-v2-sql.py
+
+  local-database-migrations:
+    name: Apply all migrations to isolated Supabase local database
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Start isolated Supabase stack
+        run: supabase start -x studio,imgproxy,edge-runtime,logflare,vector
+      - name: Apply all migrations from an empty local database
+        run: supabase db reset --local
+      - name: Stop isolated stack
+        if: always()
+        run: supabase stop --no-backup
