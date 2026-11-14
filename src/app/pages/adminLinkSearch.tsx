@@ -225,12 +225,23 @@ export function AdminLinkSearchPage() {
     if (status === 'approved' && candidate.match_status !== 'likely' && !window.confirm('교재 일치 여부가 불확실한 후보입니다. 링크를 검토한 뒤 승인하시겠습니까?')) return;
     const reviewNote = null;
     setError('');
+    setBusyCandidateId(candidate.id);
     try {
       if (status === 'approved') {
         const { data, error: approvalError } = await supabase.rpc('approve_answer_link_candidate', { p_candidate_id: candidate.id });
         if (approvalError) throw approvalError;
-        setNotice(data === 'duplicate' ? '이미 등록된 URL이라 중복 후보로 표시했습니다.' : '후보를 승인해 답지 링크에 등록했습니다. 실제 URL 검증 상태는 미검증으로 유지됩니다.');
-        await refreshCatalog();
+        if (data === 'duplicate') {
+          setCandidates(current => current.map(item => item.id === candidate.id ? { ...item, status: 'duplicate' } : item));
+          setNotice('이미 등록된 URL이라 중복으로 처리했습니다.');
+        } else {
+          const { data: savedLink, error: verifyError } = await supabase.from('answer_links').select('id').eq('book_id', candidate.book_id).eq('url', candidate.url).maybeSingle();
+          if (verifyError) throw verifyError;
+          if (!savedLink) throw new Error('승인 함수는 성공했지만 답지 링크 테이블에서 등록 결과를 확인하지 못했습니다.');
+          setCandidates(current => current.map(item => item.id === candidate.id ? { ...item, status: 'approved' } : item));
+          setNotice('답지 링크 등록 완료. 공개 교재 데이터를 갱신했습니다.');
+          await refreshCatalog();
+          window.dispatchEvent(new CustomEvent('catalog-data-updated'));
+        }
       } else {
         const { error: rejectError } = await supabase.rpc('reject_answer_link_candidate', { p_candidate_id: candidate.id, p_review_note: reviewNote });
         if (rejectError) throw rejectError;
@@ -238,6 +249,7 @@ export function AdminLinkSearchPage() {
       }
       await loadData();
     } catch (updateError) { setError(errorText(updateError)); }
+    finally { setBusyCandidateId(null); }
   };
 
   const updateSourceType = async (candidate: Candidate, sourceType: Candidate['source_type']) => {
@@ -327,7 +339,7 @@ export function AdminLinkSearchPage() {
   const pendingCount = candidates.filter(candidate => candidate.status === 'pending').length;
   const liveRun = activeRunId ? runs.find(run => run.id === activeRunId) : runs.find(run => run.status === 'running');
   const liveProgress = liveRun ? Math.min(100, Math.round((liveRun.processed_books / Math.max(1, liveRun.book_ids.length)) * 100)) : 0;
-  const liveBookId = liveRun && liveRun.book_ids.length ? liveRun.book_ids[Math.min(Math.max(0, liveRun.next_index - 1), liveRun.book_ids.length - 1)] : null;
+  const liveBookId = liveRun && liveRun.book_ids.length ? liveRun.book_ids[Math.min(liveRun.processed_books, liveRun.book_ids.length - 1)] : null;
   const liveBook = liveBookId ? books.find(book => book.id === liveBookId) : null;
 
   const content = <div className="space-y-6">
