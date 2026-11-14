@@ -98,6 +98,15 @@ img, svg, video, canvas {
     padding-right: 1rem;
   }
 
+  .mobile-book-title { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; line-clamp: 3; }
+
+  .mobile-filter-panel { padding: 1rem; }
+  .mobile-filter-panel > .mobile-filter-heading { grid-column: 1 / -1; }
+  .mobile-filter-panel > div:not(.mobile-filter-heading) { min-width: 0; }
+  .mobile-filter-panel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.9rem; }
+  .mobile-filter-panel > div:nth-child(2), .mobile-filter-panel > div:nth-child(3) { grid-column: 1 / -1; }
+  .mobile-filter-panel button, .mobile-filter-panel select { max-width: 100%; }
+
   /* Keep modal content within the visible viewport on phones. */
   [role="dialog"] {
     max-height: calc(100dvh - 1.5rem);
