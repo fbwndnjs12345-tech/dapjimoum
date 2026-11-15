@@ -114,6 +114,23 @@ export function SearchPage() {
       return filtered.sort((a, b) => scoreBookSearch(b, query) - scoreBookSearch(a, query));
     }, [allBooks, linkCounts, searchQuery, publisherFilter, subjectFilter, gradeFilter, semesterFilter, sortBy]);
     const visibleCatalog = useMemo(() => allBooks.filter(book => !isPlaceholderBook(book)), [allBooks]);
+    // 과목 선택지는 현재 검색어와 일치하는 교재에서만 집계한다.
+    // 과목 필터 자체는 제외해 다른 과목으로 전환할 수 있게 한다.
+    const subjectFacetBooks = useMemo(() => {
+      const query = searchQuery.trim();
+      return visibleCatalog.filter(book =>
+        (!query || scoreBookSearch(book, query) > 0) &&
+        (publisherFilter === '전체' || book.publisher?.trim() === publisherFilter) &&
+        (gradeFilter === '전체' || book.grade?.trim() === gradeFilter) &&
+        (semesterFilter === '전체' || book.semester?.trim() === semesterFilter)
+      );
+    }, [visibleCatalog, searchQuery, publisherFilter, gradeFilter, semesterFilter]);
+
+    useEffect(() => {
+      if (subjectFilter !== '전체' && !subjectFacetBooks.some(book => book.subject?.trim() === subjectFilter)) {
+        setSubjectFilter('전체');
+      }
+    }, [subjectFilter, subjectFacetBooks, setSubjectFilter]);
 
     return (
       <div className="max-w-[1100px] mx-auto px-5 py-8 space-y-6">
@@ -141,7 +158,7 @@ export function SearchPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          <SearchFilters books={visibleCatalog} dataStatus={isLoading ? 'loading' : loadError ? 'error' : 'success'} searchQuery={searchQuery} setSearchQuery={setSearchQuery} publisherFilter={publisherFilter} setPublisherFilter={setPublisherFilter} subjectFilter={subjectFilter} setSubjectFilter={setSubjectFilter} gradeFilter={gradeFilter} setGradeFilter={setGradeFilter} semesterFilter={semesterFilter} setSemesterFilter={setSemesterFilter} onReset={() => { setSearchQuery(''); setSubjectFilter('전체'); setGradeFilter('전체'); setSemesterFilter('전체'); setPublisherFilter('전체'); }} />
+          <SearchFilters books={visibleCatalog} subjectBooks={subjectFacetBooks} dataStatus={isLoading ? 'loading' : loadError ? 'error' : 'success'} searchQuery={searchQuery} setSearchQuery={setSearchQuery} publisherFilter={publisherFilter} setPublisherFilter={setPublisherFilter} subjectFilter={subjectFilter} setSubjectFilter={setSubjectFilter} gradeFilter={gradeFilter} setGradeFilter={setGradeFilter} semesterFilter={semesterFilter} setSemesterFilter={setSemesterFilter} onReset={() => { setSearchQuery(''); setSubjectFilter('전체'); setGradeFilter('전체'); setSemesterFilter('전체'); setPublisherFilter('전체'); }} />
 
           {/* Right Results Grid */}
           <div className="lg:col-span-3">
