@@ -16,7 +16,7 @@ const SEARCH_FIELDS = (book: Book) => [
 
 export function normalizeBookSearch(value: string): string {
   return value.normalize('NFKC').toLocaleLowerCase('ko-KR')
-    .replace(/[\\s·ㆍ_\\-–—()[\\]{}:：,.]+/g, '');
+    .replace(/[\s·ㆍ_\-–—()[\]{}:：,.]+/g, '');
 }
 
 /** Returns zero for a non-match; title and series matches rank above metadata matches. */
