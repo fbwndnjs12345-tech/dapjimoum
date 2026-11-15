@@ -234,111 +234,142 @@ export function BookDetailPage() {
     };
 
     return (
-      <div className="max-w-[860px] mx-auto px-5 py-8 space-y-6">
-        {/* Navigation Breadcrumb */}
+      <div className="max-w-[1040px] mx-auto px-5 py-8 space-y-7">
         <button
           onClick={() => navigateTo('/search')}
-          className="inline-flex items-center gap-1.5 text-xs text-[#6B7684] hover:text-[#191F28] font-bold transition-colors"
+          className="inline-flex items-center gap-2 text-sm text-[#667085] hover:text-[#191F28] font-semibold transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>교재 목록으로</span>
+          교재 목록
         </button>
 
-        {/* Book Header Card */}
-        <div className="bg-white rounded-3xl border border-[#E5E8EB] p-6 sm:p-8 flex flex-col sm:flex-row gap-6 shadow-sm relative">
-          <BookThumbnail src={book.thumbnail_url} alt={book.title} className="w-28 sm:w-36 h-36 sm:h-48 object-cover rounded-2xl bg-[#F9FAFB] border border-[#E5E8EB] flex-shrink-0 mx-auto sm:mx-0 shadow-md" />
-
-          <div className="space-y-3 flex-1">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-[#E8F3FF] text-[#1B64DA]">
-                  {book.publisher || '출판사 미등록'}
-                </span>
-                <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#F2F4F6] text-[#4E5968]">
-                  {book.subject || '과목 미등록'}
-                </span>
-                {book.series && (
-                  <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#F2F4F6] text-[#4E5968]">
-                    {book.series}
-                  </span>
-                )}
-                {book.edition && (
-                  <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#F2F4F6] text-[#4E5968]">
-                    {book.edition}
-                  </span>
-                )}
-                <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#F2F4F6] text-[#4E5968]">
-                  {[book.grade, book.semester].filter(Boolean).join(' · ') || '학년·학기 미등록'}
-                </span>
-              </div>
-
-              <button
-                onClick={(e) => toggleBookmark(book.id, e)}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all ${
-                  isBookmarked
-                    ? 'bg-[#3182F6] text-white'
-                    : 'bg-[#F2F4F6] text-[#4E5968] hover:bg-[#E5E8EB]'
-                }`}
-              >
-                <Bookmark className="w-3.5 h-3.5" />
-                <span>{isBookmarked ? '보관됨' : '보관하기'}</span>
-              </button>
+        <section aria-labelledby="book-title" className="overflow-hidden rounded-3xl border border-[#E5E8EB] bg-white shadow-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-[220px_minmax(0,1fr)] gap-6 sm:gap-8 p-5 sm:p-8">
+            <div className="flex justify-center sm:justify-start">
+              <BookThumbnail
+                src={book.thumbnail_url}
+                alt={book.title}
+                className="w-40 h-52 sm:w-full sm:h-[290px] object-contain rounded-2xl bg-[#F7F8FA] border border-[#E5E8EB] p-2"
+              />
             </div>
-
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-[#191F28]">{book.title}</h1>
-
-            <section aria-labelledby="book-description-heading" className="rounded-2xl border border-[#E5E8EB] bg-white p-4 space-y-2">
-              <h2 id="book-description-heading" className="text-sm font-extrabold text-[#191F28]">교재 소개</h2>
-              {book.description?.trim() ? (
-                <p className="text-sm text-[#4E5968] leading-7 whitespace-pre-line">{book.description}</p>
-              ) : (
-                <p className="text-sm text-[#8B95A1] leading-7">출판사에서 제공한 교재 소개가 아직 등록되지 않았습니다. 확인되지 않은 내용을 임의로 작성하지 않습니다.</p>
-              )}
-            </section>
-            <section aria-labelledby="book-study-guide-heading" className="rounded-2xl border border-[#E5E8EB] bg-white p-4 space-y-3">
-              <h2 id="book-study-guide-heading" className="text-sm font-extrabold text-[#191F28]">{book.title} 학습 활용 안내</h2>
-              <p className="text-sm text-[#4E5968] leading-7">{book.title}은(는) {[book.grade, book.subject, book.semester].filter(Boolean).join(' ')} 교재로 등록되어 있습니다. 실제 목차와 단원별 학습 목표를 확인하고 현재 수업 진도 및 학습 목적에 맞는 단원부터 활용하세요.</p>
-              <p className="text-sm text-[#4E5968] leading-7">{getSubjectStudyGuide(book.subject)}</p>
-              <h3 className="text-xs font-bold text-[#344054]">교재 확인 체크리스트</h3>
-              <ul className="list-disc pl-5 text-sm text-[#4E5968] leading-7 space-y-1">
-                <li>표지의 교재명, 학년, 학기와 판본이 일치하는지 확인합니다.</li>
-                <li>개정 교육과정 적용 여부와 발행 연도를 확인합니다.</li>
-                <li>답지 자료를 이용하기 전 ISBN과 출판사 정보를 대조합니다.</li>
-                <li>목차, 페이지 수, 정가는 실제 교재 또는 출판사 안내에서 최종 확인합니다.</li>
-              </ul>
-            </section>
-            {isHttpUrl(book.book_url) && <a href={book.book_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-[#3182F6] hover:underline">출판사·서점 상세 페이지 <ExternalLink className="h-3.5 w-3.5" /></a>}
-
-            <section aria-labelledby="book-metadata-heading" className="rounded-2xl border border-[#D9E2EF] bg-[#F8FAFC] p-4 space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <h2 id="book-metadata-heading" className="text-sm font-extrabold text-[#191F28]">교재 서지정보</h2>
-                <span className="text-[11px] font-semibold text-[#667085]">도서 식별 및 출판 정보</span>
+            <div className="min-w-0 flex flex-col gap-5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex flex-wrap gap-2 min-w-0">
+                  {book.publisher && <span className="rounded-full bg-[#EAF2FF] px-3 py-1 text-xs font-bold text-[#2457A7]">{book.publisher}</span>}
+                  {book.subject && <span className="rounded-full bg-[#F2F4F7] px-3 py-1 text-xs font-semibold text-[#475467]">{book.subject}</span>}
+                  {(book.grade || book.semester) && <span className="rounded-full bg-[#F2F4F7] px-3 py-1 text-xs font-semibold text-[#475467]">{[book.grade, book.semester].filter(Boolean).join(' · ')}</span>}
+                  {book.edition && <span className="rounded-full bg-[#F2F4F7] px-3 py-1 text-xs font-semibold text-[#475467]">{book.edition}</span>}
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => toggleBookmark(book.id, e)}
+                  aria-pressed={isBookmarked}
+                  className={`shrink-0 inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold transition-colors ${
+                    isBookmarked ? 'bg-[#EAF2FF] text-[#2457A7]' : 'bg-[#F2F4F7] text-[#475467] hover:bg-[#E4E7EC]'
+                  }`}
+                >
+                  <Bookmark className="h-4 w-4" />
+                  {isBookmarked ? '저장됨' : '교재 저장'}
+                </button>
               </div>
-              <dl className="overflow-hidden rounded-xl border border-[#DCE4EE] bg-white text-sm">
+
+              <div className="space-y-2">
+                <h1 id="book-title" className="text-2xl sm:text-3xl font-extrabold leading-tight tracking-tight text-[#191F28]">{book.title}</h1>
+                {book.series && <p className="text-sm font-medium text-[#667085]">{book.series}</p>}
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {[
-                  ['ISBN-13', book.isbn13 || '미등록'],
-                  ['저자·편집', book.author || '미등록'],
-                  ['출판사', book.publisher || '미등록'],
-                  ['발행일', book.published_at ? new Date(book.published_at).toLocaleDateString('ko-KR') : '미등록'],
-                  ['페이지 수', book.page_count ? `${book.page_count.toLocaleString('ko-KR')}쪽` : '미등록'],
-                  ['정가', book.list_price ? `${book.list_price.toLocaleString('ko-KR')}원` : '미등록'],
-                  ['교육과정', book.curriculum_revision || '미등록'],
-                  ['판본', book.edition || '미등록'],
-                  ['학년·학기', [book.grade, book.semester].filter(Boolean).join(' · ') || '미등록']
+                  ['ISBN-13', book.isbn13 || '정보 없음'],
+                  ['저자·편집', book.author || '정보 없음'],
+                  ['발행일', book.published_at ? new Date(book.published_at).toLocaleDateString('ko-KR') : '정보 없음'],
                 ].map(([label, value]) => (
-                  <div key={label} className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-3 px-3.5 py-3 even:bg-[#F8FAFC] border-b last:border-b-0 border-[#E8EDF3]">
-                    <dt className="font-semibold text-[#667085]">{label}</dt>
-                    <dd className={`font-semibold break-words ${label === 'ISBN-13' ? 'font-mono tracking-wide text-[#174EA6]' : 'text-[#344054]'}`}>{value}</dd>
+                  <div key={label} className="min-w-0 rounded-xl bg-[#F8FAFC] px-3 py-3">
+                    <div className="text-[11px] font-semibold text-[#667085]">{label}</div>
+                    <div className={`mt-1 text-sm font-bold text-[#344054] break-words ${label === 'ISBN-13' ? 'font-mono' : ''}`}>{value}</div>
                   </div>
                 ))}
-              </dl>
-            </section>
+              </div>
 
-            <div className="text-[11px] text-[#8B95A1] font-semibold pt-3 border-t border-[#F2F4F6] flex items-center justify-between">
-              <span>등록일: {new Date(book.created_at).toLocaleDateString('ko-KR')}</span>
-              <span>공개 답지 링크 <strong className="text-[#3182F6]">{bookLinks.length}</strong>개</span>
+              {isHttpUrl(book.book_url) ? (
+                <div>
+                  <a href={book.book_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-[#D0D5DD] px-4 py-2.5 text-sm font-bold text-[#344054] hover:bg-[#F9FAFB] transition-colors">
+                    출판사·서점에서 교재 확인 <ExternalLink className="h-4 w-4" />
+                  </a>
+                </div>
+              ) : null}
             </div>
           </div>
+          <div className="grid grid-cols-3 divide-x divide-[#EAECF0] border-t border-[#EAECF0] bg-[#FCFCFD]">
+            <div className="px-3 py-4 text-center">
+              <div className="text-xs text-[#667085]">답지 자료</div>
+              <div className="mt-1 text-lg font-extrabold text-[#191F28]">{bookLinks.length}<span className="ml-1 text-xs font-semibold">개</span></div>
+            </div>
+            <div className="px-3 py-4 text-center">
+              <div className="text-xs text-[#667085]">페이지</div>
+              <div className="mt-1 text-lg font-extrabold text-[#191F28]">{book.page_count ? book.page_count.toLocaleString('ko-KR') : '—'}<span className="ml-1 text-xs font-semibold">{book.page_count ? '쪽' : ''}</span></div>
+            </div>
+            <div className="px-3 py-4 text-center">
+              <div className="text-xs text-[#667085]">정가</div>
+              <div className="mt-1 text-lg font-extrabold text-[#191F28]">{book.list_price ? `${book.list_price.toLocaleString('ko-KR')}원` : '—'}</div>
+            </div>
+          </div>
+        </section>
+
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.45fr)_minmax(280px,0.85fr)] gap-5 items-start">
+          <div className="space-y-5 min-w-0">
+            <section aria-labelledby="book-description-heading" className="rounded-2xl border border-[#E5E8EB] bg-white p-5 sm:p-6 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="h-7 w-1 rounded-full bg-[#3182F6]" />
+                <h2 id="book-description-heading" className="text-base font-extrabold text-[#191F28]">교재 소개</h2>
+              </div>
+              {book.description?.trim() ? (
+                <p className="whitespace-pre-line text-sm leading-7 text-[#475467]">{book.description}</p>
+              ) : (
+                <p className="text-sm leading-7 text-[#98A2B3]">등록된 출판사 교재 소개가 없습니다. 확인되지 않은 설명은 임의로 표시하지 않습니다.</p>
+              )}
+            </section>
+
+            <section aria-labelledby="book-study-guide-heading" className="rounded-2xl border border-[#E5E8EB] bg-white p-5 sm:p-6 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="h-7 w-1 rounded-full bg-[#12B76A]" />
+                <h2 id="book-study-guide-heading" className="text-base font-extrabold text-[#191F28]">학습 활용 팁</h2>
+              </div>
+              <p className="text-sm leading-7 text-[#475467]">{getSubjectStudyGuide(book.subject)}</p>
+              <p className="border-t border-[#F2F4F7] pt-3 text-xs leading-6 text-[#667085]">실제 단원 구성과 학습 목표는 교재 목차를 기준으로 확인하세요. 답지 이용 전에는 교재명과 판본, ISBN이 일치하는지 확인하는 것이 좋습니다.</p>
+            </section>
+          </div>
+
+          <aside className="rounded-2xl border border-[#E5E8EB] bg-white p-5 sm:p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="h-7 w-1 rounded-full bg-[#98A2B3]" />
+              <h2 className="text-base font-extrabold text-[#191F28]">도서 정보</h2>
+            </div>
+            <dl className="divide-y divide-[#EAECF0]">
+              {[
+                ['ISBN-13', book.isbn13 || '미등록'],
+                ['저자·편집', book.author || '미등록'],
+                ['출판사', book.publisher || '미등록'],
+                ['발행일', book.published_at ? new Date(book.published_at).toLocaleDateString('ko-KR') : '미등록'],
+                ['페이지 수', book.page_count ? `${book.page_count.toLocaleString('ko-KR')}쪽` : '미등록'],
+                ['정가', book.list_price ? `${book.list_price.toLocaleString('ko-KR')}원` : '미등록'],
+                ['교육과정', book.curriculum_revision || '미등록'],
+                ['판본', book.edition || '미등록'],
+                ['학년·학기', [book.grade, book.semester].filter(Boolean).join(' · ') || '미등록'],
+                ['등록일', book.created_at ? new Date(book.created_at).toLocaleDateString('ko-KR') : '미등록'],
+              ].map(([label, value]) => (
+                <div key={label} className="grid grid-cols-[88px_minmax(0,1fr)] gap-3 py-3 text-sm">
+                  <dt className="font-medium text-[#667085]">{label}</dt>
+                  <dd className={`break-words text-right font-semibold text-[#344054] ${label === 'ISBN-13' ? 'font-mono tracking-wide' : ''}`}>{value}</dd>
+                </div>
+              ))}
+            </dl>
+            {isHttpUrl(book.book_url) && (
+              <a href={book.book_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 rounded-xl bg-[#F2F4F7] px-4 py-3 text-sm font-bold text-[#344054] hover:bg-[#EAECF0] transition-colors">
+                원본 도서 정보 보기 <ExternalLink className="h-4 w-4" />
+              </a>
+            )}
+          </aside>
         </div>
 
         {/* Answer Links List */}
