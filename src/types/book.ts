@@ -7,6 +7,12 @@ export interface Book {
   semester: string;
   series?: string;
   edition?: string;
+  isbn13?: string | null;
+  author?: string | null;
+  published_at?: string | null;
+  page_count?: number | null;
+  list_price?: number | null;
+  cover_image_source?: string | null;
   catalog_key?: string;
   book_url?: string | null;
   thumbnail_url?: string;
