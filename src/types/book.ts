@@ -16,7 +16,7 @@ export interface Book {
   cover_image_source?: string | null;
   catalog_key?: string;
   book_url?: string | null;
-  thumbnail_url?: string;
+  thumbnail_url?: string | null;
   description?: string;
   created_at: string;
 }
