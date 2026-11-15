@@ -13,6 +13,16 @@ function isHttpUrl(value?: string | null): value is string {
   try { return ['http:', 'https:'].includes(new URL(value).protocol); } catch { return false; }
 }
 
+function getSubjectStudyGuide(subject?: string) {
+  const value = (subject || '').toLowerCase();
+  if (/수학|math/.test(value)) return '개념을 이해한 뒤 예제 풀이 과정을 따라가고, 유사 문제를 스스로 풀어 보세요. 오답은 계산 실수, 개념 이해 부족, 풀이 전략의 문제로 나누어 다시 확인하는 것이 좋습니다.';
+  if (/영어|english/.test(value)) return '어휘와 문장 구조를 확인한 뒤 지문을 문단별로 읽고 핵심 내용과 연결 표현을 정리하세요. 정답뿐 아니라 오답 선택지가 성립하지 않는 이유도 지문 근거로 설명해 보세요.';
+  if (/국어|korean/.test(value)) return '글의 갈래와 목적을 파악하고 중심 내용 및 문단 간 관계를 정리하세요. 문제를 풀 때는 선택지의 판단 근거가 되는 문장이나 표현을 지문에서 찾아 확인하세요.';
+  if (/과학|science/.test(value)) return '용어 암기에 그치지 말고 개념 사이의 원인과 결과, 조건과 변화 과정을 연결해 이해하세요. 그림·표·실험 자료가 있다면 무엇을 비교하는지와 도출되는 결론을 직접 설명해 보세요.';
+  if (/사회|역사|도덕|지리|정치|경제/.test(value)) return '핵심 용어를 실제 사례와 연결하고 사건·현상 사이의 원인과 결과 및 관점의 차이를 비교하세요. 지도·연표·통계는 제목과 단위를 확인한 뒤 근거를 정리하세요.';
+  return '목차와 단원별 학습 목표를 먼저 확인하고, 핵심 개념을 읽은 뒤 예제와 연습 문제를 풀어 보세요. 학습 후에는 틀린 문항의 근거를 본문에서 다시 찾아 정리하면 복습에 도움이 됩니다.';
+}
+
 export function BookDetailPage() {
     const {setLinks, bookmarks, routeParams, setIsRequestModalOpen, setIsReportModalOpen, setReportTargetLink, navigateTo, toggleBookmark} = useAppContext();
     const bookId = routeParams.id;
@@ -284,6 +294,18 @@ export function BookDetailPage() {
               ) : (
                 <p className="text-sm text-[#8B95A1] leading-7">출판사에서 제공한 교재 소개가 아직 등록되지 않았습니다. 확인되지 않은 내용을 임의로 작성하지 않습니다.</p>
               )}
+            </section>
+            <section aria-labelledby="book-study-guide-heading" className="rounded-2xl border border-[#E5E8EB] bg-white p-4 space-y-3">
+              <h2 id="book-study-guide-heading" className="text-sm font-extrabold text-[#191F28]">{book.title} 학습 활용 안내</h2>
+              <p className="text-sm text-[#4E5968] leading-7">{book.title}은(는) {[book.grade, book.subject, book.semester].filter(Boolean).join(' ')} 교재로 등록되어 있습니다. 실제 목차와 단원별 학습 목표를 확인하고 현재 수업 진도 및 학습 목적에 맞는 단원부터 활용하세요.</p>
+              <p className="text-sm text-[#4E5968] leading-7">{getSubjectStudyGuide(book.subject)}</p>
+              <h3 className="text-xs font-bold text-[#344054]">교재 확인 체크리스트</h3>
+              <ul className="list-disc pl-5 text-sm text-[#4E5968] leading-7 space-y-1">
+                <li>표지의 교재명, 학년, 학기와 판본이 일치하는지 확인합니다.</li>
+                <li>개정 교육과정 적용 여부와 발행 연도를 확인합니다.</li>
+                <li>답지 자료를 이용하기 전 ISBN과 출판사 정보를 대조합니다.</li>
+                <li>목차, 페이지 수, 정가는 실제 교재 또는 출판사 안내에서 최종 확인합니다.</li>
+              </ul>
             </section>
             {isHttpUrl(book.book_url) && <a href={book.book_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-[#3182F6] hover:underline">출판사·서점 상세 페이지 <ExternalLink className="h-3.5 w-3.5" /></a>}
 
