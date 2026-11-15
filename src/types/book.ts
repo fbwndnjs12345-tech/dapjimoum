@@ -7,6 +7,7 @@ export interface Book {
   semester: string;
   series?: string;
   edition?: string;
+  curriculum_revision?: string | null;
   isbn13?: string | null;
   author?: string | null;
   published_at?: string | null;
