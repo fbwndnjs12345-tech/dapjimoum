@@ -4,6 +4,7 @@ import type { Book } from '../../types/book';
 
 type SearchFiltersProps = {
   books: Book[];
+  subjectBooks: Book[];
   dataStatus: 'loading' | 'error' | 'success';
   searchQuery: string; setSearchQuery: (value: string) => void;
   publisherFilter: string; setPublisherFilter: (value: string) => void;
@@ -13,7 +14,7 @@ type SearchFiltersProps = {
   onReset: () => void;
 };
 
-export function SearchFilters({ books, dataStatus, searchQuery, setSearchQuery, publisherFilter, setPublisherFilter, subjectFilter, setSubjectFilter, gradeFilter, setGradeFilter, semesterFilter, setSemesterFilter, onReset }: SearchFiltersProps) {
+export function SearchFilters({ books, subjectBooks, dataStatus, searchQuery, setSearchQuery, publisherFilter, setPublisherFilter, subjectFilter, setSubjectFilter, gradeFilter, setGradeFilter, semesterFilter, setSemesterFilter, onReset }: SearchFiltersProps) {
   const countText = (count: number) => dataStatus === 'success' ? String(count) : '—';
   const facets = useMemo(() => {
     const build = (select: (book: Book) => string | null | undefined) => {
@@ -34,11 +35,21 @@ export function SearchFilters({ books, dataStatus, searchQuery, setSearchQuery, 
       semesters: build(book => book.semester)
     };
   }, [books]);
+  const subjectFacet = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const book of subjectBooks) {
+      const value = book.subject?.trim();
+      if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
+    }
+    return {
+      options: ['전체', ...Array.from(counts.keys()).sort((a, b) => a.localeCompare(b, 'ko'))],
+      counts
+    };
+  }, [subjectBooks]);
   const countFor = (value: string, facet: { counts: Map<string, number> }) =>
     countText(value === '전체' ? books.length : facet.counts.get(value) ?? 0);
-  const { publishers, subjects, grades, semesters } = {
+  const { publishers, grades, semesters } = {
     publishers: facets.publishers.options,
-    subjects: facets.subjects.options,
     grades: facets.grades.options,
     semesters: facets.semesters.options
   };
@@ -91,9 +102,9 @@ export function SearchFilters({ books, dataStatus, searchQuery, setSearchQuery, 
 
             {/* Subject Filter */}
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-[#333D4B]">과목 ({dataStatus === 'success' ? subjects.length - 1 : '—'})</label>
+              <label className="text-xs font-bold text-[#333D4B]">과목 ({dataStatus === 'success' ? subjectFacet.options.length - 1 : '—'})</label>
               <div className="flex flex-wrap gap-1">
-                {subjects.map(s => (
+                {subjectFacet.options.map(s => (
                   <button
                     key={s}
                     onClick={() => setSubjectFilter(s)}
@@ -103,7 +114,7 @@ export function SearchFilters({ books, dataStatus, searchQuery, setSearchQuery, 
                         : 'bg-[#F2F4F6] text-[#4E5968] hover:bg-[#E5E8EB]'
                     }`}
                   >
-                    {s === '전체' ? `전체 (${countFor(s, facets.subjects)})` : `${s} (${countFor(s, facets.subjects)})`}
+                    {s === '전체' ? `전체 (${countFor(s, subjectFacet)})` : `${s} (${countFor(s, facets.subjects)})`}
                   </button>
                 ))}
               </div>
