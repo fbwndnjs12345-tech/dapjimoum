@@ -147,6 +147,11 @@ export function BookDetailPage() {
             ...(supabaseBook.subject ? { genre: supabaseBook.subject } : {}),
             ...(supabaseBook.edition ? { bookEdition: supabaseBook.edition } : {}),
             ...(supabaseBook.description ? { description: supabaseBook.description } : {}),
+            ...(supabaseBook.isbn13 ? { isbn: supabaseBook.isbn13 } : {}),
+            ...(supabaseBook.author ? { author: { '@type': 'Person', name: supabaseBook.author } } : {}),
+            ...(supabaseBook.published_at ? { datePublished: supabaseBook.published_at } : {}),
+            ...(supabaseBook.page_count ? { numberOfPages: supabaseBook.page_count } : {}),
+            ...(supabaseBook.list_price ? { offers: { '@type': 'Offer', price: supabaseBook.list_price, priceCurrency: 'KRW' } } : {}),
             inLanguage: 'ko'
           },
           {
@@ -287,12 +292,9 @@ export function BookDetailPage() {
                 <h2 id="book-metadata-heading" className="text-sm font-extrabold text-[#191F28]">교재 서지정보</h2>
                 <span className="text-[11px] font-semibold text-[#667085]">도서 식별 및 출판 정보</span>
               </div>
-              <div className="rounded-xl border border-[#C9D9EF] bg-white px-3.5 py-3">
-                <div className="text-[11px] font-bold text-[#667085] mb-1">ISBN-13</div>
-                <div className="font-mono text-base sm:text-lg font-extrabold tracking-wide text-[#174EA6] break-all">{book.isbn13 || '미등록'}</div>
-              </div>
-              <dl className="divide-y divide-[#E8EDF3] text-sm">
+              <dl className="overflow-hidden rounded-xl border border-[#DCE4EE] bg-white text-sm">
                 {[
+                  ['ISBN-13', book.isbn13 || '미등록'],
                   ['저자·편집', book.author || '미등록'],
                   ['출판사', book.publisher || '미등록'],
                   ['발행일', book.published_at ? new Date(book.published_at).toLocaleDateString('ko-KR') : '미등록'],
@@ -302,9 +304,9 @@ export function BookDetailPage() {
                   ['판본', book.edition || '미등록'],
                   ['학년·학기', [book.grade, book.semester].filter(Boolean).join(' · ') || '미등록']
                 ].map(([label, value]) => (
-                  <div key={label} className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-3 py-2.5">
+                  <div key={label} className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-3 px-3.5 py-3 even:bg-[#F8FAFC] border-b last:border-b-0 border-[#E8EDF3]">
                     <dt className="font-semibold text-[#667085]">{label}</dt>
-                    <dd className="font-semibold text-[#344054] break-words">{value}</dd>
+                    <dd className={`font-semibold break-words ${label === 'ISBN-13' ? 'font-mono tracking-wide text-[#174EA6]' : 'text-[#344054]'}`}>{value}</dd>
                   </div>
                 ))}
               </dl>
