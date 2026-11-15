@@ -158,7 +158,7 @@ for (const [route, title] of nonIndexableRoutes) {
   const routeHtml = template
     .replace(/<title>[\s\S]*?<\/title>/, `<title>${escapeHtml(title)}</title>`)
     .replace(/<meta name="robots"[^>]*\/?\s*>/, '<meta name="robots" content="noindex, follow" />')
-    .replace('</head>', `    ${routeDescription ? `<meta name="description" content="${escapeHtml(routeDescription)}" />\\n    ${adsenseCode}` : ''}\n  </head>`);
+    .replace('</head>', `    ${routeDescription ? `<meta name="description" content="${escapeHtml(routeDescription)}" />\n    ${adsenseCode}` : ''}\n  </head>`);
   const routeDirectory = path.join(outputRoot, route);
   await mkdir(routeDirectory, { recursive: true });
   await writeFile(path.join(routeDirectory, 'index.html'), routeHtml, 'utf8');
