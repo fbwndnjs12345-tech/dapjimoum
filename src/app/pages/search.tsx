@@ -4,54 +4,11 @@ import { Search } from 'lucide-react';
 import type { Book } from '../../types/book';
 import type { AnswerLinkCount } from '../../lib/supabase/answerLinks';
 import { isPlaceholderBook } from '../../lib/catalog';
+import { scoreBookSearch } from '../../lib/bookSearch';
 
 import { useAppContext } from '../../state/useAppContext';
 import { BookCard } from '../../components/books/BookCard';
 import { SearchFilters } from '../../components/search/SearchFilters';
-
-function searchTokens(value: string): string[] {
-  return (value.toLocaleLowerCase('ko-KR').normalize('NFKC').match(/[가-힣]+|[a-z]+|[0-9]+/g) ?? [])
-    .filter(token => token.length > 0);
-}
-
-function normalizeSearchValue(value: string): string {
-  return value.toLocaleLowerCase('ko-KR').normalize('NFKC').replace(/[\s·ㆍ_\-–—()[\]{}:：,.]+/g, '');
-}
-
-function isOneEditAway(left: string, right: string): boolean {
-  if (Math.abs(left.length - right.length) > 1 || Math.min(left.length, right.length) < 4) return false;
-  let i = 0;
-  let j = 0;
-  let edits = 0;
-  while (i < left.length && j < right.length) {
-    if (left[i] === right[j]) { i += 1; j += 1; continue; }
-    edits += 1;
-    if (edits > 1) return false;
-    if (left.length > right.length) i += 1;
-    else if (right.length > left.length) j += 1;
-    else { i += 1; j += 1; }
-  }
-  if (i < left.length || j < right.length) edits += 1;
-  return edits <= 1;
-}
-
-function scoreBookSearch(book: Book, query: string): number {
-  const fields = [book.title, book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.description]
-    .filter((value): value is string => Boolean(value));
-  const normalizedQuery = normalizeSearchValue(query);
-  if (!normalizedQuery) return 1;
-  if (fields.some(value => normalizeSearchValue(value) === normalizedQuery)) return 120;
-  if (normalizeSearchValue(book.title).includes(normalizedQuery)) return 110;
-  if (fields.some(value => normalizeSearchValue(value).includes(normalizedQuery))) return 100;
-  const queryParts = searchTokens(query);
-  const fieldParts = fields.flatMap(searchTokens);
-  if (!queryParts.length) return 0;
-  const hits = queryParts.filter(token => fieldParts.some(field => field === token || (token.length >= 2 && field.startsWith(token)) || isOneEditAway(token, field)));
-  const ratio = hits.length / queryParts.length;
-  if (ratio === 1) return 80 + Math.min(15, queryParts.length * 3);
-  if (queryParts.length >= 2 && ratio >= 0.75) return 50 + ratio * 20;
-  return 0;
-}
 
 export function SearchPage() {
     const {bookmarks, searchQuery, setSearchQuery, subjectFilter, setSubjectFilter, gradeFilter, setGradeFilter, semesterFilter, setSemesterFilter, publisherFilter, setPublisherFilter, sortBy, setSortBy, setIsRequestModalOpen, navigateTo, toggleBookmark} = useAppContext();
@@ -114,23 +71,40 @@ export function SearchPage() {
       return filtered.sort((a, b) => scoreBookSearch(b, query) - scoreBookSearch(a, query));
     }, [allBooks, linkCounts, searchQuery, publisherFilter, subjectFilter, gradeFilter, semesterFilter, sortBy]);
     const visibleCatalog = useMemo(() => allBooks.filter(book => !isPlaceholderBook(book)), [allBooks]);
-    // 과목 선택지는 현재 검색어와 일치하는 교재에서만 집계한다.
-    // 과목 필터 자체는 제외해 다른 과목으로 전환할 수 있게 한다.
-    const subjectFacetBooks = useMemo(() => {
+    const queryMatchedBooks = useMemo(() => {
       const query = searchQuery.trim();
-      return visibleCatalog.filter(book =>
-        (!query || scoreBookSearch(book, query) > 0) &&
-        (publisherFilter === '전체' || book.publisher?.trim() === publisherFilter) &&
-        (gradeFilter === '전체' || book.grade?.trim() === gradeFilter) &&
-        (semesterFilter === '전체' || book.semester?.trim() === semesterFilter)
-      );
-    }, [visibleCatalog, searchQuery, publisherFilter, gradeFilter, semesterFilter]);
+      return visibleCatalog.filter(book => !query || scoreBookSearch(book, query) > 0);
+    }, [visibleCatalog, searchQuery]);
+
+    // 각 필터의 선택지는 검색어와 나머지 필터를 적용한 교재만으로 계산한다.
+    // 자기 자신의 필터는 제외하므로 다른 값으로 전환할 수 있다.
+    const publisherFacetBooks = useMemo(() => queryMatchedBooks.filter(book =>
+      (subjectFilter === '전체' || book.subject?.trim() === subjectFilter) &&
+      (gradeFilter === '전체' || book.grade?.trim() === gradeFilter) &&
+      (semesterFilter === '전체' || book.semester?.trim() === semesterFilter)
+    ), [queryMatchedBooks, subjectFilter, gradeFilter, semesterFilter]);
+    const subjectFacetBooks = useMemo(() => queryMatchedBooks.filter(book =>
+      (publisherFilter === '전체' || book.publisher?.trim() === publisherFilter) &&
+      (gradeFilter === '전체' || book.grade?.trim() === gradeFilter) &&
+      (semesterFilter === '전체' || book.semester?.trim() === semesterFilter)
+    ), [queryMatchedBooks, publisherFilter, gradeFilter, semesterFilter]);
+    const gradeFacetBooks = useMemo(() => queryMatchedBooks.filter(book =>
+      (publisherFilter === '전체' || book.publisher?.trim() === publisherFilter) &&
+      (subjectFilter === '전체' || book.subject?.trim() === subjectFilter) &&
+      (semesterFilter === '전체' || book.semester?.trim() === semesterFilter)
+    ), [queryMatchedBooks, publisherFilter, subjectFilter, semesterFilter]);
+    const semesterFacetBooks = useMemo(() => queryMatchedBooks.filter(book =>
+      (publisherFilter === '전체' || book.publisher?.trim() === publisherFilter) &&
+      (subjectFilter === '전체' || book.subject?.trim() === subjectFilter) &&
+      (gradeFilter === '전체' || book.grade?.trim() === gradeFilter)
+    ), [queryMatchedBooks, publisherFilter, subjectFilter, gradeFilter]);
 
     useEffect(() => {
-      if (subjectFilter !== '전체' && !subjectFacetBooks.some(book => book.subject?.trim() === subjectFilter)) {
-        setSubjectFilter('전체');
-      }
-    }, [subjectFilter, subjectFacetBooks, setSubjectFilter]);
+      if (publisherFilter !== '전체' && !publisherFacetBooks.some(book => book.publisher?.trim() === publisherFilter)) setPublisherFilter('전체');
+      if (subjectFilter !== '전체' && !subjectFacetBooks.some(book => book.subject?.trim() === subjectFilter)) setSubjectFilter('전체');
+      if (gradeFilter !== '전체' && !gradeFacetBooks.some(book => book.grade?.trim() === gradeFilter)) setGradeFilter('전체');
+      if (semesterFilter !== '전체' && !semesterFacetBooks.some(book => book.semester?.trim() === semesterFilter)) setSemesterFilter('전체');
+    }, [publisherFilter, subjectFilter, gradeFilter, semesterFilter, publisherFacetBooks, subjectFacetBooks, gradeFacetBooks, semesterFacetBooks, setPublisherFilter, setSubjectFilter, setGradeFilter, setSemesterFilter]);
 
     return (
       <div className="max-w-[1100px] mx-auto px-5 py-8 space-y-6">
@@ -158,7 +132,7 @@ export function SearchPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          <SearchFilters books={visibleCatalog} subjectBooks={subjectFacetBooks} dataStatus={isLoading ? 'loading' : loadError ? 'error' : 'success'} searchQuery={searchQuery} setSearchQuery={setSearchQuery} publisherFilter={publisherFilter} setPublisherFilter={setPublisherFilter} subjectFilter={subjectFilter} setSubjectFilter={setSubjectFilter} gradeFilter={gradeFilter} setGradeFilter={setGradeFilter} semesterFilter={semesterFilter} setSemesterFilter={setSemesterFilter} onReset={() => { setSearchQuery(''); setSubjectFilter('전체'); setGradeFilter('전체'); setSemesterFilter('전체'); setPublisherFilter('전체'); }} />
+          <SearchFilters publisherBooks={publisherFacetBooks} subjectBooks={subjectFacetBooks} gradeBooks={gradeFacetBooks} semesterBooks={semesterFacetBooks} dataStatus={isLoading ? 'loading' : loadError ? 'error' : 'success'} searchQuery={searchQuery} setSearchQuery={setSearchQuery} publisherFilter={publisherFilter} setPublisherFilter={setPublisherFilter} subjectFilter={subjectFilter} setSubjectFilter={setSubjectFilter} gradeFilter={gradeFilter} setGradeFilter={setGradeFilter} semesterFilter={semesterFilter} setSemesterFilter={setSemesterFilter} onReset={() => { setSearchQuery(''); setSubjectFilter('전체'); setGradeFilter('전체'); setSemesterFilter('전체'); setPublisherFilter('전체'); }} />
 
           {/* Right Results Grid */}
           <div className="lg:col-span-3">
