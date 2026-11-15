@@ -71,51 +71,42 @@ function qualifiesForIndex(book) {
   return Boolean(hasUsefulCatalogData && !containsPlaceholder);
 }
 
-function pageHtml(template, book, bookLinks, relatedBooks) {
-  const canonical = siteUrl ? `${siteUrl}/books/${encodeURIComponent(book.id)}` : '';
-  const title = `${book.title} 답지·교재 정보 | 답지모음`;
-  const facts = [book.publisher, book.subject, book.grade, book.semester, book.series, book.edition].filter(Boolean);
-  const description = `${book.title} · ${facts.join(' · ')}${book.description ? ` · ${book.description}` : ''}`.slice(0, 160);
-  const verifiedLinks = bookLinks.filter(link => isRecentlyVerified(link) && isPublicHttpsUrl(link.url));
-  const linksMarkup = verifiedLinks.map(link =>
-    `<li><a href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(link.title)}</a>${link.source_name ? ` <span>(${escapeHtml(link.source_name)})</span>` : ''}${link.last_checked_at ? ` <span>· 확인 ${escapeHtml(new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium' }).format(new Date(link.last_checked_at)))}</span>` : ''}</li>`
-  ).join('') || '<li>현재 확인된 원본 답지 링크가 없습니다. 교재명과 판본 정보를 확인해 주세요.</li>';
-  const bookPageMarkup = isPublicHttpsUrl(book.book_url)
-    ? `<p class="mt-3 text-sm"><a href="${escapeHtml(book.book_url)}" rel="noopener noreferrer">교재 페이지 보기</a></p>`
-    : '';
-  const relatedMarkup = relatedBooks.map(related =>
-    `<li><a href="/books/${encodeURIComponent(related.id)}">${escapeHtml(related.title)}</a> <span>${escapeHtml([related.publisher, related.subject, related.grade, related.semester].filter(Boolean).join(' · '))}</span></li>`
-  ).join('');
-  const content = `<main class="mx-auto max-w-[860px] space-y-6 px-5 py-8"><nav aria-label="Breadcrumb"><a href="/">답지모음 홈</a> <span aria-hidden="true">›</span> <span>${escapeHtml(book.title)}</span></nav><article class="space-y-5"><header class="rounded-3xl border border-[#E5E8EB] bg-white p-6 sm:p-8"><h1 class="text-2xl font-extrabold text-[#191F28]">${escapeHtml(book.title)}</h1><p class="mt-3 text-sm text-[#6B7684]">${escapeHtml(facts.join(' · '))}</p>${book.description ? `<p class="mt-3 text-sm leading-relaxed text-[#6B7684]">${escapeHtml(book.description)}</p>` : ''}${bookPageMarkup}</header><section class="space-y-3"><h2 class="text-lg font-bold text-[#191F28]">검증된 답지 링크</h2><ul class="space-y-2">${linksMarkup}</ul><p class="text-xs text-[#8B95A1]">교재 표지와 학년·학기·시리즈를 확인한 뒤 원본 자료 페이지를 이용하세요. 답지 파일은 이 사이트에 저장하지 않습니다.</p></section>${relatedMarkup ? `<nav class="space-y-3" aria-label="관련 교재"><h2 class="text-lg font-bold text-[#191F28]">관련 교재</h2><ul class="space-y-2">${relatedMarkup}</ul></nav>` : ''}</article></main>`;
-  const metas = [
-    `<title>${escapeHtml(title)}</title>`,
-    `<meta name="description" content="${escapeHtml(description)}" />`,
-    '<meta name="robots" content="index, follow" />',
-    '<meta property="og:type" content="article" />',
-    '<meta property="og:site_name" content="답지모음" />',
-    `<meta property="og:title" content="${escapeHtml(title)}" />`,
-    `<meta property="og:description" content="${escapeHtml(description)}" />`,
-    '<meta property="og:locale" content="ko_KR" />',
-    '<meta name="twitter:card" content="summary" />',
-    `<meta name="twitter:title" content="${escapeHtml(title)}" />`,
-    `<meta name="twitter:description" content="${escapeHtml(description)}" />`,
-    ...(canonical ? [`<link rel="canonical" href="${escapeHtml(canonical)}" />`, `<meta property="og:url" content="${escapeHtml(canonical)}" />`] : []),
-    ...(isPublicHttpsUrl(book.thumbnail_url) ? [`<meta property="og:image" content="${escapeHtml(book.thumbnail_url)}" />`] : [])
-  ].join('\n    ');
-  const jsonLd = JSON.stringify([
-    { '@context': 'https://schema.org', '@type': 'Book', name: book.title, ...(book.publisher ? { publisher: { '@type': 'Organization', name: book.publisher } } : {}), ...(book.subject ? { genre: book.subject } : {}), ...(book.edition ? { bookEdition: book.edition } : {}), ...(book.description ? { description: book.description } : {}), inLanguage: 'ko' },
-    { '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: '홈', ...(siteUrl ? { item: siteUrl } : {}) }, { '@type': 'ListItem', position: 2, name: book.title, ...(canonical ? { item: canonical } : {}) }] }
-  ]).replace(/</g, '\\u003c');
-  const cleanedTemplate = [
-    ['name', 'description'], ['name', 'robots'], ['name', 'twitter:card'], ['name', 'twitter:title'], ['name', 'twitter:description'],
-    ['property', 'og:type'], ['property', 'og:site_name'], ['property', 'og:title'], ['property', 'og:description'], ['property', 'og:url'], ['property', 'og:locale'], ['property', 'og:image']
-  ].reduce((html, [attribute, name]) => stripMetaTag(html, attribute, name), template);
-  return cleanedTemplate
-    .replace(/<title>[\s\S]*?<\/title>/, '')
-     .replace('</head>', `    ${metas}\n    ${adsenseCode}\n    <script type="application/ld+json">${jsonLd}</script>\n  </head>`)
-    .replace('<div id="root"></div>', `<div id="root">${content}</div>`);
+function subjectGuide(book) {
+  const subject = String(book.subject || '').toLowerCase();
+  if (/수학|math/.test(subject)) return '수학은 개념을 이해한 뒤 예제 풀이 과정을 따라가고, 유사 문제를 스스로 풀어 보는 순서로 활용하세요. 오답은 계산 실수, 개념 이해 부족, 풀이 전략의 문제로 나누어 다시 확인하는 것이 좋습니다.';
+  if (/영어|english/.test(subject)) return '영어는 어휘와 문장 구조를 확인한 뒤 지문을 문단별로 읽고 핵심 내용과 연결 표현을 정리하세요. 정답뿐 아니라 오답 선택지가 성립하지 않는 이유도 지문 근거로 설명해 보세요.';
+  if (/국어|korean/.test(subject)) return '국어는 글의 갈래와 목적을 파악하고 중심 내용 및 문단 간 관계를 정리하세요. 문제를 풀 때는 선택지의 판단 근거가 되는 문장이나 표현을 지문에서 찾아 확인하세요.';
+  if (/과학|science/.test(subject)) return '과학은 용어 암기에 그치지 말고 개념 사이의 원인과 결과, 조건과 변화 과정을 연결해 이해하세요. 그림·표·실험 자료가 있다면 무엇을 비교하는지와 도출되는 결론을 직접 설명해 보세요.';
+  if (/사회|역사|도덕|지리|정치|경제/.test(subject)) return '사회 과목은 핵심 용어를 실제 사례와 연결하고 사건·현상 사이의 원인과 결과 및 관점의 차이를 비교하세요. 지도·연표·통계는 제목과 단위를 확인한 뒤 근거를 정리하세요.';
+  return '목차와 단원별 학습 목표를 먼저 확인하고, 핵심 개념을 읽은 뒤 예제와 연습 문제를 풀어 보세요. 학습 후에는 틀린 문항의 근거를 본문에서 다시 찾아 정리하면 복습에 도움이 됩니다.';
 }
 
+function metadataRows(book) {
+  const rows = [['ISBN-13', book.isbn13], ['저자·편집', book.author], ['출판사', book.publisher], ['발행일', book.published_at ? new Intl.DateTimeFormat('ko-KR').format(new Date(book.published_at + 'T00:00:00')) : null], ['페이지 수', Number(book.page_count) > 0 ? Number(book.page_count).toLocaleString('ko-KR') + '쪽' : null], ['정가', Number(book.list_price) > 0 ? Number(book.list_price).toLocaleString('ko-KR') + '원' : null], ['과목', book.subject], ['학년', book.grade], ['학기', book.semester], ['교육과정', book.curriculum_revision], ['판본', book.edition], ['시리즈', book.series]];
+  return rows.map(row => '<tr><th scope="row">' + escapeHtml(row[0]) + '</th><td>' + escapeHtml(row[1] || '자료 확인 중') + '</td></tr>').join('');
+}
+
+function pageHtml(template, book, bookLinks, relatedBooks) {
+  const canonical = siteUrl ? siteUrl + '/books/' + encodeURIComponent(book.id) : '';
+  const title = book.title + ' 교재 정보·답지 안내 | 답지모음';
+  const facts = [book.publisher, book.subject, book.grade, book.semester, book.series, book.edition].filter(Boolean);
+  const description = (book.title + '의 출판사·과목·학년·학기 정보와 교재 소개, 서지정보 및 확인된 답지 링크를 안내합니다. ' + facts.join(' · ')).slice(0, 160);
+  const verifiedLinks = bookLinks.filter(link => isRecentlyVerified(link) && isPublicHttpsUrl(link.url));
+  const linksMarkup = verifiedLinks.map(link => '<li><a href="' + escapeHtml(link.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(link.title) + '</a>' + (link.source_name ? ' <span>(' + escapeHtml(link.source_name) + ')</span>' : '') + '</li>').join('') || '<li>현재 확인된 답지 원본 링크가 없습니다. 교재명과 판본을 확인한 뒤 새 자료가 등록되면 반영합니다.</li>';
+  const coverMarkup = isPublicHttpsUrl(book.thumbnail_url) ? '<figure class="mb-5"><img src="' + escapeHtml(book.thumbnail_url) + '" alt="' + escapeHtml(book.title) + ' 교재 표지" loading="eager" decoding="async" style="width:min(220px,60vw);max-height:300px;object-fit:contain" /><figcaption class="mt-2 text-xs text-[#8B95A1]">표지 이미지 · 출처: ' + escapeHtml(book.cover_image_source || '출처 확인 중') + '</figcaption></figure>' : '<p class="mb-5 text-sm text-[#8B95A1]">확인된 표지 이미지가 아직 등록되지 않았습니다.</p>';
+  const bookPageMarkup = isPublicHttpsUrl(book.book_url) ? '<p class="mt-3 text-sm"><a href="' + escapeHtml(book.book_url) + '" target="_blank" rel="noopener noreferrer">출판사·서점의 교재 상세 페이지 확인</a></p>' : '<p class="mt-3 text-sm text-[#8B95A1]">공식 교재 상세 페이지 주소는 확인 중입니다.</p>';
+  const descriptionMarkup = book.description ? '<section class="space-y-2"><h2 class="text-lg font-bold text-[#191F28]">등록된 교재 소개</h2><p class="text-sm leading-7">' + escapeHtml(book.description) + '</p><p class="text-xs text-[#8B95A1]">소개 문구의 출처와 정확성은 출판사 원문과 대조해 확인해 주세요.</p></section>' : '';
+  const useGuide = '<section class="space-y-3"><h2 class="text-lg font-bold text-[#191F28]">' + escapeHtml(book.title) + ' 학습 활용 안내</h2><p class="text-sm leading-7">' + escapeHtml(book.title) + '은(는) ' + escapeHtml([book.grade, book.subject, book.semester].filter(Boolean).join(' ')) + ' 교재로 등록되어 있습니다. 실제 목차와 단원별 학습 목표를 확인하고 현재 수업 진도 및 학습 목적에 맞는 단원부터 활용하세요.</p><p class="text-sm leading-7">' + escapeHtml(subjectGuide(book)) + '</p><h3 class="font-semibold text-[#344054]">교재 확인 체크리스트</h3><ul class="list-disc space-y-1 pl-5 text-sm leading-7"><li>표지의 교재명, 학년, 학기와 판본이 일치하는지 확인합니다.</li><li>개정 교육과정 적용 여부와 발행 연도를 확인합니다.</li><li>답지 자료를 이용하기 전 ISBN과 출판사 정보를 대조합니다.</li><li>목차, 페이지 수, 정가는 실제 교재 또는 출판사 안내에서 최종 확인합니다.</li></ul></section>';
+  const relatedMarkup = relatedBooks.map(related => '<li><a href="/books/' + encodeURIComponent(related.id) + '">' + escapeHtml(related.title) + '</a> <span>' + escapeHtml([related.publisher, related.subject, related.grade, related.semester].filter(Boolean).join(' · ')) + '</span></li>').join('');
+  const content = '<main class="mx-auto max-w-[860px] space-y-7 px-5 py-8"><nav aria-label="Breadcrumb" class="text-sm"><a href="/">답지모음 홈</a> › ' + escapeHtml(book.title) + '</nav><article class="space-y-7"><header class="rounded-3xl border border-[#E5E8EB] bg-white p-6 sm:p-8">' + coverMarkup + '<h1 class="text-2xl font-extrabold text-[#191F28]">' + escapeHtml(book.title) + '</h1><p class="mt-3 text-sm text-[#6B7684]">' + escapeHtml(facts.join(' · ')) + '</p>' + bookPageMarkup + '</header>' + descriptionMarkup + useGuide + '<section class="space-y-3"><h2 class="text-lg font-bold text-[#191F28]">교재 상세 서지정보</h2><p class="text-sm leading-6">ISBN과 발행 정보를 항목별로 정리했습니다. 확인되지 않은 값은 임의로 추정하지 않고 자료 확인 중으로 표시합니다.</p><div class="overflow-x-auto rounded-xl border border-[#DCE4EE]"><table class="w-full border-collapse text-sm"><tbody>' + metadataRows(book) + '</tbody></table></div></section><section class="space-y-3"><h2 class="text-lg font-bold text-[#191F28]">답지 및 관련 자료</h2><ul class="list-disc space-y-2 pl-5 text-sm">' + linksMarkup + '</ul><p class="text-xs text-[#8B95A1]">답지 링크는 외부 원본 페이지로 연결됩니다. 자료의 출처와 저작권 및 이용 조건을 확인하세요.</p></section>' + (relatedMarkup ? '<nav class="space-y-3" aria-label="관련 교재"><h2 class="text-lg font-bold text-[#191F28]">관련 교재</h2><ul class="list-disc space-y-2 pl-5 text-sm">' + relatedMarkup + '</ul></nav>' : '') + '</article></main>';
+  const metas = ['<title>' + escapeHtml(title) + '</title>', '<meta name="description" content="' + escapeHtml(description) + '" />', '<meta name="robots" content="index, follow" />', '<meta property="og:type" content="article" />', '<meta property="og:site_name" content="답지모음" />', '<meta property="og:title" content="' + escapeHtml(title) + '" />', '<meta property="og:description" content="' + escapeHtml(description) + '" />', '<meta property="og:locale" content="ko_KR" />', '<meta name="twitter:card" content="' + (isPublicHttpsUrl(book.thumbnail_url) ? 'summary_large_image' : 'summary') + '" />', '<meta name="twitter:title" content="' + escapeHtml(title) + '" />', '<meta name="twitter:description" content="' + escapeHtml(description) + '" />', ...(canonical ? ['<link rel="canonical" href="' + escapeHtml(canonical) + '" />', '<meta property="og:url" content="' + escapeHtml(canonical) + '" />'] : []), ...(isPublicHttpsUrl(book.thumbnail_url) ? ['<meta property="og:image" content="' + escapeHtml(book.thumbnail_url) + '" />'] : [])].join('\n    ');
+  const jsonLd = JSON.stringify([
+    { '@context': 'https://schema.org', '@type': 'Book', name: book.title, ...(book.publisher ? { publisher: { '@type': 'Organization', name: book.publisher } } : {}), ...(book.subject ? { genre: book.subject } : {}), ...(book.edition ? { bookEdition: book.edition } : {}), ...(book.description ? { description: book.description } : {}), ...(book.isbn13 ? { isbn: book.isbn13 } : {}), ...(book.author ? { author: { '@type': 'Person', name: book.author } } : {}), ...(book.published_at ? { datePublished: book.published_at } : {}), ...(book.page_count ? { numberOfPages: Number(book.page_count) } : {}), ...(isPublicHttpsUrl(book.thumbnail_url) ? { image: book.thumbnail_url } : {}), inLanguage: 'ko' },
+    { '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: '홈', ...(siteUrl ? { item: siteUrl } : {}) }, { '@type': 'ListItem', position: 2, name: book.title, ...(canonical ? { item: canonical } : {}) }] }
+  ]).replace(/</g, '\\u003c');
+  const cleanedTemplate = [['name', 'description'], ['name', 'robots'], ['name', 'twitter:card'], ['name', 'twitter:title'], ['name', 'twitter:description'], ['property', 'og:type'], ['property', 'og:site_name'], ['property', 'og:title'], ['property', 'og:description'], ['property', 'og:url'], ['property', 'og:locale'], ['property', 'og:image']].reduce((html, pair) => stripMetaTag(html, pair[0], pair[1]), template);
+  return cleanedTemplate.replace(/<title>[\s\S]*?<\/title>/, '').replace('</head>', '    ' + metas + '\n    ' + adsenseCode + '\n    <script type="application/ld+json">' + jsonLd + '</script>\n  </head>').replace('<div id="root"></div>', '<div id="root">' + content + '</div>');
+}
 const robots = ['User-agent: *', 'Allow: /', ...(siteUrl ? [`Sitemap: ${siteUrl}/sitemap.xml`, `Sitemap: ${siteUrl}/sitemap.txt`] : [])].join('\n') + '\n';
 await writeFile(path.join(outputRoot, 'robots.txt'), robots, 'utf8');
 
@@ -128,7 +119,7 @@ let links = [];
 if (supabaseUrl && anonKey) {
   try {
     [books, links] = await Promise.all([
-      fetchRows('books', 'id,title,publisher,subject,grade,semester,series,edition,description,thumbnail_url,book_url,created_at,updated_at'),
+      fetchRows('books', 'id,title,publisher,subject,grade,semester,series,edition,description,thumbnail_url,book_url,isbn13,author,published_at,page_count,list_price,cover_image_source,curriculum_revision,created_at,updated_at'),
       fetchRows('answer_links', 'id,book_id,title,url,source_name,verified,last_checked_at,created_at')
     ]);
   } catch (error) {
@@ -228,7 +219,11 @@ if (isValidPublisherId) {
 for (const book of qualifyingBooks) {
   const bookLinks = links.filter(link => link.book_id === book.id && isRecentlyVerified(link) && isPublicHttpsUrl(link.url));
   const related = qualifyingBooks
-    .filter(candidate => candidate.id !== book.id && (candidate.subject === book.subject || candidate.publisher === book.publisher || (book.series && candidate.series === book.series)))
+    .filter(candidate => candidate.id !== book.id && ((book.series && candidate.series === book.series) || (candidate.subject === book.subject && candidate.grade === book.grade)))
+    .sort((a, b) => {
+      const score = candidate => Number(Boolean(book.series) && candidate.series === book.series) * 4 + Number(candidate.subject === book.subject && candidate.grade === book.grade) * 2 + Number(candidate.publisher === book.publisher);
+      return score(b) - score(a);
+    })
     .slice(0, 4);
   const directory = path.join(outputRoot, 'books', book.id);
   await mkdir(directory, { recursive: true });
