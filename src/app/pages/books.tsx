@@ -272,18 +272,41 @@ export function BookDetailPage() {
 
             <h1 className="text-2xl sm:text-3xl font-extrabold text-[#191F28]">{book.title}</h1>
 
-            {book.description ? <p className="text-xs sm:text-sm text-[#6B7684] leading-relaxed">{book.description}</p> : <p className="text-xs sm:text-sm text-[#8B95A1] leading-relaxed">교재 설명 미등록</p>}
+            <section aria-labelledby="book-description-heading" className="rounded-2xl border border-[#E5E8EB] bg-white p-4 space-y-2">
+              <h2 id="book-description-heading" className="text-sm font-extrabold text-[#191F28]">교재 소개</h2>
+              {book.description?.trim() ? (
+                <p className="text-sm text-[#4E5968] leading-7 whitespace-pre-line">{book.description}</p>
+              ) : (
+                <p className="text-sm text-[#8B95A1] leading-7">출판사에서 제공한 교재 소개가 아직 등록되지 않았습니다. 확인되지 않은 내용을 임의로 작성하지 않습니다.</p>
+              )}
+            </section>
             {isHttpUrl(book.book_url) && <a href={book.book_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-[#3182F6] hover:underline">출판사·서점 상세 페이지 <ExternalLink className="h-3.5 w-3.5" /></a>}
 
-            <section aria-label="교재 상세 서지정보" className="rounded-2xl border border-[#E5E8EB] bg-[#FAFBFC] p-4 space-y-3">
-              <h2 className="text-xs font-extrabold text-[#344054]">교재 상세 정보</h2>
-              <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3 text-xs">
-                <div className="min-w-0"><dt className="text-[10px] text-[#8B95A1] font-semibold mb-1">ISBN</dt><dd className="font-bold text-[#191F28] break-all">{book.isbn13 || '정보 확인 중'}</dd></div>
-                <div className="min-w-0"><dt className="text-[10px] text-[#8B95A1] font-semibold mb-1">저자·편집</dt><dd className="font-semibold text-[#344054]">{book.author || '정보 미등록'}</dd></div>
-                <div><dt className="text-[10px] text-[#8B95A1] font-semibold mb-1">발행일</dt><dd className="font-semibold text-[#344054]">{book.published_at ? new Date(book.published_at).toLocaleDateString('ko-KR') : '정보 미등록'}</dd></div>
-                <div><dt className="text-[10px] text-[#8B95A1] font-semibold mb-1">페이지</dt><dd className="font-semibold text-[#344054]">{book.page_count ? `${book.page_count.toLocaleString('ko-KR')}쪽` : '정보 미등록'}</dd></div>
-                <div><dt className="text-[10px] text-[#8B95A1] font-semibold mb-1">정가</dt><dd className="font-semibold text-[#344054]">{book.list_price ? `${book.list_price.toLocaleString('ko-KR')}원` : '정보 미등록'}</dd></div>
-                <div><dt className="text-[10px] text-[#8B95A1] font-semibold mb-1">교육과정</dt><dd className="font-semibold text-[#344054]">{book.curriculum_revision || '정보 미등록'}</dd></div>
+            <section aria-labelledby="book-metadata-heading" className="rounded-2xl border border-[#D9E2EF] bg-[#F8FAFC] p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h2 id="book-metadata-heading" className="text-sm font-extrabold text-[#191F28]">교재 서지정보</h2>
+                <span className="text-[11px] font-semibold text-[#667085]">도서 식별 및 출판 정보</span>
+              </div>
+              <div className="rounded-xl border border-[#C9D9EF] bg-white px-3.5 py-3">
+                <div className="text-[11px] font-bold text-[#667085] mb-1">ISBN-13</div>
+                <div className="font-mono text-base sm:text-lg font-extrabold tracking-wide text-[#174EA6] break-all">{book.isbn13 || '미등록'}</div>
+              </div>
+              <dl className="divide-y divide-[#E8EDF3] text-sm">
+                {[
+                  ['저자·편집', book.author || '미등록'],
+                  ['출판사', book.publisher || '미등록'],
+                  ['발행일', book.published_at ? new Date(book.published_at).toLocaleDateString('ko-KR') : '미등록'],
+                  ['페이지 수', book.page_count ? `${book.page_count.toLocaleString('ko-KR')}쪽` : '미등록'],
+                  ['정가', book.list_price ? `${book.list_price.toLocaleString('ko-KR')}원` : '미등록'],
+                  ['교육과정', book.curriculum_revision || '미등록'],
+                  ['판본', book.edition || '미등록'],
+                  ['학년·학기', [book.grade, book.semester].filter(Boolean).join(' · ') || '미등록']
+                ].map(([label, value]) => (
+                  <div key={label} className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-3 py-2.5">
+                    <dt className="font-semibold text-[#667085]">{label}</dt>
+                    <dd className="font-semibold text-[#344054] break-words">{value}</dd>
+                  </div>
+                ))}
               </dl>
             </section>
 
