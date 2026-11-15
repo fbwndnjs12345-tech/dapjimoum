@@ -154,9 +154,11 @@ const nonIndexableRoutes = [
   ['admin/link-search', '답지 링크 자동 검색 | 답지모음'],
 ];
 for (const [route, title] of nonIndexableRoutes) {
+  const routeDescription = route === 'search' ? '교재명, 출판사, 과목, 학년, 학기와 시리즈를 기준으로 교재 정보를 검색하고 교재별 상세 정보와 확인된 원본 자료 링크를 살펴보세요.' : '';
   const routeHtml = template
     .replace(/<title>[\s\S]*?<\/title>/, `<title>${escapeHtml(title)}</title>`)
-    .replace(/<meta name="robots"[^>]*\/?\s*>/, '<meta name="robots" content="noindex, follow" />');
+    .replace(/<meta name="robots"[^>]*\/?\s*>/, '<meta name="robots" content="noindex, follow" />')
+    .replace('</head>', `    ${routeDescription ? `<meta name="description" content="${escapeHtml(routeDescription)}" />\\n    ${adsenseCode}` : ''}\n  </head>`);
   const routeDirectory = path.join(outputRoot, route);
   await mkdir(routeDirectory, { recursive: true });
   await writeFile(path.join(routeDirectory, 'index.html'), routeHtml, 'utf8');
