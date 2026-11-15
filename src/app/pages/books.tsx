@@ -273,7 +273,19 @@ export function BookDetailPage() {
             <h1 className="text-2xl sm:text-3xl font-extrabold text-[#191F28]">{book.title}</h1>
 
             {book.description ? <p className="text-xs sm:text-sm text-[#6B7684] leading-relaxed">{book.description}</p> : <p className="text-xs sm:text-sm text-[#8B95A1] leading-relaxed">교재 설명 미등록</p>}
-            {isHttpUrl(book.book_url) && <a href={book.book_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-[#3182F6] hover:underline">교재 페이지 보기 <ExternalLink className="h-3.5 w-3.5" /></a>}
+            {isHttpUrl(book.book_url) && <a href={book.book_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-[#3182F6] hover:underline">출판사·서점 상세 페이지 <ExternalLink className="h-3.5 w-3.5" /></a>}
+
+            <section aria-label="교재 상세 서지정보" className="rounded-2xl border border-[#E5E8EB] bg-[#FAFBFC] p-4 space-y-3">
+              <h2 className="text-xs font-extrabold text-[#344054]">교재 상세 정보</h2>
+              <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3 text-xs">
+                <div className="min-w-0"><dt className="text-[10px] text-[#8B95A1] font-semibold mb-1">ISBN</dt><dd className="font-bold text-[#191F28] break-all">{book.isbn13 || '정보 확인 중'}</dd></div>
+                <div className="min-w-0"><dt className="text-[10px] text-[#8B95A1] font-semibold mb-1">저자·편집</dt><dd className="font-semibold text-[#344054]">{book.author || '정보 미등록'}</dd></div>
+                <div><dt className="text-[10px] text-[#8B95A1] font-semibold mb-1">발행일</dt><dd className="font-semibold text-[#344054]">{book.published_at ? new Date(book.published_at).toLocaleDateString('ko-KR') : '정보 미등록'}</dd></div>
+                <div><dt className="text-[10px] text-[#8B95A1] font-semibold mb-1">페이지</dt><dd className="font-semibold text-[#344054]">{book.page_count ? `${book.page_count.toLocaleString('ko-KR')}쪽` : '정보 미등록'}</dd></div>
+                <div><dt className="text-[10px] text-[#8B95A1] font-semibold mb-1">정가</dt><dd className="font-semibold text-[#344054]">{book.list_price ? `${book.list_price.toLocaleString('ko-KR')}원` : '정보 미등록'}</dd></div>
+                <div><dt className="text-[10px] text-[#8B95A1] font-semibold mb-1">교육과정</dt><dd className="font-semibold text-[#344054]">{book.curriculum_revision || '정보 미등록'}</dd></div>
+              </dl>
+            </section>
 
             <div className="text-[11px] text-[#8B95A1] font-semibold pt-3 border-t border-[#F2F4F6] flex items-center justify-between">
               <span>등록일: {new Date(book.created_at).toLocaleDateString('ko-KR')}</span>
