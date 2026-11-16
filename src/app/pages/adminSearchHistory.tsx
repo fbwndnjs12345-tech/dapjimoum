@@ -136,7 +136,7 @@ function csvCell(value: unknown) {
 }
 
 export function AdminSearchHistoryPage() {
-  const { refreshCatalog, navigateTo } = useAppContext();
+  const { refreshCatalog } = useAppContext();
   const [runs, setRuns] = useState<Run[]>([]);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
@@ -325,7 +325,7 @@ export function AdminSearchHistoryPage() {
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div><p className="text-xs font-semibold text-[#667085]">답지 자동 검색</p><h2 className="mt-1 text-2xl font-extrabold text-[#191F28]">실행 기록과 전체 후보</h2><p className="mt-1 text-sm text-[#667085]">실행별 후보를 분리해 확인하거나 전체 실행의 후보를 한곳에서 검수합니다.</p></div>
-        <div className="flex flex-wrap gap-2"><button type="button" onClick={() => void load()} disabled={loading} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-[#D0D5DD] bg-white px-3 text-sm font-semibold text-[#344054]"><RefreshCw className="h-4 w-4" />새로고침</button><button type="button" onClick={() => navigateTo('/admin/link-search')} className="min-h-10 rounded-xl bg-[#191F28] px-4 text-sm font-bold text-white">새 검색 실행</button></div>
+        <div className="flex flex-wrap gap-2"><button type="button" onClick={() => void load()} disabled={loading} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-[#D0D5DD] bg-white px-3 text-sm font-semibold text-[#344054]"><RefreshCw className="h-4 w-4" />새로고침</button></div>
       </div>
 
       {error && <div role="alert" className="flex items-start gap-2 rounded-xl border border-[#FDD8D5] bg-[#FFEEEC] p-3 text-sm text-[#B42318]"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
