@@ -9,3 +9,13 @@ export function isPlaceholderBook(book: Pick<Book, 'title' | 'publisher' | 'subj
     .filter(value => PLACEHOLDER_VALUE.test(value));
   return coreValues.length >= 2;
 }
+
+
+/** Legacy numeric grade values were verified against middle-school math book titles. */
+export function normalizeGradeLabel(value: string | null | undefined): string {
+  const grade = value?.trim() ?? '';
+  if (grade === '1') return '중1';
+  if (grade === '2') return '중2';
+  if (grade === '3') return '중3';
+  return grade;
+}

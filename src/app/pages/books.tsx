@@ -218,7 +218,10 @@ export function BookDetailPage() {
       if (!link.url.startsWith('https://') && !link.url.startsWith('http://')) return;
 
       // Open synchronously from the click gesture so popup blockers do not delay navigation.
-      window.open(link.url, '_blank', 'noopener,noreferrer');
+      const destination = link.health_is_download === true && link.health_match_status === 'matched' && link.health_final_url
+        ? link.health_final_url
+        : link.url;
+      window.open(destination, '_blank', 'noopener,noreferrer');
       const clickId = crypto.randomUUID();
       void import('../../lib/supabase/answerLinks')
         .then(({ recordAnswerLinkClick }) => recordAnswerLinkClick(link.id, clickId))

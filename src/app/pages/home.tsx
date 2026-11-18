@@ -6,13 +6,14 @@ import { useAppContext } from '../../state/useAppContext';
 import { BookCard } from '../../components/books/BookCard';
 import { Hero } from '../../components/home/Hero';
 import { SubjectNavigation } from '../../components/home/SubjectNavigation';
-import type { AnswerLink, Book } from '../../types/book';
+import type { Book } from '../../types/book';
+import type { AnswerLinkCount } from '../../lib/supabase/answerLinks';
 import { isPlaceholderBook } from '../../lib/catalog';
 
 export function HomePage() {
     const {bookmarks, searchQuery, setSearchQuery, setPublisherFilter, setIsRequestModalOpen, navigateTo, toggleBookmark} = useAppContext();
     const [homeBooks, setHomeBooks] = useState<Book[]>([]);
-    const [homeLinks, setHomeLinks] = useState<AnswerLink[]>([]);
+    const [homeLinks, setHomeLinks] = useState<AnswerLinkCount[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState('');
     const [reloadKey, setReloadKey] = useState(0);
@@ -32,11 +33,11 @@ export function HomePage() {
         }
 
         try {
-          const [{ getBooks }, { getAnswerLinks }] = await Promise.all([
+          const [{ getBooks }, { getPublicAnswerLinkCounts }] = await Promise.all([
             import('../../lib/supabase/books'),
             import('../../lib/supabase/answerLinks')
           ]);
-          const [result, answerLinks] = await Promise.all([getBooks(), getAnswerLinks()]);
+          const [result, answerLinks] = await Promise.all([getBooks(), getPublicAnswerLinkCounts()]);
           if (isActive) { setHomeBooks(result.filter(book => !isPlaceholderBook(book))); setHomeLinks(answerLinks); setLoadError(''); }
         } catch (error) {
           if (isActive) {
@@ -97,11 +98,10 @@ export function HomePage() {
                 등록된 교재가 없습니다.
               </div>
             ) : popularBooks.map(book => {
-              const bookLinks = homeLinks.filter(l => l.book_id === book.id);
-              const verifiedCount = bookLinks.filter(l => l.verified).length;
+              const bookLinks = homeLinks.find(link => link.book_id === book.id);
               const isBookmarked = bookmarks.includes(book.id);
 
-              return <BookCard key={book.id} book={book} linksCount={bookLinks.length} verifiedCount={verifiedCount} isBookmarked={isBookmarked} variant="home" onOpen={() => navigateTo(`/books/${book.id}`, { id: book.id })} onToggleBookmark={(event) => toggleBookmark(book.id, event)} />;
+              return <BookCard key={book.id} book={book} linksCount={bookLinks?.link_count ?? 0} verifiedCount={bookLinks?.verified_count ?? 0} isBookmarked={isBookmarked} variant="home" onOpen={() => navigateTo(`/books/${book.id}`, { id: book.id })} onToggleBookmark={(event) => toggleBookmark(book.id, event)} />;
             })}
           </div>
         </section>

@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase/client';
 import { AlertCircle, Lock, Globe, Plus, Search, BookOpen, LayoutDashboard, RefreshCw, FileSpreadsheet, ScanSearch, Inbox } from 'lucide-react';
 import { useAppContext } from '../../state/useAppContext';
 import type { AnswerLink, Book } from '../../types/book';
+import { normalizeGradeLabel } from '../../lib/catalog';
 
 const hasSupabaseConfig = () => Boolean(
   import.meta.env.NEXT_PUBLIC_SUPABASE_URL && import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -15,7 +16,7 @@ const getAdminBookLabel = (book: Book) => [
   book.title,
   book.publisher,
   book.subject,
-  book.grade,
+  normalizeGradeLabel(book.grade),
   book.semester,
   book.series
 ].filter(Boolean).join(' · ');
@@ -35,7 +36,21 @@ type AdminBookFormValues = {
 
 const ANSWER_LINK_TYPES = ['다운로드', '온라인 PDF 뷰어', '이미지 보기', '웹페이지'] as const;
 
-const BOOK_GRADE_OPTIONS = ['전학년', '초등1', '초등2', '초등3', '초등4', '초등5', '초등6', '중1', '중2', '중3', '고1', '고2', '고3'] as const;
+const BOOK_GRADE_OPTIONS = [
+  '전학년', '초등1', '초등2', '초등3', '초등4', '초등5', '초등6',
+  '초등 3~4', '초등 5~6',
+  '중1', '중2', '중3', '중학교', '중1~중2', '중1~중3', '중2~중3',
+  '고1', '고2', '고3', '고등', '고1~고2', '고2·고3', '고1·고2·고3',
+  '예비고~고1', '예비고~고2', '중3~예비고', '중·고등'
+] as const;
+const BOOK_PUBLISHER_OPTIONS = [
+  'EBS', 'NE능률', 'SLA영어북스토어', 'YBM', '개념원리', '교학사', '금성출판사',
+  '꿈을담는틀', '다락원', '동아출판', '디딤돌', '마더텅', '메가스터디북스',
+  '미래엔', '미래엔에듀', '비상교육', '성지출판', '수경출판사', '시대인재북스',
+  '시사일본어사', '쎄듀', '에듀원', '에이급출판사', '이감', '이룸이앤비',
+  '이투스북', '좋은책신사고', '지학사', '천재교육', '큐앤에이',
+  '한국교육방송공사', '한국교육방송공사(EBSi)', '희망에듀'
+] as const;
 const BOOK_SUBJECT_OPTIONS = ['국어', '영어', '수학', '사회', '역사', '한국사', '도덕', '과학', '물리학', '화학', '생명과학', '지구과학', '기술·가정', '정보', '한문', '음악', '미술', '체육', '통합교과', '경제', '정치와 법', '윤리와 사상', '생활과 윤리', '세계지리', '한국지리', '기타'] as const;
 const BOOK_SEMESTER_OPTIONS = ['전학기', '1학기', '2학기', '연간'] as const;
 
@@ -443,7 +458,7 @@ export function AdminDashboard() {
                     <tr key={b.id} className="border-b border-[#F2F4F6] last:border-0 hover:bg-[#FCFCFD]">
                       <td className="break-words px-4 py-4 align-top font-semibold text-[#191F28]">{b.title}</td>
                       <td className="break-words px-4 py-4 align-top">{b.publisher || '—'}</td>
-                      <td className="break-words px-4 py-4 align-top">{[b.subject, b.grade].filter(Boolean).join(' · ') || '—'}</td>
+                      <td className="break-words px-4 py-4 align-top">{[b.subject, normalizeGradeLabel(b.grade)].filter(Boolean).join(' · ') || '—'}</td>
                       <td className="px-4 py-4 align-top font-semibold text-[#344054]">{bLinks.length}개</td>
                       <td className="px-4 py-4 align-top text-right">
                         <button
@@ -540,7 +555,7 @@ export function AdminBooksList() {
           <div className="overflow-x-auto"><table className="w-full min-w-[900px] table-fixed text-left text-sm text-[#344054]">
             <thead><tr className="bg-[#F9FAFB] border-b border-[#E5E8EB] text-[#344054] font-bold"><th className="w-[25%] px-4 py-4">교재명</th><th className="w-[15%] px-4 py-4">출판사</th><th className="w-[11%] px-4 py-4">과목</th><th className="w-[18%] px-4 py-4">학년 / 학기</th><th className="w-[14%] px-4 py-4">시리즈 / 판본</th><th className="w-[13%] px-4 py-4">연결된 답지</th><th className="w-[15%] px-4 py-4 text-right">관리</th></tr></thead>
             <tbody className="divide-y divide-[#EAECF0]">{visibleBooks.map(book => <tr key={book.id} className="hover:bg-[#FCFCFD]">
-              <td className="break-words px-4 py-5 align-top font-semibold leading-6 text-[#191F28]">{book.title}{book.book_url && <span className="mt-1 block break-all font-normal text-xs leading-5 text-[#667085]">{book.book_url}</span>}</td><td className="break-words px-4 py-5 align-top">{book.publisher || '—'}</td><td className="break-words px-4 py-5 align-top">{book.subject || '—'}</td><td className="break-words px-4 py-5 align-top">{[book.grade, book.semester].filter(Boolean).join(' · ') || '—'}</td><td className="break-words px-4 py-5 align-top">{[book.series, book.edition].filter(Boolean).join(' · ') || '—'}</td><td className="px-4 py-5 align-top"><span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${ (answerLinkCounts[book.id] ?? 0) > 0 ? 'bg-[#ECFDF3] text-[#027A48]' : 'bg-[#F2F4F7] text-[#667085]' }`}>{answerLinkCounts[book.id] ?? 0}개 연결</span></td>
+              <td className="break-words px-4 py-5 align-top font-semibold leading-6 text-[#191F28]">{book.title}{book.book_url && <span className="mt-1 block break-all font-normal text-xs leading-5 text-[#667085]">{book.book_url}</span>}</td><td className="break-words px-4 py-5 align-top">{book.publisher || '—'}</td><td className="break-words px-4 py-5 align-top">{book.subject || '—'}</td><td className="break-words px-4 py-5 align-top">{[normalizeGradeLabel(book.grade), book.semester].filter(Boolean).join(' · ') || '—'}</td><td className="break-words px-4 py-5 align-top">{[book.series, book.edition].filter(Boolean).join(' · ') || '—'}</td><td className="px-4 py-5 align-top"><span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${ (answerLinkCounts[book.id] ?? 0) > 0 ? 'bg-[#ECFDF3] text-[#027A48]' : 'bg-[#F2F4F7] text-[#667085]' }`}>{answerLinkCounts[book.id] ?? 0}개 연결</span></td>
               <td className="px-4 py-5 align-top"><div className="flex flex-wrap justify-end gap-2"><button onClick={() => navigateTo('/admin/books/' + book.id, { id: book.id })} className="rounded-lg border border-[#D0D5DD] bg-white px-3 py-2 font-semibold text-[#344054] hover:bg-[#F2F4F6]">수정</button><button onClick={() => void handleDelete(book)} disabled={deletingId === book.id} className="rounded-lg border border-[#D0D5DD] bg-[#F9FAFB] px-3 py-2 font-semibold text-[#344054] hover:border-[#98A2B3] hover:bg-[#F2F4F6] disabled:opacity-50">{deletingId === book.id ? '삭제 중…' : '삭제'}</button></div></td>
             </tr>)}</tbody>
           </table></div>
@@ -555,9 +570,22 @@ export function AdminBookForm({ mode }: { mode: 'create' | 'edit' }) {
   const isEdit = mode === 'edit';
   const bookId = routeParams.id;
   const [form, setForm] = useState<AdminBookFormValues>({ title: '', publisher: '', subject: '', grade: '', semester: '', series: '', edition: '', description: '', thumbnail_url: '', book_url: '' });
+  const [publisherOptions, setPublisherOptions] = useState<string[]>([...BOOK_PUBLISHER_OPTIONS]);
   const [isLoading, setIsLoading] = useState(isEdit);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    void import('../../lib/supabase/books').then(({ getBooks }) => getBooks()).then(books => {
+      if (!active) return;
+      const registered = books.map(book => book.publisher?.trim()).filter((value): value is string => Boolean(value));
+      setPublisherOptions(Array.from(new Set([...BOOK_PUBLISHER_OPTIONS, ...registered])).sort((a, b) => a.localeCompare(b, 'ko')));
+    }).catch(() => {
+      // Keep the maintained publisher list available if the catalog cannot be loaded.
+    });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -603,9 +631,9 @@ export function AdminBookForm({ mode }: { mode: 'create' | 'edit' }) {
         <form onSubmit={handleSaveBook} className="bg-white rounded-2xl border border-[#E5E8EB] p-5 sm:p-7 space-y-6 shadow-sm">
           <div className="space-y-2"><label htmlFor="book-title" className="block text-sm font-semibold text-[#344054]">교재명 <span className="text-[#667085]">(필수)</span></label><input id="book-title" value={form.title} onChange={e => change('title', e.target.value)} required className={inputClass} /></div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <div className="space-y-2"><label htmlFor="book-publisher" className="block text-sm font-semibold text-[#344054]">출판사</label><input id="book-publisher" value={form.publisher} onChange={e => change('publisher', e.target.value)} className={inputClass} /></div>
+            <div className="space-y-2"><label htmlFor="book-publisher" className="block text-sm font-semibold text-[#344054]">출판사</label><select id="book-publisher" value={form.publisher} onChange={e => change('publisher', e.target.value)} className={inputClass}><option value="">출판사 선택</option>{publisherOptions.map(publisher => <option key={publisher} value={publisher}>{publisher}</option>)}{form.publisher && !publisherOptions.includes(form.publisher) && <option value={form.publisher}>{form.publisher} (기존 값)</option>}</select><p className="text-xs text-[#667085]">현재 교재 DB에 등록된 출판사 목록입니다.</p></div>
             <div className="space-y-2"><label htmlFor="book-subject" className="block text-sm font-semibold text-[#344054]">과목</label><select id="book-subject" value={form.subject} onChange={e => change('subject', e.target.value)} className={inputClass}><option value="">과목 선택</option>{BOOK_SUBJECT_OPTIONS.map(subject => <option key={subject} value={subject}>{subject}</option>)}{form.subject && !BOOK_SUBJECT_OPTIONS.includes(form.subject as typeof BOOK_SUBJECT_OPTIONS[number]) && <option value={form.subject}>{form.subject} (기존 값)</option>}</select></div>
-            <div className="space-y-2"><label htmlFor="book-grade" className="block text-sm font-semibold text-[#344054]">학년 / 대상 학년</label><select id="book-grade" value={form.grade} onChange={e => change('grade', e.target.value)} className={inputClass}><option value="">학년 선택</option>{BOOK_GRADE_OPTIONS.map(grade => <option key={grade} value={grade}>{grade}</option>)}{form.grade && !BOOK_GRADE_OPTIONS.includes(form.grade as typeof BOOK_GRADE_OPTIONS[number]) && <option value={form.grade}>{form.grade} (기존 값)</option>}</select><p className="text-xs text-[#667085]">여러 학년 대상 교재는 ‘전학년’을 선택하세요.</p></div>
+            <div className="space-y-2"><label htmlFor="book-grade" className="block text-sm font-semibold text-[#344054]">학년 / 대상 학년</label><select id="book-grade" value={form.grade} onChange={e => change('grade', e.target.value)} className={inputClass}><option value="">학년 선택</option>{BOOK_GRADE_OPTIONS.map(grade => <option key={grade} value={grade}>{grade}</option>)}{form.grade && !BOOK_GRADE_OPTIONS.includes(form.grade as typeof BOOK_GRADE_OPTIONS[number]) && <option value={form.grade}>{normalizeGradeLabel(form.grade)} (기존 저장값: {form.grade})</option>}</select><p className="text-xs text-[#667085]">여러 학년 대상 교재는 ‘전학년’을 선택하세요.</p></div>
             <div className="space-y-2"><label htmlFor="book-semester" className="block text-sm font-semibold text-[#344054]">학기</label><select id="book-semester" value={form.semester} onChange={e => change('semester', e.target.value)} className={inputClass}><option value="">학기 선택</option>{BOOK_SEMESTER_OPTIONS.map(semester => <option key={semester} value={semester}>{semester}</option>)}{form.semester && !BOOK_SEMESTER_OPTIONS.includes(form.semester as typeof BOOK_SEMESTER_OPTIONS[number]) && <option value={form.semester}>{form.semester} (기존 값)</option>}</select></div>
           </div>
           <div className="space-y-2"><label htmlFor="book-series" className="block text-sm font-semibold text-[#344054]">시리즈</label><input id="book-series" value={form.series} onChange={e => change('series', e.target.value)} className={inputClass} /></div>

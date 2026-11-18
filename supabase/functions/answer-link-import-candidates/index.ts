@@ -44,7 +44,21 @@ Deno.serve(async (request) => {
 
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const { data: adminRow, error: adminError } = await admin.from('admin_users').select('user_id').eq('user_id', authData.user.id).maybeSingle();
-  if (adminError || !adminRow) return json({ error: '관리자 권한이 필요합니다.' }, 403);
+  if (adminError) return json({ error: '관리자 권한을 확인하지 못했습니다.' }, 500);
+  if (!adminRow) return json({ error: '관리자 권한이 필요합니다.' }, 403);
+
+  const { data: roleAssignment, error: roleError } = await admin.from('admin_user_roles')
+    .select('role_key').eq('user_id', authData.user.id).maybeSingle();
+  if (roleError) return json({ error: '관리자 역할을 확인하지 못했습니다.' }, 500);
+  if (!roleAssignment) return json({ error: '후보 등록 역할이 할당되지 않았습니다.' }, 403);
+
+  const { data: reviewPermission, error: permissionError } = await admin.from('admin_role_permissions')
+    .select('permission_key')
+    .eq('role_key', roleAssignment.role_key)
+    .eq('permission_key', 'candidates.review')
+    .maybeSingle();
+  if (permissionError) return json({ error: '후보 등록 권한을 확인하지 못했습니다.' }, 500);
+  if (!reviewPermission) return json({ error: '답지 후보 검수 권한이 필요합니다.' }, 403);
 
   let payload: { candidates?: unknown };
   try { payload = await request.json(); } catch { return json({ error: 'JSON 요청 본문이 올바르지 않습니다.' }, 400); }
