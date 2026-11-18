@@ -104,32 +104,6 @@ export function AdminLinkSearchPage() {
     }
   }, [invoke, loadRuns, refreshCatalog]);
 
-  useEffect(() => {
-    void loadRuns();
-    void loadHealthStats();
-    const healthTimer = window.setInterval(() => { void loadHealthStats(); }, 15000);
-    const channel = supabase.channel('admin-search-run-workspace-v2')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'answer_link_search_runs' }, () => { void loadRuns(); })
-      .subscribe();
-    const timer = window.setInterval(() => { void loadRuns(); }, 10000);
-    return () => {
-      window.clearInterval(timer);
-      window.clearInterval(healthTimer);
-      void supabase.removeChannel(channel);
-    };
-  }, [loadRuns, loadHealthStats]);
-
-  useEffect(() => {
-    const active = runs.find(run => run.status === 'running');
-    if (active && !pumpGuard.current) void runBatches(active.id);
-  }, [runs, runBatches]);
-
-  const selectableBooks = useMemo(() => books.filter(book => {
-    if (!bookSearch.trim()) return false;
-    const haystack = [book.title, book.publisher, book.subject, book.grade, book.semester, book.series].filter(Boolean).join(' ').toLocaleLowerCase('ko-KR');
-    return haystack.includes(bookSearch.trim().toLocaleLowerCase('ko-KR'));
-  }).slice(0, 12), [books, bookSearch]);
-
   const loadHealthStats = useCallback(async () => {
     setHealthLoading(true);
     const { data, error: queryError } = await supabase.from('answer_links')
@@ -159,6 +133,34 @@ export function AdminLinkSearchPage() {
     setHealthError('');
     setHealthLoading(false);
   }, []);
+
+  useEffect(() => {
+    void loadRuns();
+    void loadHealthStats();
+    const healthTimer = window.setInterval(() => { void loadHealthStats(); }, 15000);
+    const channel = supabase.channel('admin-search-run-workspace-v2')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'answer_link_search_runs' }, () => { void loadRuns(); })
+      .subscribe();
+    const timer = window.setInterval(() => { void loadRuns(); }, 10000);
+    return () => {
+      window.clearInterval(timer);
+      window.clearInterval(healthTimer);
+      void supabase.removeChannel(channel);
+    };
+  }, [loadRuns, loadHealthStats]);
+
+  useEffect(() => {
+    const active = runs.find(run => run.status === 'running');
+    if (active && !pumpGuard.current) void runBatches(active.id);
+  }, [runs, runBatches]);
+
+  const selectableBooks = useMemo(() => books.filter(book => {
+    if (!bookSearch.trim()) return false;
+    const haystack = [book.title, book.publisher, book.subject, book.grade, book.semester, book.series].filter(Boolean).join(' ').toLocaleLowerCase('ko-KR');
+    return haystack.includes(bookSearch.trim().toLocaleLowerCase('ko-KR'));
+  }).slice(0, 12), [books, bookSearch]);
+
+
 
   const startSearch = async () => {
     if (busy) return;
