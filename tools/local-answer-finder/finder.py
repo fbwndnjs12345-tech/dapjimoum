@@ -443,18 +443,24 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
         browser=p.chromium.launch(headless=not headed); context=browser.new_context(locale="ko-KR")
         page=context.new_page(); page.set_default_navigation_timeout(timeout)
         def guard_browser_request(route):
-            # Chromium can use its own DNS/proxy configuration. Re-resolving every
-            # Google subresource through Python's socket resolver can reject valid
-            # requests on school networks, VPNs, or systems using a proxy and leave
-            # page.goto() on about:blank. Validate URL syntax/host here; untrusted
-            # result destinations are DNS-checked separately before navigation by
-            # robots_for_target()/fetch(), including redirect targets.
             request_url = route.request.url
-            if (is_safe_public_url(request_url, resolve_dns=True) if route.request.is_navigation_request() else is_safe_public_url(request_url, resolve_dns=False)):
-                route.continue_()
-            else:
+            navigation = route.request.is_navigation_request()
+            safe = is_safe_public_url(request_url, resolve_dns=True) if navigation else is_safe_public_url(request_url, resolve_dns=False)
+            if not safe:
                 log(callback, f"[비공개/로컬 네트워크 요청 차단] {request_url[:200]}")
                 route.abort("blockedbyclient")
+                return
+            if navigation:
+                host = (urlparse(request_url).hostname or "").lower()
+                search_hosts = {"google.com", "www.google.com", "bing.com", "www.bing.com",
+                                "duckduckgo.com", "html.duckduckgo.com"}
+                if host not in search_hosts:
+                    policy = robots_for_target(request_url)
+                    if policy is None or not policy.can_fetch(USER_AGENT, request_url):
+                        log(callback, f"[robots 정책으로 탐색 차단] {request_url[:200]}")
+                        route.abort("blockedbyclient")
+                        return
+            route.continue_()
         page.route("**/*", guard_browser_request)
         def robots_for_target(target):
             parsed=urlparse(target); key=(parsed.scheme,parsed.netloc)
