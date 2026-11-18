@@ -16,7 +16,7 @@ const getAdminBookLabel = (book: Book) => [
   book.title,
   book.publisher,
   book.subject,
-  book.grade,
+  normalizeGradeLabel(book.grade),
   book.semester,
   book.series
 ].filter(Boolean).join(' · ');
@@ -458,7 +458,7 @@ export function AdminDashboard() {
                     <tr key={b.id} className="border-b border-[#F2F4F6] last:border-0 hover:bg-[#FCFCFD]">
                       <td className="break-words px-4 py-4 align-top font-semibold text-[#191F28]">{b.title}</td>
                       <td className="break-words px-4 py-4 align-top">{b.publisher || '—'}</td>
-                      <td className="break-words px-4 py-4 align-top">{[b.subject, b.grade].filter(Boolean).join(' · ') || '—'}</td>
+                      <td className="break-words px-4 py-4 align-top">{[b.subject, normalizeGradeLabel(b.grade)].filter(Boolean).join(' · ') || '—'}</td>
                       <td className="px-4 py-4 align-top font-semibold text-[#344054]">{bLinks.length}개</td>
                       <td className="px-4 py-4 align-top text-right">
                         <button
@@ -555,7 +555,7 @@ export function AdminBooksList() {
           <div className="overflow-x-auto"><table className="w-full min-w-[900px] table-fixed text-left text-sm text-[#344054]">
             <thead><tr className="bg-[#F9FAFB] border-b border-[#E5E8EB] text-[#344054] font-bold"><th className="w-[25%] px-4 py-4">교재명</th><th className="w-[15%] px-4 py-4">출판사</th><th className="w-[11%] px-4 py-4">과목</th><th className="w-[18%] px-4 py-4">학년 / 학기</th><th className="w-[14%] px-4 py-4">시리즈 / 판본</th><th className="w-[13%] px-4 py-4">연결된 답지</th><th className="w-[15%] px-4 py-4 text-right">관리</th></tr></thead>
             <tbody className="divide-y divide-[#EAECF0]">{visibleBooks.map(book => <tr key={book.id} className="hover:bg-[#FCFCFD]">
-              <td className="break-words px-4 py-5 align-top font-semibold leading-6 text-[#191F28]">{book.title}{book.book_url && <span className="mt-1 block break-all font-normal text-xs leading-5 text-[#667085]">{book.book_url}</span>}</td><td className="break-words px-4 py-5 align-top">{book.publisher || '—'}</td><td className="break-words px-4 py-5 align-top">{book.subject || '—'}</td><td className="break-words px-4 py-5 align-top">{[book.grade, book.semester].filter(Boolean).join(' · ') || '—'}</td><td className="break-words px-4 py-5 align-top">{[book.series, book.edition].filter(Boolean).join(' · ') || '—'}</td><td className="px-4 py-5 align-top"><span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${ (answerLinkCounts[book.id] ?? 0) > 0 ? 'bg-[#ECFDF3] text-[#027A48]' : 'bg-[#F2F4F7] text-[#667085]' }`}>{answerLinkCounts[book.id] ?? 0}개 연결</span></td>
+              <td className="break-words px-4 py-5 align-top font-semibold leading-6 text-[#191F28]">{book.title}{book.book_url && <span className="mt-1 block break-all font-normal text-xs leading-5 text-[#667085]">{book.book_url}</span>}</td><td className="break-words px-4 py-5 align-top">{book.publisher || '—'}</td><td className="break-words px-4 py-5 align-top">{book.subject || '—'}</td><td className="break-words px-4 py-5 align-top">{[normalizeGradeLabel(book.grade), book.semester].filter(Boolean).join(' · ') || '—'}</td><td className="break-words px-4 py-5 align-top">{[book.series, book.edition].filter(Boolean).join(' · ') || '—'}</td><td className="px-4 py-5 align-top"><span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${ (answerLinkCounts[book.id] ?? 0) > 0 ? 'bg-[#ECFDF3] text-[#027A48]' : 'bg-[#F2F4F7] text-[#667085]' }`}>{answerLinkCounts[book.id] ?? 0}개 연결</span></td>
               <td className="px-4 py-5 align-top"><div className="flex flex-wrap justify-end gap-2"><button onClick={() => navigateTo('/admin/books/' + book.id, { id: book.id })} className="rounded-lg border border-[#D0D5DD] bg-white px-3 py-2 font-semibold text-[#344054] hover:bg-[#F2F4F6]">수정</button><button onClick={() => void handleDelete(book)} disabled={deletingId === book.id} className="rounded-lg border border-[#D0D5DD] bg-[#F9FAFB] px-3 py-2 font-semibold text-[#344054] hover:border-[#98A2B3] hover:bg-[#F2F4F6] disabled:opacity-50">{deletingId === book.id ? '삭제 중…' : '삭제'}</button></div></td>
             </tr>)}</tbody>
           </table></div>
