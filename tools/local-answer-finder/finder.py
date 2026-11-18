@@ -451,6 +451,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     with sync_playwright() as p:
         browser=p.chromium.launch(headless=not headed); context=browser.new_context(locale="ko-KR")
         page=context.new_page(); page.set_default_navigation_timeout(timeout)
+        navigation_host_guard = None
         def guard_browser_request(route):
             request_url = route.request.url
             navigation = route.request.is_navigation_request()
@@ -461,6 +462,10 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                 return
             if navigation:
                 host = (urlparse(request_url).hostname or "").lower()
+                if navigation_host_guard and host != navigation_host_guard:
+                    log(callback, f"[동일 호스트 외부 리디렉션 차단] {request_url[:200]}")
+                    route.abort("blockedbyclient")
+                    return
                 search_hosts = {"google.com", "www.google.com", "bing.com", "www.bing.com",
                                 "duckduckgo.com", "html.duckduckgo.com"}
                 if host not in search_hosts:
@@ -522,7 +527,11 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                         if stop_event is not None and stop_event.is_set(): break
                         if not allowed_host(url,host) or not robots.can_fetch(USER_AGENT,url): continue
                         try:
-                            response=page.goto(url,wait_until="domcontentloaded")
+                            navigation_host_guard = host
+                            try:
+                                response=page.goto(url,wait_until="domcontentloaded")
+                            finally:
+                                navigation_host_guard = None
                             if response and response.status>=400: continue
                             if not allowed_host(page.url,host) or not is_safe_public_url(page.url, resolve_dns=True): continue
                             final_robots = robots_for_target(page.url)
