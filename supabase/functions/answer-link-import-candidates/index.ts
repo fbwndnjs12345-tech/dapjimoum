@@ -25,6 +25,13 @@ function canonicalUrl(value: string): string {
   url.hash = '';
   url.hostname = url.hostname.toLowerCase();
   if ((url.protocol === 'https:' && url.port === '443') || (url.protocol === 'http:' && url.port === '80')) url.port = '';
+  for (const key of [...url.searchParams.keys()]) {
+    const normalized = key.toLowerCase();
+    if (normalized.startsWith('utm_') || ['fbclid', 'gclid', 'ref', 'ref_src'].includes(normalized)) {
+      url.searchParams.delete(key);
+    }
+  }
+  url.searchParams.sort();
   return url.toString();
 }
 
@@ -64,6 +71,7 @@ Deno.serve(async (request) => {
       const urlIdentity = canonicalUrl(rawUrl);
       const url = new URL(urlIdentity);
       const matchStatus = ['likely', 'uncertain', 'mismatch'].includes(String(item.match_status)) ? String(item.match_status) : 'uncertain';
+      if (matchStatus === 'mismatch') continue;
       const linkType = item.link_type === 'PDF' ? 'PDF' : '웹페이지';
       const sourceType = ['official', 'general', 'unknown'].includes(String(item.source_type)) ? String(item.source_type) : 'unknown';
       const query = typeof item.query === 'string' ? item.query.trim().slice(0, 1000) : 'local-search';
