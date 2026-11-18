@@ -362,6 +362,15 @@ def assess(book, title, snippet, terms):
     if expected_semester and actual_semesters and expected_semester.group(1) not in actual_semesters:
         edition_conflict = True
 
+    expected_years = set(re.findall(r"20(?:15|22)", " ".join((book.get("edition", ""), book.get("curriculum_revision", "")))))
+    actual_years = set(re.findall(r"20(?:15|22)", raw))
+    if expected_years and actual_years and not (expected_years & actual_years):
+        edition_conflict = True
+    expected_isbn = re.sub(r"[^0-9Xx]", "", book.get("isbn13", ""))
+    actual_isbns = set(re.findall(r"(?<![0-9])[0-9]{13}(?![0-9])", raw))
+    if expected_isbn and actual_isbns and expected_isbn not in actual_isbns:
+        edition_conflict = True
+
     answer_signal = any(word in combined for word in ("정답", "해설", "답지"))
     matched = [term for term in terms if norm(term) and norm(term) in combined]
     tokens = [norm(token) for token in re.findall(r"[가-힣A-Za-z]+|[0-9]+", book.get("title", ""))
