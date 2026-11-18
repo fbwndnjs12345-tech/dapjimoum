@@ -119,7 +119,7 @@ export async function recordAnswerLinkClick(linkId: string, clickId: string): Pr
   return data as number;
 }
 
-export type AnswerLinkCount = { book_id: string; link_count: number; click_count: number };
+export type AnswerLinkCount = { book_id: string; link_count: number; click_count: number; verified_count: number };
 
 let answerLinkCountsCache: { expiresAt: number; value: AnswerLinkCount[] } | null = null;
 let answerLinkCountsRequest: Promise<AnswerLinkCount[]> | null = null;
@@ -129,12 +129,13 @@ export async function getPublicAnswerLinkCounts(): Promise<AnswerLinkCount[]> {
   if (answerLinkCountsCache && answerLinkCountsCache.expiresAt > Date.now()) return answerLinkCountsCache.value;
   if (answerLinkCountsRequest) return answerLinkCountsRequest;
   answerLinkCountsRequest = (async () => {
-    const { data, error } = await supabase.rpc('get_public_answer_link_counts');
+    const { data, error } = await supabase.rpc('get_public_answer_link_summary');
     if (error) throw error;
-    const counts = ((data ?? []) as Array<{ book_id: string; link_count: number | string; click_count: number | string }>).map(row => ({
+    const counts = ((data ?? []) as Array<{ book_id: string; link_count: number | string; click_count: number | string; verified_count: number | string }>).map(row => ({
       book_id: row.book_id,
       link_count: Number(row.link_count),
-      click_count: Number(row.click_count)
+      click_count: Number(row.click_count),
+      verified_count: Number(row.verified_count)
     }));
     answerLinkCountsCache = { value: counts, expiresAt: Date.now() + ANSWER_LINK_COUNTS_CACHE_TTL_MS };
     return counts;
