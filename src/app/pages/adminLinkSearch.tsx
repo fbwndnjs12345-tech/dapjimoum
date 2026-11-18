@@ -33,7 +33,7 @@ export function AdminLinkSearchPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [healthLoading, setHealthLoading] = useState(false);
-  const [healthStats, setHealthStats] = useState({ total: 803, checked: 0, pending: 803, healthy: 0, broken: 0, redirected: 0, invalidPdf: 0, rateLimited: 0, temporaryErrors: 0, directDownloads: 0, landingPages: 0 });
+  const [healthStats, setHealthStats] = useState({ total: 803, checked: 0, pending: 803, healthy: 0, broken: 0, redirected: 0, invalidPdf: 0, rateLimited: 0, temporaryErrors: 0, directDownloads: 0, landingPages: 0, matchedDownloads: 0, mismatchedDownloads: 0, uncertainDownloads: 0 });
   const [healthError, setHealthError] = useState('');
   const pumpGuard = useRef(false);
 
@@ -133,7 +133,7 @@ export function AdminLinkSearchPage() {
   const loadHealthStats = useCallback(async () => {
     setHealthLoading(true);
     const { data, error: queryError } = await supabase.from('answer_links')
-      .select('health_status,health_checked_at,health_is_download');
+      .select('health_status,health_checked_at,health_is_download,health_match_status');
     if (queryError) {
       setHealthError(queryError.message);
       setHealthLoading(false);
@@ -151,7 +151,7 @@ export function AdminLinkSearchPage() {
       rateLimited: rows.filter(row => row.health_status === 'rate_limited').length,
       temporaryErrors: rows.filter(row => row.health_status === 'temporary_error').length,
       directDownloads: rows.filter(row => row.health_is_download === true).length,
-      landingPages: rows.filter(row => row.health_status === 'healthy' && row.health_is_download === false).length,
+      landingPages: rows.filter(row => row.health_status === 'healthy' && row.health_is_download === false).length,\n      matchedDownloads: rows.filter(row => row.health_match_status === 'matched').length,\n      mismatchedDownloads: rows.filter(row => row.health_match_status === 'mismatch').length,\n      uncertainDownloads: rows.filter(row => row.health_match_status === 'uncertain').length,
     });
     setHealthError('');
     setHealthLoading(false);
@@ -273,7 +273,7 @@ export function AdminLinkSearchPage() {
           <div><p className="text-xs text-[#667085]">직접 다운로드</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.directDownloads}</p></div>
           <div><p className="text-xs text-[#667085]">웹페이지 연결</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.landingPages}</p></div>
           <div><p className="text-xs text-[#667085]">끊김</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.broken}</p></div>
-          <div><p className="text-xs text-[#667085]">잘못된 PDF</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.invalidPdf}</p></div>
+          <div><p className="text-xs text-[#667085]">잘못된 PDF</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.invalidPdf}</p></div>\n          <div><p className="text-xs text-[#667085]">교재 일치</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.matchedDownloads}</p></div>\n          <div><p className="text-xs text-[#667085]">교재 불일치</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.mismatchedDownloads}</p></div>\n          <div><p className="text-xs text-[#667085]">파일명 확인 필요</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.uncertainDownloads}</p></div>
           <div><p className="text-xs text-[#667085]">일시 오류·제한</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.temporaryErrors + healthStats.rateLimited}</p></div>
         </div>
         {(healthStats.redirected + healthStats.temporaryErrors + healthStats.rateLimited) > 0 && <p className="mt-3 text-xs text-[#667085]">리디렉션 오류 {healthStats.redirected} · 요청 제한 {healthStats.rateLimited} · 일시 오류 {healthStats.temporaryErrors}</p>}
