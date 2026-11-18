@@ -330,7 +330,7 @@ class FinderApp:
                 if not rows:
                     raise RuntimeError("교재가 0권 조회됐습니다. 관리자 계정의 books 읽기 권한과 Supabase URL을 확인하세요.")
                 path = ROOT / "books.csv"
-                fields = ["id", "title", "publisher", "subject", "grade", "semester", "series"]
+                fields = ["id", "title", "publisher", "subject", "grade", "semester", "series", "edition", "curriculum_revision", "isbn13"]
                 with path.open("w", encoding="utf-8-sig", newline="") as f:
                     writer = csv.DictWriter(f, fieldnames=fields)
                     writer.writeheader()
