@@ -32,6 +32,10 @@ export function AdminLinkSearchPage() {
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [healthBusy, setHealthBusy] = useState(false);
+  const [healthOffset, setHealthOffset] = useState(0);
+  const [healthSummary, setHealthSummary] = useState({ checked: 0, healthy: 0, broken: 0, redirected: 0, invalidPdf: 0, rateLimited: 0, temporaryErrors: 0, directDownloads: 0, landingPages: 0, queued: 0 });
+  const [healthError, setHealthError] = useState('');
   const pumpGuard = useRef(false);
 
   const loadRuns = useCallback(async () => {
@@ -123,6 +127,54 @@ export function AdminLinkSearchPage() {
     const haystack = [book.title, book.publisher, book.subject, book.grade, book.semester, book.series].filter(Boolean).join(' ').toLocaleLowerCase('ko-KR');
     return haystack.includes(bookSearch.trim().toLocaleLowerCase('ko-KR'));
   }).slice(0, 12), [books, bookSearch]);
+
+  const runFullLinkAudit = async () => {
+    if (healthBusy || busy) return;
+    setHealthBusy(true);
+    setHealthError('');
+    try {
+      let offset = healthOffset;
+      while (true) {
+        const { data, error: invokeError } = await supabase.functions.invoke('answer-link-health-check', {
+          body: { limit: 10, offset, force: true },
+        });
+        if (invokeError) {
+          const context = (invokeError as { context?: Response }).context;
+          if (context) {
+            try {
+              const body = await context.clone().json();
+              throw new Error(body.error ?? invokeError.message);
+            } catch (parseError) {
+              if (parseError instanceof Error && parseError.message !== 'Unexpected end of JSON input') throw parseError;
+            }
+          }
+          throw invokeError;
+        }
+        if (data?.error) throw new Error(data.error);
+        const batch = data?.summary ?? {};
+        setHealthSummary(previous => ({
+          checked: previous.checked + Number(batch.checked ?? 0),
+          healthy: previous.healthy + Number(batch.healthy ?? 0),
+          broken: previous.broken + Number(batch.broken ?? 0),
+          redirected: previous.redirected + Number(batch.redirected ?? 0),
+          invalidPdf: previous.invalidPdf + Number(batch.invalidPdf ?? 0),
+          rateLimited: previous.rateLimited + Number(batch.rateLimited ?? 0),
+          temporaryErrors: previous.temporaryErrors + Number(batch.temporaryErrors ?? 0),
+          directDownloads: previous.directDownloads + Number(batch.directDownloads ?? 0),
+          landingPages: previous.landingPages + Number(batch.landingPages ?? 0),
+          queued: previous.queued + Number(batch.queued ?? 0),
+        }));
+        offset = Number(data?.nextOffset ?? offset + Number(batch.checked ?? 0));
+        setHealthOffset(offset);
+        if (Array.isArray(data?.errors) && data.errors.length) setHealthError(data.errors.join('\n'));
+        if (!data?.hasMore || Number(batch.checked ?? 0) === 0) break;
+      }
+    } catch (auditError) {
+      setHealthError(errorText(auditError));
+    } finally {
+      setHealthBusy(false);
+    }
+  };
 
   const startSearch = async () => {
     if (busy) return;
@@ -227,6 +279,25 @@ export function AdminLinkSearchPage() {
           ].map(option => <button key={option.value} type="button" onClick={() => setProviderMode(option.value as typeof providerMode)} className={'rounded-xl border p-3 text-left ' + (providerMode === option.value ? 'border-[#344054] bg-[#F2F4F6]' : 'border-[#EAECF0] bg-white hover:bg-[#F9FAFB]')}><p className="text-sm font-bold text-[#344054]">{option.label}</p><p className="mt-1 text-xs leading-5 text-[#667085]">{option.detail}</p></button>)}
         </div>
         <p className="mt-3 rounded-xl bg-[#F9FAFB] p-3 text-xs leading-5 text-[#667085]">검색 서비스의 API 키·호출 한도·접근 제한에 따라 결과가 달라질 수 있습니다. 통합 검색은 설정된 경로가 실패해도 나머지 경로를 계속 사용하고, 실패 원인을 실행 진단에 기록합니다.</p>
+      </section>
+
+      <section className="rounded-2xl border border-[#E5E8EB] bg-white p-4 sm:p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div><h3 className="font-bold text-[#191F28]">답지 링크 전체 검증</h3><p className="mt-1 text-xs leading-5 text-[#667085]">803개 링크를 10개씩 검사합니다. 안전한 리디렉션을 따라간 뒤 HTTP 응답, PDF 시그니처, 직접 다운로드 파일 여부를 확인합니다. 끊긴 링크와 답지 파일이 아닌 링크는 대체 답지 검색 대기열에 등록합니다.</p></div>
+          <button type="button" onClick={() => void runFullLinkAudit()} disabled={healthBusy || busy} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#191F28] px-4 text-sm font-bold text-white disabled:opacity-40"><RefreshCw className={'h-4 w-4 ' + (healthBusy ? 'animate-spin' : '')} />{healthBusy ? '전체 링크 검사 중…' : healthOffset > 0 && healthOffset < 803 ? '검사 이어하기' : '803개 전체 검사 시작'}</button>
+        </div>
+        <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#E5E8EB]"><div className="h-full rounded-full bg-[#344054] transition-all" style={{ width: Math.min(100, healthOffset / 803 * 100) + '%' }} /></div>
+        <p className="mt-2 text-xs tabular-nums text-[#667085]">{healthOffset} / 803 처리 · {Math.round(Math.min(100, healthOffset / 803 * 100))}%</p>
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <div><p className="text-xs text-[#667085]">검사 완료</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthSummary.checked}</p></div>
+          <div><p className="text-xs text-[#667085]">직접 다운로드</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthSummary.directDownloads}</p></div>
+          <div><p className="text-xs text-[#667085]">웹페이지 링크</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthSummary.landingPages}</p></div>
+          <div><p className="text-xs text-[#667085]">끊김·잘못된 PDF</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthSummary.broken + healthSummary.invalidPdf}</p></div>
+          <div><p className="text-xs text-[#667085]">대체 검색 대기</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthSummary.queued}</p></div>
+        </div>
+        {(healthSummary.redirected + healthSummary.rateLimited + healthSummary.temporaryErrors) > 0 && <p className="mt-3 text-xs text-[#667085]">리디렉션 오류 {healthSummary.redirected} · 요청 제한 {healthSummary.rateLimited} · 일시 오류 {healthSummary.temporaryErrors}</p>}
+        {healthError && <p role="alert" className="mt-3 whitespace-pre-wrap break-words rounded-lg bg-[#FFEEEC] p-3 text-xs text-[#B42318]">{healthError}</p>}
+        {healthOffset >= 803 && <p className="mt-3 text-xs font-semibold text-[#027A48]">전체 링크 검사가 완료되었습니다. 실패·미다운로드 링크의 대체 답지 검색은 별도 검색 대기열에서 처리됩니다.</p>}
       </section>
 
       <section className="rounded-2xl border border-[#E5E8EB] bg-white p-4 sm:p-6">
