@@ -248,5 +248,19 @@ class FinderUnitTests(unittest.TestCase):
         self.assertIn("9781234567890", joined)
 
 
+
+    def test_assess_rejects_conflicting_curriculum_year(self):
+        book = {"title": "오투 중등 과학 2-1", "curriculum_revision": "2022 개정 교육과정"}
+        _, status, _ = assess(book, "오투 중등 과학 2-1 2015 개정 교육과정 정답과 해설",
+                              "2015 개정 교육과정 정답과 해설", ["정답과 해설"])
+        self.assertEqual(status, "mismatch")
+
+    def test_assess_rejects_conflicting_isbn_when_isbn_is_present(self):
+        book = {"title": "오투 중등 과학 2-1", "isbn13": "9781234567890"}
+        _, status, _ = assess(book, "오투 중등 과학 2-1 정답과 해설",
+                              "ISBN 9780987654321 정답과 해설", ["정답과 해설"])
+        self.assertEqual(status, "mismatch")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
