@@ -273,7 +273,10 @@ export function AdminLinkSearchPage() {
           <div><p className="text-xs text-[#667085]">직접 다운로드</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.directDownloads}</p></div>
           <div><p className="text-xs text-[#667085]">웹페이지 연결</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.landingPages}</p></div>
           <div><p className="text-xs text-[#667085]">끊김</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.broken}</p></div>
-          <div><p className="text-xs text-[#667085]">잘못된 PDF</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.invalidPdf}</p></div>\n          <div><p className="text-xs text-[#667085]">교재 일치</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.matchedDownloads}</p></div>\n          <div><p className="text-xs text-[#667085]">교재 불일치</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.mismatchedDownloads}</p></div>\n          <div><p className="text-xs text-[#667085]">파일명 확인 필요</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.uncertainDownloads}</p></div>
+          <div><p className="text-xs text-[#667085]">잘못된 PDF</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.invalidPdf}</p></div>
+          <div><p className="text-xs text-[#667085]">교재 일치</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.matchedDownloads}</p></div>
+          <div><p className="text-xs text-[#667085]">교재 불일치</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.mismatchedDownloads}</p></div>
+          <div><p className="text-xs text-[#667085]">파일명 확인 필요</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.uncertainDownloads}</p></div>
           <div><p className="text-xs text-[#667085]">일시 오류·제한</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.temporaryErrors + healthStats.rateLimited}</p></div>
         </div>
         {(healthStats.redirected + healthStats.temporaryErrors + healthStats.rateLimited) > 0 && <p className="mt-3 text-xs text-[#667085]">리디렉션 오류 {healthStats.redirected} · 요청 제한 {healthStats.rateLimited} · 일시 오류 {healthStats.temporaryErrors}</p>}
