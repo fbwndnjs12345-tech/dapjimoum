@@ -57,7 +57,7 @@ export function SearchFilters({
         <label className="text-xs font-bold text-[#333D4B]">검색어</label>
         <div className="relative">
           <input
-            type="search" value={searchQuery}
+            type="text" value={searchQuery}
             onChange={event => setSearchQuery(event.target.value)}
             placeholder="교재명, 출판사, 과목, ISBN 입력"
             aria-label="교재 검색어"
