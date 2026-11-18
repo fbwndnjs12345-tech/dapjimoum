@@ -134,6 +134,48 @@ async function inspectDownloadCandidate(url: string, admin: ReturnType<typeof cr
     || mime.includes('officedocument') || /\.(zip|hwp|hwpx|docx?|xlsx?|pptx?)$/i.test(path);
   return { isDownload: pdf || otherFile, finalUrl, contentType, fileSize, fileName, statusCode: response.status };
 }
+function assessContentMatch(book: { title?: string; subject?: string; grade?: string } | null, fileName: string | null) {
+  if (!book?.title || !fileName) return { status: 'uncertain' as const, note: '교재명 또는 파일명이 없어 내용 일치 여부를 판정할 수 없습니다.' };
+  let decodedName = fileName;
+  try { decodedName = decodeURIComponent(fileName); } catch { /* Keep the original filename. */ }
+  const title = book.title.toLowerCase();
+  const file = decodedName.toLowerCase();
+  const volumePattern = /(?:초등|중학|중등|고등)?\s*([1-3])\s*[-–]\s*([1-2])/i;
+  const titleVolume = title.match(volumePattern);
+  const fileVolume = file.match(volumePattern);
+  if (titleVolume && fileVolume && (titleVolume[1] !== fileVolume[1] || titleVolume[2] !== fileVolume[2])) {
+    return { status: 'mismatch' as const, note: '교재 학기·권수 표기가 파일명과 다릅니다.' };
+  }
+  const subjectGroups: Record<string, string[]> = {
+    '국어': ['국어'],
+    '영어': ['영어', 'english', 'voca', 'grammar', 'reading', 'listening', 'word', '문법', '독해', '리딩'],
+    '수학': ['수학', 'math', '미적분', '확률', '통계', '대수', '기하'],
+    '과학': ['과학', '물리', '화학', '생명', '지구'],
+    '역사': ['역사', '한국사', '세계사', '동아시아사'],
+    '사회': ['사회', '한국사', '세계사', '동아시아사', '지리', '경제', '정치', '윤리'],
+  };
+  const targetSubject = book.subject ?? '';
+  const targetTerms = subjectGroups[targetSubject];
+  if (targetTerms && !targetTerms.some(term => file.includes(term))) {
+    const otherSubjectTerms = Object.entries(subjectGroups)
+      .filter(([subject]) => subject !== targetSubject)
+      .flatMap(([, terms]) => terms);
+    if (otherSubjectTerms.some(term => file.includes(term))) {
+      return { status: 'mismatch' as const, note: '파일명에 표시된 과목이 등록된 교재 과목과 다릅니다.' };
+    }
+  }
+  const generic = new Set(['중학','중등','고등','초등','수학','과학','국어','영어','역사','사회','정답','해설','답지','정답과','평가문제집','자습서','개정','자료','및','본문','별책','빠른','정답표','pdf','answer','solution','the','book']);
+  const tokens = title.match(/[가-힣]{2,}|[a-z]{2,}|\d+/gi) ?? [];
+  const distinctive = tokens.filter(token => !generic.has(token.toLowerCase()) && !/^(?:20)?2[0-9]$/.test(token));
+  const fileCompact = file.replace(/[^가-힣a-z0-9]/gi, '');
+  const overlap = distinctive.filter(token => fileCompact.includes(token.toLowerCase().replace(/[^가-힣a-z0-9]/gi, '')));
+  if (titleVolume && fileVolume && overlap.length > 0) {
+    return { status: 'matched' as const, note: '교재명 핵심어와 학기 표기가 파일명에서 확인됩니다.' };
+  }
+  if (overlap.length >= 2) return { status: 'matched' as const, note: '교재명 핵심어가 파일명에서 확인됩니다.' };
+  return { status: 'uncertain' as const, note: '파일은 다운로드되지만 파일명만으로 교재 일치 여부를 확정할 수 없습니다.' };
+}
+
 function filenameFrom(response: Response, finalUrl: string): string | null {
   const disposition = response.headers.get('content-disposition') ?? '';
   const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
@@ -170,17 +212,17 @@ Deno.serve(async request => {
   const limit = Math.max(1, Math.min(10, Number(payload.limit ?? 10)));
   const offset = Math.max(0, Math.min(10000, Number(payload.offset ?? 0)));
   const cutoff = new Date(Date.now() - 7 * 86400000).toISOString();
-  let linksQuery = admin.from('answer_links').select('id,book_id,title,url,link_type');
+  let linksQuery = admin.from('answer_links').select('id,book_id,title,url,link_type,book:books!answer_links_book_id_fkey(title,subject,grade)');
   if (!payload.force) linksQuery = linksQuery.or('health_checked_at.is.null,health_checked_at.lt.' + cutoff);
   const { data: links, error: linksError } = await linksQuery
     .order('id', { ascending: true }).range(offset, offset + limit - 1);
   if (linksError) return json({ error: '검사할 답지 링크를 불러오지 못했습니다: ' + linksError.message }, 500);
-  const summary = { checked: 0, healthy: 0, broken: 0, redirected: 0, invalidPdf: 0, rateLimited: 0, temporaryErrors: 0, directDownloads: 0, landingPages: 0, queued: 0 };
+  const summary = { checked: 0, healthy: 0, broken: 0, redirected: 0, invalidPdf: 0, rateLimited: 0, temporaryErrors: 0, directDownloads: 0, landingPages: 0, matchedDownloads: 0, mismatchedDownloads: 0, uncertainDownloads: 0, queued: 0 };
   const errors: string[] = [];
   for (const link of links ?? []) {
     let status: 'healthy' | 'broken' | 'redirected' | 'invalid_pdf' | 'rate_limited' | 'temporary_error' = 'temporary_error';
     let httpStatus: number | null = null, contentType: string | null = null, fileSize: number | null = null, finalUrl: string | null = null, fileName: string | null = null;
-    let isDownload = false, errorMessage: string | null = null;
+    let isDownload = false, matchStatus: 'unknown' | 'matched' | 'mismatch' | 'uncertain' | 'not_applicable' = 'unknown', matchNote: string | null = null, errorMessage: string | null = null;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12000);
     try {
@@ -205,6 +247,7 @@ Deno.serve(async request => {
         status = 'temporary_error'; errorMessage = '외부 사이트 HTTP 응답 오류 (' + response.status + ')';
         await response.body?.cancel().catch(() => undefined);
       } else {
+        const bookInfo = (Array.isArray(link.book) ? link.book[0] : link.book) as { title?: string; subject?: string; grade?: string } | null;
         const prefix = await readPrefix(response, 131072);
         const signature = new TextDecoder().decode(prefix.slice(0, 16));
         const mime = (contentType ?? '').toLowerCase();
@@ -255,7 +298,7 @@ Deno.serve(async request => {
     const { error: updateError } = await admin.from('answer_links').update({
       health_status: status, health_checked_at: checkedAt, last_checked_at: checkedAt,
       health_http_status: httpStatus, health_content_type: contentType, health_error: errorMessage,
-      health_file_size_bytes: fileSize, health_final_url: finalUrl, health_is_download: isDownload, health_file_name: fileName,
+      health_file_size_bytes: fileSize, health_final_url: finalUrl, health_is_download: isDownload, health_file_name: fileName,\n      health_match_status: matchStatus, health_match_note: matchNote,
     }).eq('id', link.id);
     if (updateError) errors.push(link.id + ': ' + updateError.message);
     summary.checked++;
@@ -267,7 +310,7 @@ Deno.serve(async request => {
     else summary.temporaryErrors++;
     if (isDownload) summary.directDownloads++;
     else if (status === 'healthy') summary.landingPages++;
-    if (['broken', 'redirected', 'invalid_pdf'].includes(status) || status === 'healthy' && !isDownload && (['answer', 'pdf', '다운로드', 'download'].includes(String(link.link_type).toLowerCase()) || /(답지|정답|해설|다운로드|answer|solution|pdf)/i.test(String(link.title)))) {
+    if (['broken', 'redirected', 'invalid_pdf'].includes(status) || status === 'healthy' && !isDownload && (['answer', 'pdf', '다운로드', 'download'].includes(String(link.link_type).toLowerCase()) || /(답지|정답|해설|다운로드|answer|solution|pdf)/i.test(String(link.title)) || matchStatus === 'mismatch')) {
       const { error: queueError } = await admin.from('answer_link_search_queue').insert({ book_id: link.book_id, reason: 'link_health', priority: 200, available_at: new Date().toISOString() });
       if (!queueError) summary.queued++;
       else if (queueError.code === '23505') await admin.from('answer_link_search_queue').update({ priority: 200, updated_at: new Date().toISOString() }).eq('book_id', link.book_id).in('status', ['queued', 'running']);
