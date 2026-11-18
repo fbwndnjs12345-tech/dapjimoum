@@ -234,7 +234,7 @@ class FinderUnitTests(unittest.TestCase):
     def test_read_books_includes_edition_curriculum_and_isbn(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "books.csv"
-            path.write_text("교재명,판본,교육과정,ISBN13\\n체크체크 수학,2022 개정판,2022 개정 교육과정,9781234567890\\n", encoding="utf-8")
+            path.write_text("교재명,판본,교육과정,ISBN13\n체크체크 수학,2022 개정판,2022 개정 교육과정,9781234567890\n", encoding="utf-8")
             row = read_books(path)[0]
         self.assertEqual(row["edition"], "2022 개정판")
         self.assertEqual(row["curriculum_revision"], "2022 개정 교육과정")
