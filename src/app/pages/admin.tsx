@@ -570,9 +570,22 @@ export function AdminBookForm({ mode }: { mode: 'create' | 'edit' }) {
   const isEdit = mode === 'edit';
   const bookId = routeParams.id;
   const [form, setForm] = useState<AdminBookFormValues>({ title: '', publisher: '', subject: '', grade: '', semester: '', series: '', edition: '', description: '', thumbnail_url: '', book_url: '' });
+  const [publisherOptions, setPublisherOptions] = useState<string[]>([...BOOK_PUBLISHER_OPTIONS]);
   const [isLoading, setIsLoading] = useState(isEdit);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    void import('../../lib/supabase/books').then(({ getBooks }) => getBooks()).then(books => {
+      if (!active) return;
+      const registered = books.map(book => book.publisher?.trim()).filter((value): value is string => Boolean(value));
+      setPublisherOptions(Array.from(new Set([...BOOK_PUBLISHER_OPTIONS, ...registered])).sort((a, b) => a.localeCompare(b, 'ko')));
+    }).catch(() => {
+      // Keep the maintained publisher list available if the catalog cannot be loaded.
+    });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -618,7 +631,7 @@ export function AdminBookForm({ mode }: { mode: 'create' | 'edit' }) {
         <form onSubmit={handleSaveBook} className="bg-white rounded-2xl border border-[#E5E8EB] p-5 sm:p-7 space-y-6 shadow-sm">
           <div className="space-y-2"><label htmlFor="book-title" className="block text-sm font-semibold text-[#344054]">교재명 <span className="text-[#667085]">(필수)</span></label><input id="book-title" value={form.title} onChange={e => change('title', e.target.value)} required className={inputClass} /></div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <div className="space-y-2"><label htmlFor="book-publisher" className="block text-sm font-semibold text-[#344054]">출판사</label><select id="book-publisher" value={form.publisher} onChange={e => change('publisher', e.target.value)} className={inputClass}><option value="">출판사 선택</option>{BOOK_PUBLISHER_OPTIONS.map(publisher => <option key={publisher} value={publisher}>{publisher}</option>)}{form.publisher && !BOOK_PUBLISHER_OPTIONS.includes(form.publisher as typeof BOOK_PUBLISHER_OPTIONS[number]) && <option value={form.publisher}>{form.publisher} (기존 값)</option>}</select><p className="text-xs text-[#667085]">현재 교재 DB에 등록된 출판사 목록입니다.</p></div>
+            <div className="space-y-2"><label htmlFor="book-publisher" className="block text-sm font-semibold text-[#344054]">출판사</label><select id="book-publisher" value={form.publisher} onChange={e => change('publisher', e.target.value)} className={inputClass}><option value="">출판사 선택</option>{publisherOptions.map(publisher => <option key={publisher} value={publisher}>{publisher}</option>)}{form.publisher && !publisherOptions.includes(form.publisher) && <option value={form.publisher}>{form.publisher} (기존 값)</option>}</select><p className="text-xs text-[#667085]">현재 교재 DB에 등록된 출판사 목록입니다.</p></div>
             <div className="space-y-2"><label htmlFor="book-subject" className="block text-sm font-semibold text-[#344054]">과목</label><select id="book-subject" value={form.subject} onChange={e => change('subject', e.target.value)} className={inputClass}><option value="">과목 선택</option>{BOOK_SUBJECT_OPTIONS.map(subject => <option key={subject} value={subject}>{subject}</option>)}{form.subject && !BOOK_SUBJECT_OPTIONS.includes(form.subject as typeof BOOK_SUBJECT_OPTIONS[number]) && <option value={form.subject}>{form.subject} (기존 값)</option>}</select></div>
             <div className="space-y-2"><label htmlFor="book-grade" className="block text-sm font-semibold text-[#344054]">학년 / 대상 학년</label><select id="book-grade" value={form.grade} onChange={e => change('grade', e.target.value)} className={inputClass}><option value="">학년 선택</option>{BOOK_GRADE_OPTIONS.map(grade => <option key={grade} value={grade}>{grade}</option>)}{form.grade && !BOOK_GRADE_OPTIONS.includes(form.grade as typeof BOOK_GRADE_OPTIONS[number]) && <option value={form.grade}>{normalizeGradeLabel(form.grade)} (기존 저장값: {form.grade})</option>}</select><p className="text-xs text-[#667085]">여러 학년 대상 교재는 ‘전학년’을 선택하세요.</p></div>
             <div className="space-y-2"><label htmlFor="book-semester" className="block text-sm font-semibold text-[#344054]">학기</label><select id="book-semester" value={form.semester} onChange={e => change('semester', e.target.value)} className={inputClass}><option value="">학기 선택</option>{BOOK_SEMESTER_OPTIONS.map(semester => <option key={semester} value={semester}>{semester}</option>)}{form.semester && !BOOK_SEMESTER_OPTIONS.includes(form.semester as typeof BOOK_SEMESTER_OPTIONS[number]) && <option value={form.semester}>{form.semester} (기존 값)</option>}</select></div>
