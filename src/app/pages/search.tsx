@@ -49,6 +49,8 @@ export function SearchPage() {
       return () => { isCurrentRequest = false; };
     }, [reloadKey]);
 
+    const countsByBook = useMemo(() => new Map(linkCounts.map(item => [item.book_id, item] as const)), [linkCounts]);
+
     const displayedBooks = useMemo(() => {
       const query = deferredSearchQuery.trim();
       const filtered = allBooks.filter(book => !isPlaceholderBook(book)).filter(book => {
@@ -59,7 +61,6 @@ export function SearchPage() {
           (gradeFilter === '전체' || normalizeGradeLabel(book.grade) === gradeFilter) &&
           (semesterFilter === '전체' || book.semester?.trim() === semesterFilter);
       });
-      const countsByBook = new Map(linkCounts.map(item => [item.book_id, item] as const));
       if (query && sortBy !== 'latest') return filtered.sort((a, b) =>
         scoreBookSearch(b, query) - scoreBookSearch(a, query) ||
         (countsByBook.get(b.id)?.click_count ?? 0) - (countsByBook.get(a.id)?.click_count ?? 0)
@@ -70,7 +71,7 @@ export function SearchPage() {
       );
       if (sortBy === 'latest') return filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
       return filtered.sort((a, b) => scoreBookSearch(b, query) - scoreBookSearch(a, query));
-    }, [allBooks, linkCounts, deferredSearchQuery, publisherFilter, subjectFilter, gradeFilter, semesterFilter, sortBy]);
+    }, [allBooks, countsByBook, deferredSearchQuery, publisherFilter, subjectFilter, gradeFilter, semesterFilter, sortBy]);
     const visibleCatalog = useMemo(() => allBooks.filter(book => !isPlaceholderBook(book)), [allBooks]);
     const queryMatchedBooks = useMemo(() => {
       const query = searchQuery.trim();
@@ -179,7 +180,7 @@ export function SearchPage() {
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {displayedBooks.map(book => {
-                  const bookLinks = linkCounts.find(item => item.book_id === book.id);
+                  const bookLinks = countsByBook.get(book.id);
                   const isBookmarked = bookmarks.includes(book.id);
 
                   return <BookCard key={book.id} book={book} linksCount={bookLinks?.link_count ?? 0} isBookmarked={isBookmarked} onOpen={() => navigateTo(`/books/${book.id}`, { id: book.id })} onToggleBookmark={(event) => toggleBookmark(book.id, event)} />;
