@@ -106,14 +106,15 @@ Deno.serve(async request => {
   }
   const { data: settings } = await admin.from('answer_link_search_settings').select('requests_per_minute').eq('singleton', true).maybeSingle();
   const rpm = Math.max(1, Math.min(300, Number(settings?.requests_per_minute ?? 30)));
-  let payload: { limit?: number };
+  let payload: { limit?: number; offset?: number; force?: boolean };
   try { payload = await request.json(); } catch { payload = {}; }
   const limit = Math.max(1, Math.min(10, Number(payload.limit ?? 10)));
+  const offset = Math.max(0, Math.min(10000, Number(payload.offset ?? 0)));
   const cutoff = new Date(Date.now() - 7 * 86400000).toISOString();
-  const { data: links, error: linksError } = await admin.from('answer_links')
-    .select('id,book_id,title,url,link_type')
-    .or('health_checked_at.is.null,health_checked_at.lt.' + cutoff)
-    .order('health_checked_at', { ascending: true, nullsFirst: true }).limit(limit);
+  let linksQuery = admin.from('answer_links').select('id,book_id,title,url,link_type');
+  if (!payload.force) linksQuery = linksQuery.or('health_checked_at.is.null,health_checked_at.lt.' + cutoff);
+  const { data: links, error: linksError } = await linksQuery
+    .order('id', { ascending: true }).range(offset, offset + limit - 1);
   if (linksError) return json({ error: '검사할 답지 링크를 불러오지 못했습니다: ' + linksError.message }, 500);
   const summary = { checked: 0, healthy: 0, broken: 0, redirected: 0, invalidPdf: 0, rateLimited: 0, temporaryErrors: 0, directDownloads: 0, landingPages: 0, queued: 0 };
   const errors: string[] = [];
@@ -187,5 +188,5 @@ Deno.serve(async request => {
       else errors.push(link.id + ': 대체 답지 검색 대기열 추가 실패 - ' + queueError.message);
     }
   }
-  return json({ summary, errors: errors.slice(0, 20), hasMore: (links?.length ?? 0) === limit });
+  return json({ summary, errors: errors.slice(0, 20), offset, nextOffset: offset + summary.checked, hasMore: (links?.length ?? 0) === limit });
 });
