@@ -3,7 +3,7 @@ import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import type { Book } from '../../types/book';
 import type { AnswerLinkCount } from '../../lib/supabase/answerLinks';
-import { isPlaceholderBook } from '../../lib/catalog';
+import { isPlaceholderBook, normalizeGradeLabel } from '../../lib/catalog';
 import { scoreBookSearch } from '../../lib/bookSearch';
 
 import { useAppContext } from '../../state/useAppContext';
@@ -56,7 +56,7 @@ export function SearchPage() {
         return matchesQuery &&
           (publisherFilter === '전체' || book.publisher?.trim() === publisherFilter) &&
           (subjectFilter === '전체' || book.subject?.trim() === subjectFilter) &&
-          (gradeFilter === '전체' || book.grade?.trim() === gradeFilter) &&
+          (gradeFilter === '전체' || normalizeGradeLabel(book.grade) === gradeFilter) &&
           (semesterFilter === '전체' || book.semester?.trim() === semesterFilter);
       });
       const countsByBook = new Map(linkCounts.map(item => [item.book_id, item] as const));
