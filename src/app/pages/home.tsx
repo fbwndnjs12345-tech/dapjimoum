@@ -101,7 +101,7 @@ export function HomePage() {
               const bookLinks = homeLinks.find(link => link.book_id === book.id);
               const isBookmarked = bookmarks.includes(book.id);
 
-              return <BookCard key={book.id} book={book} linksCount={bookLinks?.link_count ?? 0} isBookmarked={isBookmarked} variant="home" onOpen={() => navigateTo(`/books/${book.id}`, { id: book.id })} onToggleBookmark={(event) => toggleBookmark(book.id, event)} />;
+              return <BookCard key={book.id} book={book} linksCount={bookLinks?.link_count ?? 0} verifiedCount={bookLinks?.verified_count ?? 0} isBookmarked={isBookmarked} variant="home" onOpen={() => navigateTo(`/books/${book.id}`, { id: book.id })} onToggleBookmark={(event) => toggleBookmark(book.id, event)} />;
             })}
           </div>
         </section>
