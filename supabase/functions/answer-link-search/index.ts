@@ -42,16 +42,21 @@ type BookRow = {
 };
 
 function canonicalUrl(value: string): string {
-  const cleaned = value.trim();
-  const match = cleaned.match(/^([A-Za-z][A-Za-z0-9+.-]*:\/\/)([^/?#]*)(.*)$/);
-  if (!match) return cleaned;
-  const scheme = match[1].toLowerCase();
-  let authority = match[2].toLowerCase();
-  let suffix = match[3];
-  if (scheme === 'https://' && authority.endsWith(':443')) authority = authority.slice(0, -4);
-  if (scheme === 'http://' && authority.endsWith(':80')) authority = authority.slice(0, -3);
-  if (!suffix || suffix.startsWith('?') || suffix.startsWith('#')) suffix = `/${suffix}`;
-  return `${scheme}${authority}${suffix}`;
+  const url = new URL(value.trim());
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+    throw new Error('HTTP(S) URL만 허용됩니다.');
+  }
+  url.hash = '';
+  url.hostname = url.hostname.toLowerCase();
+  if ((url.protocol === 'https:' && url.port === '443') || (url.protocol === 'http:' && url.port === '80')) url.port = '';
+  for (const key of [...url.searchParams.keys()]) {
+    const normalized = key.toLowerCase();
+    if (normalized.startsWith('utm_') || ['fbclid', 'gclid', 'ref', 'ref_src'].includes(normalized)) {
+      url.searchParams.delete(key);
+    }
+  }
+  url.searchParams.sort();
+  return url.toString();
 }
 
 function isSafeSearchUrl(value: string): boolean {
