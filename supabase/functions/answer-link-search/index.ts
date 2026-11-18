@@ -38,6 +38,7 @@ function readSupabaseKey(legacyName: string, keySetName: string): string | undef
 type BookRow = {
   id: string; title: string; publisher: string | null; subject: string | null;
   grade: string | null; semester: string | null; series: string | null;
+  edition: string | null; curriculum_revision: string | null; isbn13: string | null;
 };
 
 function canonicalUrl(value: string): string {
@@ -87,7 +88,7 @@ function queriesFor(book: BookRow): string[] {
   const semester = book.semester ?? '';
   const subject = book.subject ?? '';
   const series = book.series?.trim() || title;
-  const identity = [publisher, grade, semester, subject].filter(Boolean).join(' ');
+  const identity = [publisher, grade, semester, subject, book.edition, book.curriculum_revision, book.isbn13].filter(Boolean).join(' ');
   // Use complementary search intents: exact title, normalized title, series,
   // and publisher-specific wording. This avoids relying on one exact phrase.
   const compactTitle = title
@@ -127,15 +128,19 @@ function matchAssessment(book: BookRow, title: string, snippet: string, url: str
   const publisherMatch = Boolean(publisher && sourceText.includes(publisher));
   const hasDistinctiveMatch = matchedTokens.length > 0;
   // Exact-title community pages may be reviewed even when snippets omit answer/PDF terms.
-  const exactTitleCommunityMatch = likelyCommunity && titleRatio >= 0.75;
-  const relevant = !isBlockedHost && hasDistinctiveMatch && numericMatch &&
-    titleRatio >= (tokens.length <= 2 ? 0.5 : 0.4) &&
-    (answerSignal || exactTitleCommunityMatch);
+  const editionText = normalizeSearchText(book.edition ?? '');
+  const curriculumText = normalizeSearchText(book.curriculum_revision ?? '');
+  const isbnText = (book.isbn13 ?? '').replace(/[^0-9Xx]/g, '');
+  const metadataMatch = (!editionText || sourceText.includes(editionText)) &&
+    (!curriculumText || sourceText.includes(curriculumText)) &&
+    (!isbnText || sourceText.includes(isbnText));
+  const relevant = !isBlockedHost && hasDistinctiveMatch && numericMatch && answerSignal &&
+    titleRatio >= (tokens.length <= 2 ? 0.5 : 0.4);
   const score = Math.max(0, Math.min(100, Math.round(
     titleRatio * 55 + (numericMatch ? 15 : 0) + (answerSignal ? 15 : 0) +
     (publisherMatch ? 10 : 0) + (isPdf ? 5 : 0)
   )));
-  const likely = relevant && score >= 75;
+  const likely = relevant && score >= 80 && metadataMatch && (isPdf || publisherMatch);
   return {
     relevant,
     match_status: likely ? 'likely' : relevant ? 'uncertain' : 'mismatch',
@@ -147,6 +152,10 @@ function matchAssessment(book: BookRow, title: string, snippet: string, url: str
       numeric_match: numericMatch,
       answer_signal: answerSignal,
       publisher_match: publisherMatch,
+      metadata_match: metadataMatch,
+      edition_match: !editionText || sourceText.includes(editionText),
+      curriculum_match: !curriculumText || sourceText.includes(curriculumText),
+      isbn_match: !isbnText || sourceText.includes(isbnText),
       pdf_url: isPdf,
       source_host: host,
     },
@@ -529,7 +538,7 @@ Deno.serve(async (request) => {
     const books: BookRow[] = [];
     for (let offset = 0; offset < selectedIds.length; offset += PAGE_SIZE) {
       const ids = selectedIds.slice(offset, offset + PAGE_SIZE);
-      const { data, error } = await admin.from('books').select('id,title,publisher,subject,grade,semester,series').in('id', ids);
+      const { data, error } = await admin.from('books').select('id,title,publisher,subject,grade,semester,series,edition,curriculum_revision,isbn13').in('id', ids);
       if (error) return json({ error: `교재 목록 조회 실패: ${error.message}` }, 500);
       books.push(...(data ?? []) as BookRow[]);
     }
