@@ -54,7 +54,7 @@ async function fetchFollowingRedirects(initialUrl: string, admin: ReturnType<typ
     await reserveSlot(admin, rpm);
     const response = await fetch(currentUrl, {
       method: 'GET',
-      headers: { Range: 'bytes=0-2047', 'User-Agent': 'DapjiMoum-LinkHealth/1.0 (+https://dapjimoum.pages.dev)' },
+      headers: { Range: 'bytes=0-131071', 'User-Agent': 'DapjiMoum-LinkHealth/1.0 (+https://dapjimoum.pages.dev)' },
       redirect: 'manual', signal,
     });
     if (response.status >= 300 && response.status < 400) {
@@ -130,9 +130,9 @@ async function inspectDownloadCandidate(url: string, admin: ReturnType<typeof cr
   const mime = (contentType ?? '').toLowerCase();
   const path = new URL(finalUrl).pathname.toLowerCase();
   const pdf = signature.startsWith('%PDF-');
-  const otherFile = /attachment/i.test(contentDisposition) || mime.includes('application/zip')
+  const otherFile = /attachment/i.test(contentDisposition) || mime.includes('application/octet-stream') || mime.includes('application/zip')
     || mime.includes('officedocument') || /\.(zip|hwp|hwpx|docx?|xlsx?|pptx?)$/i.test(path);
-  return { isDownload: pdf || otherFile, finalUrl, contentType, fileSize, fileName };
+  return { isDownload: pdf || otherFile, finalUrl, contentType, fileSize, fileName, statusCode: response.status };
 }
 function filenameFrom(response: Response, finalUrl: string): string | null {
   const disposition = response.headers.get('content-disposition') ?? '';
@@ -232,6 +232,7 @@ Deno.serve(async request => {
                   contentType = discovered.contentType;
                   fileSize = discovered.fileSize;
                   fileName = discovered.fileName;
+                  httpStatus = discovered.statusCode;
                   break;
                 }
               } catch { /* Keep checking other candidate links. */ }
