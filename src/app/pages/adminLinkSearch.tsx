@@ -151,7 +151,8 @@ export function AdminLinkSearchPage() {
       rateLimited: rows.filter(row => row.health_status === 'rate_limited').length,
       temporaryErrors: rows.filter(row => row.health_status === 'temporary_error').length,
       directDownloads: rows.filter(row => row.health_is_download === true).length,
-      landingPages: rows.filter(row => row.health_status === 'healthy' && row.health_is_download === false).length,\n      matchedDownloads: rows.filter(row => row.health_match_status === 'matched').length,\n      mismatchedDownloads: rows.filter(row => row.health_match_status === 'mismatch').length,\n      uncertainDownloads: rows.filter(row => row.health_match_status === 'uncertain').length,
+      landingPages: rows.filter(row => row.health_status === 'healthy' && row.health_is_download === false).length,
+      matchedDownloads: rows.filter(row => row.health_match_status === 'matched').length,\n      mismatchedDownloads: rows.filter(row => row.health_match_status === 'mismatch').length,\n      uncertainDownloads: rows.filter(row => row.health_match_status === 'uncertain').length,
     });
     setHealthError('');
     setHealthLoading(false);
