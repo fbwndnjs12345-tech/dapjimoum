@@ -304,7 +304,8 @@ Deno.serve(async request => {
     const { error: updateError } = await admin.from('answer_links').update({
       health_status: status, health_checked_at: checkedAt, last_checked_at: checkedAt,
       health_http_status: httpStatus, health_content_type: contentType, health_error: errorMessage,
-      health_file_size_bytes: fileSize, health_final_url: finalUrl, health_is_download: isDownload, health_file_name: fileName,\n      health_match_status: matchStatus, health_match_note: matchNote,
+      health_file_size_bytes: fileSize, health_final_url: finalUrl, health_is_download: isDownload, health_file_name: fileName,
+      health_match_status: matchStatus, health_match_note: matchNote,
     }).eq('id', link.id);
     if (updateError) errors.push(link.id + ': ' + updateError.message);
     summary.checked++;
@@ -319,7 +320,7 @@ Deno.serve(async request => {
     if (matchStatus === 'matched') summary.matchedDownloads++;
     else if (matchStatus === 'mismatch') summary.mismatchedDownloads++;
     else if (matchStatus === 'uncertain') summary.uncertainDownloads++;
-    if (['broken', 'redirected', 'invalid_pdf'].includes(status) || status === 'healthy' && !isDownload && (['answer', 'pdf', '다운로드', 'download'].includes(String(link.link_type).toLowerCase()) || /(답지|정답|해설|다운로드|answer|solution|pdf)/i.test(String(link.title)) || matchStatus === 'mismatch')) {
+    if (['broken', 'redirected', 'invalid_pdf'].includes(status) || status === 'healthy' && !isDownload && (['answer', 'pdf', '다운로드', 'download'].includes(String(link.link_type).toLowerCase()) || /(답지|정답|해설|다운로드|answer|solution|pdf)/i.test(String(link.title))) || matchStatus === 'mismatch') {
       const { error: queueError } = await admin.from('answer_link_search_queue').insert({ book_id: link.book_id, reason: 'link_health', priority: 200, available_at: new Date().toISOString() });
       if (!queueError) summary.queued++;
       else if (queueError.code === '23505') await admin.from('answer_link_search_queue').update({ priority: 200, updated_at: new Date().toISOString() }).eq('book_id', link.book_id).in('status', ['queued', 'running']);
