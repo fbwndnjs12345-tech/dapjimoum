@@ -212,8 +212,9 @@ Deno.serve(async request => {
   const limit = Math.max(1, Math.min(10, Number(payload.limit ?? 10)));
   const offset = Math.max(0, Math.min(10000, Number(payload.offset ?? 0)));
   const cutoff = new Date(Date.now() - 7 * 86400000).toISOString();
+  const retryCutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   let linksQuery = admin.from('answer_links').select('id,book_id,title,url,link_type,book:books!answer_links_book_id_fkey(title,subject,grade)');
-  if (!payload.force) linksQuery = linksQuery.or('health_checked_at.is.null,health_checked_at.lt.' + cutoff);
+  if (!payload.force) linksQuery = linksQuery.or('health_checked_at.is.null,health_checked_at.lt.' + cutoff + ',and(health_status.in.(temporary_error,rate_limited),health_checked_at.lt.' + retryCutoff + ')');
   const { data: links, error: linksError } = await linksQuery
     .order('id', { ascending: true }).range(offset, offset + limit - 1);
   if (linksError) return json({ error: '검사할 답지 링크를 불러오지 못했습니다: ' + linksError.message }, 500);
