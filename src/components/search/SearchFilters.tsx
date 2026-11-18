@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Filter, X } from 'lucide-react';
 import type { Book } from '../../types/book';
+import { normalizeGradeLabel } from '../../lib/catalog';
 
 type SearchFiltersProps = {
   publisherBooks: Book[];
@@ -18,10 +19,11 @@ type SearchFiltersProps = {
 
 type Facet = { options: string[]; counts: Map<string, number> };
 
-function buildFacet(books: Book[], select: (book: Book) => string | null | undefined): Facet {
+function buildFacet(books: Book[], select: (book: Book) => string | null | undefined, normalize: (value: string) => string = value => value): Facet {
   const counts = new Map<string, number>();
   for (const book of books) {
-    const value = select(book)?.trim();
+    const rawValue = select(book)?.trim();
+    const value = rawValue ? normalize(rawValue) : '';
     if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
   }
   return { options: ['전체', ...Array.from(counts.keys()).sort((a, b) => a.localeCompare(b, 'ko'))], counts };
@@ -36,7 +38,7 @@ export function SearchFilters({
   const facets = useMemo(() => ({
     publishers: buildFacet(publisherBooks, book => book.publisher),
     subjects: buildFacet(subjectBooks, book => book.subject),
-    grades: buildFacet(gradeBooks, book => book.grade),
+    grades: buildFacet(gradeBooks, book => book.grade, normalizeGradeLabel),
     semesters: buildFacet(semesterBooks, book => book.semester)
   }), [publisherBooks, subjectBooks, gradeBooks, semesterBooks]);
 
