@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import type { Book } from '../../types/book';
 import type { AnswerLinkCount } from '../../lib/supabase/answerLinks';
@@ -17,6 +17,7 @@ export function SearchPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState('');
     const [reloadKey, setReloadKey] = useState(0);
+    const deferredSearchQuery = useDeferredValue(searchQuery);
 
     useEffect(() => {
       let isCurrentRequest = true;
@@ -49,7 +50,7 @@ export function SearchPage() {
     }, [reloadKey]);
 
     const displayedBooks = useMemo(() => {
-      const query = searchQuery.trim();
+      const query = deferredSearchQuery.trim();
       const filtered = allBooks.filter(book => !isPlaceholderBook(book)).filter(book => {
         const matchesQuery = !query || scoreBookSearch(book, query) > 0;
         return matchesQuery &&
@@ -69,12 +70,12 @@ export function SearchPage() {
       );
       if (sortBy === 'latest') return filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
       return filtered.sort((a, b) => scoreBookSearch(b, query) - scoreBookSearch(a, query));
-    }, [allBooks, linkCounts, searchQuery, publisherFilter, subjectFilter, gradeFilter, semesterFilter, sortBy]);
+    }, [allBooks, linkCounts, deferredSearchQuery, publisherFilter, subjectFilter, gradeFilter, semesterFilter, sortBy]);
     const visibleCatalog = useMemo(() => allBooks.filter(book => !isPlaceholderBook(book)), [allBooks]);
     const queryMatchedBooks = useMemo(() => {
       const query = searchQuery.trim();
       return visibleCatalog.filter(book => !query || scoreBookSearch(book, query) > 0);
-    }, [visibleCatalog, searchQuery]);
+    }, [visibleCatalog, deferredSearchQuery]);
 
     // 각 필터의 선택지는 검색어와 나머지 필터를 적용한 교재만으로 계산한다.
     // 자기 자신의 필터는 제외하므로 다른 값으로 전환할 수 있다.
