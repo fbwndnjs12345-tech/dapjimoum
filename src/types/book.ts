@@ -31,4 +31,11 @@ export interface AnswerLink {
   verified: boolean;
   last_checked_at?: string;
   click_count: number;
+  health_status?: string;
+  health_checked_at?: string | null;
+  health_final_url?: string | null;
+  health_is_download?: boolean | null;
+  health_file_name?: string | null;
+  health_match_status?: 'unknown' | 'matched' | 'mismatch' | 'uncertain' | 'not_applicable' | null;
+  health_match_note?: string | null;
 }
