@@ -394,7 +394,9 @@ def assess(book, title, snippet, terms):
 
     if edition_conflict or not identity_ok or not answer_signal:
         status = "mismatch"
-    elif score >= 75 and (exact_title or (series_hit and subject_hit and edition_hit)):
+    elif score >= 75 and (exact_title or (series_hit and subject_hit and edition_hit)) and
+            all(not (book.get(key) or "").strip() or norm(book.get(key, "")) in combined
+                for key in ("edition", "curriculum_revision", "isbn13")):
         status = "likely"
     elif score >= 60 and series_hit and subject_hit and (edition_hit or not expected_pair):
         status = "uncertain"
