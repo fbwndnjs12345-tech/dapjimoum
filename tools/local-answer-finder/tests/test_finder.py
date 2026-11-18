@@ -224,10 +224,7 @@ class FinderUnitTests(unittest.TestCase):
 
 
     def test_url_canonicalization_sorts_query_and_removes_tracking(self):
-        self.assertEqual(
-            canonicalize_url("https://EXAMPLE.com:443/a?z=2&utm_source=x&a=1#part"),
-            "https://example.com/a?a=1&z=2",
-        )
+        self.assertEqual(canonicalize_url("https://EXAMPLE.com:443/a?z=2&utm_source=x&a=1#part"), "https://example.com/a?a=1&z=2")
 
     def test_csv_formula_prefix_is_neutralized(self):
         for value in ("=1+1", "+SUM(A1:A2)", "-2+3", "@cmd"):
@@ -244,10 +241,7 @@ class FinderUnitTests(unittest.TestCase):
         self.assertEqual(row["isbn13"], "9781234567890")
 
     def test_build_queries_include_edition_curriculum_and_isbn(self):
-        queries = build_queries({"title": "체크체크 수학 2-1", "series": "체크체크",
-            "subject": "수학", "grade": "중2", "semester": "1학기",
-            "edition": "2022 개정판", "curriculum_revision": "2022 개정 교육과정",
-            "isbn13": "9781234567890"}, 10)
+        queries = build_queries({"title": "체크체크 수학 2-1", "series": "체크체크", "subject": "수학", "grade": "중2", "semester": "1학기", "edition": "2022 개정판", "curriculum_revision": "2022 개정 교육과정", "isbn13": "9781234567890"}, 10)
         joined = " ".join(queries)
         self.assertIn("2022 개정판", joined)
         self.assertIn("2022 개정 교육과정", joined)
