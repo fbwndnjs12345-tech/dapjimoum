@@ -69,11 +69,70 @@ async function fetchFollowingRedirects(initialUrl: string, admin: ReturnType<typ
   }
   throw new Error('리디렉션 검사에 실패했습니다.');
 }
-async function readSignature(response: Response): Promise<Uint8Array> {
+async function readPrefix(response: Response, maxBytes = 131072): Promise<Uint8Array> {
   if (!response.body) return new Uint8Array();
   const reader = response.body.getReader();
-  try { const { value } = await reader.read(); return (value ?? new Uint8Array()).slice(0, 16); }
-  finally { await reader.cancel().catch(() => undefined); }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (total < maxBytes) {
+      const { value, done } = await reader.read();
+      if (done || !value?.length) break;
+      const chunk = value.slice(0, Math.max(0, maxBytes - total));
+      chunks.push(chunk);
+      total += chunk.length;
+    }
+  } finally { await reader.cancel().catch(() => undefined); }
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { output.set(chunk, offset); offset += chunk.length; }
+  return output;
+}
+function extractDownloadCandidates(html: string, baseUrl: string): string[] {
+  const found = new Map<string, number>();
+  const anchor = /<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = anchor.exec(html)) !== null) {
+    const href = match[1].replace(/&amp;/gi, '&').replace(/&#x2f;/gi, '/').replace(/&#47;/gi, '/').trim();
+    const label = match[2].replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').toLowerCase();
+    try {
+      const url = new URL(href, baseUrl);
+      if (!safeExternalUrl(url.toString())) continue;
+      const target = (url.pathname + url.search).toLowerCase();
+      const score = (/\.pdf(?:$|[?#])/.test(target) ? 10 : 0)
+        + (/(download|attach|file|pdf)/i.test(target) ? 5 : 0)
+        + (/(정답|해설|답지|다운로드|첨부|answer|solution|pdf)/i.test(label) ? 5 : 0);
+      if (score > 0) found.set(url.toString(), Math.max(score, found.get(url.toString()) ?? 0));
+    } catch { /* Ignore malformed links. */ }
+  }
+  const rawUrls = html.match(/https?:\/\/[^"'\s<>]+/gi) ?? [];
+  for (const raw of rawUrls) {
+    const cleaned = raw.replace(/&amp;/gi, '&').replace(/[),.;]+$/, '');
+    if (!/\.pdf(?:$|[?#])|download|attach|file/i.test(cleaned)) continue;
+    try {
+      const url = new URL(cleaned);
+      if (safeExternalUrl(url.toString())) found.set(url.toString(), Math.max(8, found.get(url.toString()) ?? 0));
+    } catch { /* Ignore malformed URLs. */ }
+  }
+  return [...found.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([url]) => url);
+}
+async function inspectDownloadCandidate(url: string, admin: ReturnType<typeof createClient>, rpm: number, signal: AbortSignal) {
+  const { response, finalUrl } = await fetchFollowingRedirects(url, admin, rpm, signal);
+  const contentType = response.headers.get('content-type');
+  const contentDisposition = response.headers.get('content-disposition') ?? '';
+  const contentRange = response.headers.get('content-range');
+  const lengthHeader = response.headers.get('content-length');
+  const totalFromRange = contentRange?.match(/\/(\d+)$/)?.[1];
+  const fileSize = totalFromRange ? Number(totalFromRange) : lengthHeader && /^\d+$/.test(lengthHeader) ? Number(lengthHeader) : null;
+  const fileName = filenameFrom(response, finalUrl);
+  const bytes = await readPrefix(response, 16);
+  const signature = new TextDecoder().decode(bytes);
+  const mime = (contentType ?? '').toLowerCase();
+  const path = new URL(finalUrl).pathname.toLowerCase();
+  const pdf = signature.startsWith('%PDF-');
+  const otherFile = /attachment/i.test(contentDisposition) || mime.includes('application/zip')
+    || mime.includes('officedocument') || /\.(zip|hwp|hwpx|docx?|xlsx?|pptx?)$/i.test(path);
+  return { isDownload: pdf || otherFile, finalUrl, contentType, fileSize, fileName };
 }
 function filenameFrom(response: Response, finalUrl: string): string | null {
   const disposition = response.headers.get('content-disposition') ?? '';
@@ -146,19 +205,45 @@ Deno.serve(async request => {
         status = 'temporary_error'; errorMessage = '외부 사이트 HTTP 응답 오류 (' + response.status + ')';
         await response.body?.cancel().catch(() => undefined);
       } else {
-        const signature = new TextDecoder().decode(await readSignature(response));
+        const prefix = await readPrefix(response, 131072);
+        const signature = new TextDecoder().decode(prefix.slice(0, 16));
         const mime = (contentType ?? '').toLowerCase();
         const path = new URL(finalUrl).pathname.toLowerCase();
         const pdfExpected = link.link_type === 'pdf' || /\.pdf$/i.test(path) || mime.includes('application/pdf');
         const pdfValid = signature.startsWith('%PDF-');
         const attachment = /attachment/i.test(response.headers.get('content-disposition') ?? '');
-        const otherFile = attachment || mime.includes('application/zip') || mime.includes('application/octet-stream')
-          || mime.includes('officedocument') || /\.(zip|hwp|hwpx|docx?|xlsx?|pptx?)$/i.test(path);
-        if (pdfExpected && !pdfValid) {
-          status = 'invalid_pdf'; errorMessage = 'PDF 주소로 표시되지만 실제 PDF 파일 시그니처가 확인되지 않습니다.';
+        const otherFile = attachment || mime.includes('application/zip') || mime.includes('officedocument')
+          || /\.(zip|hwp|hwpx|docx?|xlsx?|pptx?)$/i.test(path);
+        if (pdfValid || otherFile) {
+          status = 'healthy';
+          isDownload = true;
         } else {
-          status = 'healthy'; isDownload = pdfValid || otherFile;
-          if (!isDownload) errorMessage = '페이지 접속은 정상이지만 직접 다운로드 파일은 확인되지 않았습니다.';
+          const htmlPrefix = new TextDecoder().decode(prefix);
+          const looksHtml = mime.includes('text/html') || mime.includes('application/xhtml')
+            || /^\s*<(?:!doctype\s+html|html|head|body)\b/i.test(htmlPrefix);
+          if (looksHtml) {
+            const candidates = extractDownloadCandidates(htmlPrefix, finalUrl);
+            for (const candidate of candidates) {
+              try {
+                const discovered = await inspectDownloadCandidate(candidate, admin, rpm, controller.signal);
+                if (discovered.isDownload) {
+                  isDownload = true;
+                  finalUrl = discovered.finalUrl;
+                  contentType = discovered.contentType;
+                  fileSize = discovered.fileSize;
+                  fileName = discovered.fileName;
+                  break;
+                }
+              } catch { /* Keep checking other candidate links. */ }
+            }
+          }
+          if (pdfExpected && !isDownload) {
+            status = 'invalid_pdf';
+            errorMessage = 'PDF 다운로드 파일을 찾지 못했거나 파일 시그니처가 올바르지 않습니다.';
+          } else {
+            status = 'healthy';
+            if (!isDownload) errorMessage = '페이지 접속은 정상이지만 페이지 안에서 직접 다운로드 파일을 확인하지 못했습니다.';
+          }
         }
       }
     } catch (error) {
@@ -181,7 +266,7 @@ Deno.serve(async request => {
     else summary.temporaryErrors++;
     if (isDownload) summary.directDownloads++;
     else if (status === 'healthy') summary.landingPages++;
-    if (['broken', 'redirected', 'invalid_pdf'].includes(status) || status === 'healthy' && !isDownload && ['answer', 'pdf', '다운로드', 'download'].includes(String(link.link_type).toLowerCase())) {
+    if (['broken', 'redirected', 'invalid_pdf'].includes(status) || status === 'healthy' && !isDownload && (['answer', 'pdf', '다운로드', 'download'].includes(String(link.link_type).toLowerCase()) || /(답지|정답|해설|다운로드|answer|solution|pdf)/i.test(String(link.title)))) {
       const { error: queueError } = await admin.from('answer_link_search_queue').insert({ book_id: link.book_id, reason: 'link_health', priority: 200, available_at: new Date().toISOString() });
       if (!queueError) summary.queued++;
       else if (queueError.code === '23505') await admin.from('answer_link_search_queue').update({ priority: 200, updated_at: new Date().toISOString() }).eq('book_id', link.book_id).in('status', ['queued', 'running']);
