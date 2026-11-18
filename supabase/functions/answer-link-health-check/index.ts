@@ -255,11 +255,14 @@ Deno.serve(async request => {
         const pdfExpected = link.link_type === 'pdf' || /\.pdf$/i.test(path) || mime.includes('application/pdf');
         const pdfValid = signature.startsWith('%PDF-');
         const attachment = /attachment/i.test(response.headers.get('content-disposition') ?? '');
-        const otherFile = attachment || mime.includes('application/zip') || mime.includes('officedocument')
+        const otherFile = attachment || mime.includes('application/octet-stream') || mime.includes('application/zip') || mime.includes('officedocument')
           || /\.(zip|hwp|hwpx|docx?|xlsx?|pptx?)$/i.test(path);
         if (pdfValid || otherFile) {
           status = 'healthy';
           isDownload = true;
+          const match = assessContentMatch(bookInfo, fileName);
+          matchStatus = match.status;
+          matchNote = match.note;
         } else {
           const htmlPrefix = new TextDecoder().decode(prefix);
           const looksHtml = mime.includes('text/html') || mime.includes('application/xhtml')
@@ -276,6 +279,9 @@ Deno.serve(async request => {
                   fileSize = discovered.fileSize;
                   fileName = discovered.fileName;
                   httpStatus = discovered.statusCode;
+                  const match = assessContentMatch(bookInfo, fileName);
+                  matchStatus = match.status;
+                  matchNote = match.note;
                   break;
                 }
               } catch { /* Keep checking other candidate links. */ }
@@ -286,7 +292,7 @@ Deno.serve(async request => {
             errorMessage = 'PDF 다운로드 파일을 찾지 못했거나 파일 시그니처가 올바르지 않습니다.';
           } else {
             status = 'healthy';
-            if (!isDownload) errorMessage = '페이지 접속은 정상이지만 페이지 안에서 직접 다운로드 파일을 확인하지 못했습니다.';
+            if (!isDownload) { matchStatus = 'not_applicable'; errorMessage = '페이지 접속은 정상이지만 페이지 안에서 직접 다운로드 파일을 확인하지 못했습니다.'; }
           }
         }
       }
@@ -310,6 +316,9 @@ Deno.serve(async request => {
     else summary.temporaryErrors++;
     if (isDownload) summary.directDownloads++;
     else if (status === 'healthy') summary.landingPages++;
+    if (matchStatus === 'matched') summary.matchedDownloads++;
+    else if (matchStatus === 'mismatch') summary.mismatchedDownloads++;
+    else if (matchStatus === 'uncertain') summary.uncertainDownloads++;
     if (['broken', 'redirected', 'invalid_pdf'].includes(status) || status === 'healthy' && !isDownload && (['answer', 'pdf', '다운로드', 'download'].includes(String(link.link_type).toLowerCase()) || /(답지|정답|해설|다운로드|answer|solution|pdf)/i.test(String(link.title)) || matchStatus === 'mismatch')) {
       const { error: queueError } = await admin.from('answer_link_search_queue').insert({ book_id: link.book_id, reason: 'link_health', priority: 200, available_at: new Date().toISOString() });
       if (!queueError) summary.queued++;
