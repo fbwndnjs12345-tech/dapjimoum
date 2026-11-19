@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase/client';
 
 type SiteInfoPageProps = { route: string };
 
-const updatedDate = '2026년 10월 9일';
+const updatedDate = '2026년 11월 15일';
 
 export function SiteInfoPage({ route }: SiteInfoPageProps) {
   const [editablePage, setEditablePage] = useState<{ title: string; body: string; updated_at: string } | null>(null);
@@ -15,7 +15,8 @@ export function SiteInfoPage({ route }: SiteInfoPageProps) {
       .then(({ data }) => { if (active && data) setEditablePage(data); });
     return () => { active = false; };
   }, [route]);
-  const contactEmail = import.meta.env.VITE_CONTACT_EMAIL?.trim();
+  const operatorName = '류주원';
+  const contactEmail = import.meta.env.VITE_CONTACT_EMAIL?.trim() || 'fbwndnjs12345@gmail.com';
   const title = route === '/about' ? '서비스 소개' : route === '/privacy' ? '개인정보처리방침' : route === '/copyright' ? '저작권 및 링크 정책' : route === '/terms' ? '이용약관' : '문의 및 오류 신고';
 
   if (editablePage) {
@@ -66,7 +67,7 @@ export function SiteInfoPage({ route }: SiteInfoPageProps) {
           <section className="space-y-3"><h2 className="text-lg font-bold text-[#191F28]">5. 이용자의 권리와 행사 방법</h2><p>이용자는 관련 법령에 따라 개인정보 열람·정정·삭제·처리정지 등을 요청할 수 있습니다. 브라우저에 저장된 보관함 정보는 브라우저 설정에서 직접 삭제할 수 있습니다. 그 밖의 개인정보 관련 요청은 아래 문의 방법을 이용해 주세요. 본인 확인 또는 법령상 제한 사유에 따라 요청 처리 방식이 달라질 수 있습니다.</p></section>
           <section className="space-y-3"><h2 className="text-lg font-bold text-[#191F28]">6. 아동의 개인정보</h2><p>서비스는 교재 정보를 검색하기 위한 서비스이며, 일반적인 검색 및 보관함 이용을 위해 이름·전화번호 등 개인정보 입력을 요구하지 않습니다. 문의 시 비밀번호나 불필요한 민감정보를 보내지 마세요. 법령상 보호가 필요한 아동의 개인정보가 수집되는 기능을 추가할 경우 필요한 보호 조치를 마련합니다.</p></section>
           <section className="space-y-3"><h2 className="text-lg font-bold text-[#191F28]">7. 개인정보 보호를 위한 조치</h2><p>서비스는 관리자 기능을 인증으로 제한하고, 데이터베이스 및 호스팅 제공자가 제공하는 보안 기능을 이용합니다. 구체적인 접근 통제·보관 정책은 배포 환경과 제공자 설정에 따라 달라질 수 있으며, 운영자는 권한 및 보안 설정을 지속적으로 점검합니다.</p></section>
-          <section className="space-y-3"><h2 className="text-lg font-bold text-[#191F28]">8. 개인정보 보호 책임자 및 문의</h2><p>개인정보 관련 문의는 <a className="font-semibold text-[#1B64DA] underline" href="/contact">문의 및 오류 신고</a> 페이지를 통해 할 수 있습니다.{contactEmail ? <> 운영자 연락 이메일: <a className="font-semibold text-[#1B64DA] underline" href={`mailto:${contactEmail}`}>{contactEmail}</a></> : <> 현재 운영자 연락 이메일이 설정되지 않았습니다. 운영자는 서비스를 공개하기 전에 실제로 확인 가능한 연락처를 설정해야 합니다.</>}</p></section>
+          <section className="space-y-3"><h2 className="text-lg font-bold text-[#191F28]">8. 개인정보 보호 책임자 및 문의</h2><p>개인정보 관련 문의는 <a className="font-semibold text-[#1B64DA] underline" href="/contact">문의 및 오류 신고</a> 페이지를 통해 할 수 있습니다. 운영자: {operatorName}. 연락 이메일: <a className="font-semibold text-[#1B64DA] underline" href={`mailto:${contactEmail}`}>{contactEmail}</a>.</p></section>
           <section className="space-y-3"><h2 className="text-lg font-bold text-[#191F28]">9. 방침 변경</h2><p>서비스 기능, 외부 제공자 또는 관련 법령이 변경되면 이 방침을 수정하고 변경 일자와 내용을 이 페이지에 게시합니다.</p></section>
         </div>
       )}
@@ -99,7 +100,7 @@ export function SiteInfoPage({ route }: SiteInfoPageProps) {
       {route === '/contact' && (
         <div className="space-y-8 text-sm leading-7 text-[#4E5968]">
           <section className="space-y-3"><h2 className="text-lg font-bold text-[#191F28]">교재 정보 및 링크 오류 신고</h2><p>교재명이나 출판사 정보가 잘못되었거나 외부 링크가 열리지 않는 경우, 해당 교재 페이지의 오류 링크 신고 기능을 이용해 주세요. 신고에는 문제가 발생한 교재명, 링크 제목, 오류 내용을 포함하면 검토에 도움이 됩니다.</p><p>저작권 관련 신고는 <a className="font-semibold text-[#1B64DA] underline" href="/copyright">저작권 및 링크 정책</a>을 확인하고, 운영자에게 회신 가능한 연락처와 함께 제출해 주세요.</p></section>
-          {contactEmail ? <section className="rounded-2xl border border-[#E5E8EB] p-5"><div className="flex items-center gap-2 font-bold text-[#191F28]"><Mail className="h-5 w-5" /> 운영자 이메일</div><p className="mt-2"><a className="font-semibold text-[#1B64DA] underline" href={`mailto:${contactEmail}`}>{contactEmail}</a></p></section> : <p className="rounded-xl bg-[#FFF8E6] p-4 text-sm text-[#8A5A00]">운영자 연락 이메일이 아직 설정되지 않았습니다. 출시 전에 VITE_CONTACT_EMAIL 환경 변수를 설정해야 합니다.</p>}
+          <section className="rounded-2xl border border-[#E5E8EB] p-5"><div className="flex items-center gap-2 font-bold text-[#191F28]"><Mail className="h-5 w-5" /> 운영자 연락처</div><p className="mt-2">운영자: {operatorName}</p><p><a className="font-semibold text-[#1B64DA] underline" href={`mailto:${contactEmail}`}>{contactEmail}</a></p></section>
         </div>
       )}
     </article>
