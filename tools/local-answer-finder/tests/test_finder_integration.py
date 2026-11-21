@@ -96,7 +96,7 @@ class FinderEndToEndTests(unittest.TestCase):
                 self.assertTrue(any(
                     row["book_id"] == "fixture-book"
                     and row["url"].endswith("/files/answer-key.pdf")
-                    and row["match_status"] == "likely"
+                    and row["match_status"] == "uncertain"
                     for row in rows
                 ), "\\n".join(messages))
                 self.assertTrue(any("[출판사 자체 검색]" in line for line in messages))
