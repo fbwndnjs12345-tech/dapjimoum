@@ -194,8 +194,8 @@ def search_kakao_api(query: str, engine: str, api_key: str, limit: int = 10):
         target = str(document.get("url") or "").strip()
         if not target or not target.startswith(("https://", "http://")):
             continue
-        title = html.unescape(re.sub(r"<[^>]+>", " ", str(document.get("title") or ""))).strip()
-        snippet = html.unescape(re.sub(r"<[^>]+>", " ", str(document.get("contents") or ""))).strip()
+        title = re.sub(r"\\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", str(document.get("title") or "")))).strip()
+        snippet = re.sub(r"\\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", str(document.get("contents") or "")))).strip()
         results.append({"url": target, "title": title, "snippet": snippet})
     return results
 
