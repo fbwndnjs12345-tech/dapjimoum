@@ -101,12 +101,25 @@ class FinderDeepSafetyTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertEqual(upgraded["web_search"]["max_queries_per_book"], 8)
         self.assertEqual(upgraded["web_search"]["results_per_engine"], 12)
-        self.assertEqual(upgraded["web_search"]["max_candidates_per_book"], 12)
+        self.assertEqual(upgraded["web_search"]["max_candidates_per_book"], 20)
         self.assertEqual(upgraded["web_search"]["max_search_pages_per_query"], 2)
-        self.assertEqual(upgraded["max_pages_to_verify_per_book"], 40)
+        self.assertEqual(upgraded["max_pages_to_verify_per_book"], 80)
         upgraded_again, changed_again = upgrade_search_config(upgraded)
         self.assertFalse(changed_again)
         self.assertEqual(upgraded_again, upgraded)
+
+    def test_v2_search_config_is_upgraded_to_v3_once(self):
+        config = {"web_search": {"strategy_version": 2,
+                                 "max_candidates_per_book": 12},
+                  "max_pages_to_verify_per_book": 40}
+        upgraded, changed = upgrade_search_config(config)
+        self.assertTrue(changed)
+        self.assertEqual(upgraded["web_search"]["strategy_version"], 3)
+        self.assertEqual(upgraded["web_search"]["max_candidates_per_book"], 20)
+        self.assertEqual(upgraded["max_pages_to_verify_per_book"], 80)
+        again, changed_again = upgrade_search_config(upgraded)
+        self.assertFalse(changed_again)
+        self.assertEqual(again, upgraded)
 
     def test_top_candidate_limit_replaces_weak_early_result(self):
         candidates = {}
