@@ -108,6 +108,20 @@ class FinderDeepSafetyTests(unittest.TestCase):
         self.assertFalse(changed_again)
         self.assertEqual(upgraded_again, upgraded)
 
+    def test_source_catalog_migration_preserves_custom_sources_and_adds_official_defaults(self):
+        custom = {"publisher": "내가 추가한 출판사",
+                  "start_urls": ["https://custom.example/resources"]}
+        config = {"sources": [custom], "web_search": {"strategy_version": 3}}
+        upgraded, changed = upgrade_search_config(config)
+        self.assertTrue(changed)
+        publishers = {source["publisher"] for source in upgraded["sources"]}
+        self.assertIn("내가 추가한 출판사", publishers)
+        self.assertTrue({"비상교육", "지학사", "천재교육", "NE능률", "좋은책신사고"}.issubset(publishers))
+        self.assertEqual(upgraded["sources"][0]["start_urls"], ["https://custom.example/resources"])
+        again, changed_again = upgrade_search_config(upgraded)
+        self.assertFalse(changed_again)
+        self.assertEqual(again, upgraded)
+
     def test_v2_search_config_is_upgraded_to_v3_once(self):
         config = {"web_search": {"strategy_version": 2,
                                  "max_candidates_per_book": 12},
