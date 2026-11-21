@@ -21,12 +21,8 @@
     "답지"
   ],
   "web_search": {
-    "enabled": true,
-    "engines": [
-      "kakao_web",
-      "kakao_blog",
-      "kakao_cafe"
-    ],
+    "enabled": false,
+    "engines": [],
     "results_per_engine": 12,
     "max_queries_per_book": 8,
     "max_candidates_per_book": 12,
