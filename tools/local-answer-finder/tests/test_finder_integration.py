@@ -27,7 +27,15 @@ class FixtureHandler(BaseHTTPRequestHandler):
             body = f"""<!doctype html><html><head><title>{BOOK_TITLE} 정답과 해설</title>
 <meta name="description" content="{BOOK_TITLE} 정답과 해설 자료"></head>
 <body><h1>{BOOK_TITLE}</h1><p>정답과 해설 및 답지 자료를 확인할 수 있습니다.</p>
+<form method="get" action="/search"><input type="search" name="q"><button type="submit">검색</button></form>
 <a href="/answer">정답과 해설 PDF</a></body></html>""".encode("utf-8")
+            status = 200
+            content_type = "text/html; charset=utf-8"
+        elif self.path.startswith("/search?") or self.path == "/search":
+            body = f"""<!doctype html><html><head><title>{BOOK_TITLE} 정답과 해설 검색 결과</title>
+<meta name="description" content="{BOOK_TITLE} 정답과 해설 공개 자료"></head>
+<body><main><h1>{BOOK_TITLE}</h1><p>정답과 해설 다운로드</p>
+<button data-href="/files/answer-key.pdf">정답 PDF 다운로드</button></main></body></html>""".encode("utf-8")
             status = 200
             content_type = "text/html; charset=utf-8"
         elif self.path == "/answer":
@@ -50,6 +58,54 @@ class FixtureHandler(BaseHTTPRequestHandler):
 
 
 class FinderEndToEndTests(unittest.TestCase):
+    def test_api_free_publisher_search_form_discovers_answer_download(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), FixtureHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            base = f"http://127.0.0.1:{server.server_port}"
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                books = root / "books.csv"
+                books.write_text(
+                    "id,title,publisher\\nfixture-book,오투 중등 과학 2-1,비상교육\\n",
+                    encoding="utf-8"
+                )
+                config = root / "sources.json"
+                config.write_text(json.dumps({
+                    "source_catalog_version": 2,
+                    "sources": [{"publisher": "비상교육", "start_urls": [base + "/resources"]}],
+                    "max_sitemap_urls_per_source": 10,
+                    "max_pages_to_verify_per_book": 20,
+                    "request_delay_seconds": 1,
+                    "page_timeout_ms": 10000,
+                    "answer_keywords": ["정답과 해설", "답지"],
+                    "web_search": {"enabled": False, "engines": [], "strategy_version": 3,
+                                   "max_candidates_per_book": 20}
+                }, ensure_ascii=False), encoding="utf-8")
+                output = root / "api-free-candidates.csv"
+                messages = []
+                with patch("finder.is_safe_public_url",
+                           side_effect=lambda url, resolve_dns=False: url.startswith(base)), \\
+                     patch("finder.time.sleep"), \\
+                     patch("finder.search_kakao_api", side_effect=AssertionError("API must not be called")):
+                    count = run_search(books, output, config, False, 10, messages.append)
+                self.assertGreaterEqual(count, 1, "\\n".join(messages))
+                with output.open("r", encoding="utf-8-sig", newline="") as handle:
+                    rows = list(csv.DictReader(handle))
+                self.assertTrue(any(
+                    row["book_id"] == "fixture-book"
+                    and row["url"].endswith("/files/answer-key.pdf")
+                    and row["match_status"] == "likely"
+                    for row in rows
+                ), "\\n".join(messages))
+                self.assertTrue(any("[출판사 자체 검색]" in line for line in messages))
+                self.assertTrue(any("API 없음" in line for line in messages))
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
     def test_source_crawl_kakao_api_and_candidate_csv_pipeline(self):
         server = ThreadingHTTPServer(("127.0.0.1", 0), FixtureHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
