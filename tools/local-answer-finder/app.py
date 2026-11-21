@@ -900,7 +900,11 @@ def self_test():
         enable_windows_dpi_awareness()
         root = tk.Tk()
         root.withdraw()
-        FinderApp(root)
+        ui = FinderApp(root)
+        if ttk.Style(root).theme_use() != "clam":
+            raise RuntimeError("UI 테마가 일관된 clam 테마로 설정되지 않았습니다.")
+        if not ui.headed.get():
+            raise RuntimeError("수동 CAPTCHA 인증을 위한 브라우저 표시 기본값이 꺼져 있습니다.")
         root.update_idletasks()
         root.destroy()
         with sync_playwright() as playwright:
