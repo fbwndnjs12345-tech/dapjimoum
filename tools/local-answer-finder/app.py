@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import ctypes
 import json
 import math
 import os
@@ -18,7 +19,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-APP_VERSION = "2.2.0"
+APP_VERSION = "2.3.0"
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 APP_DATA_DIR = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")) / "DapjiMoumFinder"
 APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -72,9 +73,7 @@ def request_json(url: str, headers: dict[str, str], data: dict | None = None):
 class FinderApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        root.title("답지모음 | 답지 링크 자동 탐색기")
-        root.geometry("1120x820")
-        root.minsize(900, 680)
+        root.title("답지모음 | 로컬 답지 탐색기")
         self.events: queue.Queue = queue.Queue()
         self.stop_event = None
         self.access_token: str | None = None
@@ -98,10 +97,19 @@ class FinderApp:
 
     def _build(self):
         """Build a compact, enterprise-style workspace with clear task separation."""
-        self.root.configure(bg="#f3f5f9")
-        self.root.title("답지모음 | 로컬 탐색기")
-        self.root.geometry("1280x740")
-        self.root.minsize(960, 640)
+        self.root.configure(bg="#f4f6fa")
+        self.root.title("답지모음 | 로컬 답지 탐색기")
+        screen_w, screen_h = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        width = min(1680, max(1040, int(screen_w * 0.94)))
+        height = min(1040, max(660, int(screen_h * 0.92)))
+        width, height = min(width, screen_w - 24), min(height, screen_h - 48)
+        x, y = max(0, (screen_w - width) // 2), max(0, (screen_h - height) // 2)
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
+        self.root.minsize(min(1040, screen_w - 24), min(660, screen_h - 48))
+        try:
+            self.root.tk.call("tk", "scaling", self.root.winfo_fpixels("1i") / 72.0)
+        except tk.TclError:
+            pass
 
         style = ttk.Style()
         try:
@@ -115,33 +123,33 @@ class FinderApp:
         muted = "#68758b"
         line = "#e2e7ef"
         accent = "#2457d6"
-        style.configure(".", font=("Malgun Gothic", 9))
+        style.configure(".", font=("맑은 고딕", 10))
         style.configure("TFrame", background=bg)
         style.configure("Surface.TFrame", background=surface)
         style.configure("TLabel", background=bg, foreground=ink)
         style.configure("Muted.TLabel", background=bg, foreground=muted)
-        style.configure("Hero.TLabel", background=bg, foreground=ink, font=("Malgun Gothic", 21, "bold"))
-        style.configure("Section.TLabel", background=surface, foreground=ink, font=("Malgun Gothic", 11, "bold"))
-        style.configure("Metric.TLabel", background=surface, foreground=ink, font=("Malgun Gothic", 18, "bold"))
-        style.configure("MetricCaption.TLabel", background=surface, foreground=muted, font=("Malgun Gothic", 8))
-        style.configure("TButton", padding=(12, 8), font=("Malgun Gothic", 9))
-        style.configure("Accent.TButton", padding=(16, 9), font=("Malgun Gothic", 9, "bold"),
+        style.configure("Hero.TLabel", background=bg, foreground=ink, font=("맑은 고딕", 26, "bold"))
+        style.configure("Section.TLabel", background=surface, foreground=ink, font=("맑은 고딕", 13, "bold"))
+        style.configure("Metric.TLabel", background=surface, foreground=ink, font=("맑은 고딕", 22, "bold"))
+        style.configure("MetricCaption.TLabel", background=surface, foreground=muted, font=("맑은 고딕", 9))
+        style.configure("TButton", padding=(12, 8), font=("맑은 고딕", 9))
+        style.configure("Accent.TButton", padding=(16, 9), font=("맑은 고딕", 10, "bold"),
                         background=accent, foreground="#ffffff")
         style.map("Accent.TButton", background=[("active", "#1d49b5"), ("disabled", "#aab6cf")])
         style.configure("TNotebook", background=bg, borderwidth=0, tabmargins=(0, 0, 0, 0))
-        style.configure("TNotebook.Tab", padding=(22, 12), font=("Malgun Gothic", 9, "bold"))
+        style.configure("TNotebook.Tab", padding=(22, 12), font=("맑은 고딕", 9, "bold"))
         style.map("TNotebook.Tab", background=[("selected", surface), ("!selected", "#e9edf4")],
                   foreground=[("selected", accent), ("!selected", muted)])
-        style.configure("Treeview", rowheight=31, font=("Malgun Gothic", 9),
+        style.configure("Treeview", rowheight=38, font=("맑은 고딕", 10),
                         background=surface, fieldbackground=surface, foreground=ink)
-        style.configure("Treeview.Heading", font=("Malgun Gothic", 9, "bold"),
+        style.configure("Treeview.Heading", font=("맑은 고딕", 10, "bold"),
                         background="#f0f3f8", foreground="#344054", padding=(8, 9))
         style.map("Treeview", background=[("selected", "#e6edff")],
                   foreground=[("selected", ink)])
         style.configure("Horizontal.TProgressbar", troughcolor="#e7ebf2", background=accent,
                         bordercolor="#e7ebf2", lightcolor=accent, darkcolor=accent)
 
-        outer = ttk.Frame(self.root, padding=(24, 20))
+        outer = ttk.Frame(self.root, padding=(28, 24))
         outer.pack(fill="both", expand=True)
 
         header = ttk.Frame(outer)
@@ -236,7 +244,7 @@ class FinderApp:
                   style="MetricCaption.TLabel", wraplength=1100).pack(anchor="w", pady=(6, 12))
         editor = ttk.Frame(sourcecard, style="Surface.TFrame")
         editor.pack(fill="both", expand=True)
-        self.config_text = tk.Text(editor, height=18, wrap="none", font=("Cascadia Code", 10), undo=True,
+        self.config_text = tk.Text(editor, height=18, wrap="none", font=("Consolas", 11), undo=True,
                                    bg="#fbfcfe", fg="#253047", insertbackground=ink,
                                    relief="solid", bd=1, padx=14, pady=12,
                                    highlightthickness=1, highlightbackground=line)
@@ -322,8 +330,8 @@ class FinderApp:
         columns = ("book", "candidate", "status", "score", "url")
         self.results = ttk.Treeview(table_wrap, columns=columns, show="headings", height=10)
         for column, label, width in (
-            ("book", "교재", 220), ("candidate", "후보 페이지", 260),
-            ("status", "매칭 상태", 100), ("score", "점수", 70), ("url", "후보 주소", 420)
+            ("book", "교재", 260), ("candidate", "후보 페이지", 320),
+            ("status", "매칭 상태", 120), ("score", "점수", 90), ("url", "후보 주소", 520)
         ):
             self.results.heading(column, text=label)
             self.results.column(column, width=width, minwidth=90,
@@ -347,7 +355,7 @@ class FinderApp:
         logwrap = ttk.Frame(activity_card, style="Surface.TFrame")
         logwrap.pack(fill="both", expand=True)
         self.log = tk.Text(logwrap, height=7, state="disabled", wrap="word",
-                           font=("Cascadia Mono", 9), bg="#fbfcfe", fg="#3b465b",
+                           font=("Consolas", 10), bg="#fbfcfe", fg="#3b465b",
                            relief="solid", bd=1, padx=12, pady=9,
                            highlightthickness=1, highlightbackground=line)
         logscroll = ttk.Scrollbar(logwrap, orient="vertical", command=self.log.yview)
@@ -836,8 +844,24 @@ class FinderApp:
             messagebox.showinfo("결과 없음", "아직 후보 CSV가 없습니다. 먼저 탐색을 실행하세요.")
 
 
+def enable_windows_dpi_awareness():
+    """Set Windows DPI awareness before creating Tk windows."""
+    if os.name != "nt":
+        return
+    try:
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+    except Exception:
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            try:
+                ctypes.windll.user32.SetProcessDPIAware()
+            except Exception:
+                pass
+
+
 def self_test():
-    """Run dependency, configuration, Tk, and bundled Chromium smoke checks."""
+    """Run dependency, configuration, Tk, and installed-browser navigation smoke checks."""
     try:
         from finder import read_books, assess, launch_browser
         from playwright.sync_api import sync_playwright
@@ -853,6 +877,7 @@ def self_test():
         sample = {"title": "오투 중등 과학 2-1"}
         if assess(sample, "오투 중등 과학 2-1 정답과 해설", "정답과 해설", ["정답과 해설"])[1] != "likely":
             raise RuntimeError("후보 판정 자체 테스트 실패")
+        enable_windows_dpi_awareness()
         root = tk.Tk()
         root.withdraw()
         FinderApp(root)
@@ -861,10 +886,31 @@ def self_test():
         with sync_playwright() as playwright:
             browser = launch_browser(playwright, headless=True)
             page = browser.new_page()
-            page.set_content("<html><head><title>DapjiMoum smoke test</title></head><body>OK</body></html>")
-            if page.title() != "DapjiMoum smoke test":
-                raise RuntimeError("브라우저 페이지 테스트 실패")
-            browser.close()
+            from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+            class SmokeHandler(BaseHTTPRequestHandler):
+                def do_GET(self):
+                    body = b"<!doctype html><html><head><title>DapjiMoum browser navigation OK</title></head><body>LOCAL NAVIGATION OK</body></html>"
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                def log_message(self, *_args):
+                    pass
+            server = ThreadingHTTPServer(("127.0.0.1", 0), SmokeHandler)
+            server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+            server_thread.start()
+            try:
+                response = page.goto(f"http://127.0.0.1:{server.server_port}/smoke", wait_until="domcontentloaded", timeout=10000)
+                if not response or response.status != 200 or page.title() != "DapjiMoum browser navigation OK":
+                    raise RuntimeError(f"브라우저 실제 페이지 이동 테스트 실패: url={page.url}, status={response.status if response else 'none'}")
+                if "LOCAL NAVIGATION OK" not in page.locator("body").inner_text():
+                    raise RuntimeError("브라우저 본문 렌더링 테스트 실패")
+            finally:
+                server.shutdown()
+                server.server_close()
+                server_thread.join(timeout=2)
+                browser.close()
         (APP_DATA_DIR / "self-test.log").write_text("SELF-TEST PASSED: config, matching, Tk, installed browser\\n", encoding="utf-8")
         return 0
     except Exception as exc:
@@ -879,6 +925,7 @@ def self_test():
 if __name__ == "__main__":
     if "--self-test" in sys.argv:
         raise SystemExit(self_test())
+    enable_windows_dpi_awareness()
     root = tk.Tk()
     FinderApp(root)
     root.mainloop()
