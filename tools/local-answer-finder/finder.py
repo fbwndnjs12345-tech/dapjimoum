@@ -83,19 +83,31 @@ def is_safe_public_url(value: str, resolve_dns: bool = False) -> bool:
 
 
 class SafeRedirectHandler(HTTPRedirectHandler):
+    def __init__(self, allowed_host: str | None = None):
+        super().__init__()
+        self.allowed_host = (allowed_host or "").lower().rstrip(".") or None
+
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if not is_safe_public_url(newurl, resolve_dns=True):
             raise HTTPError(req.full_url, code, "Unsafe redirect target blocked", headers, fp)
+        if self.allowed_host:
+            redirected_host = (urlsplit(newurl).hostname or "").lower().rstrip(".")
+            if redirected_host != self.allowed_host:
+                raise HTTPError(req.full_url, code, "Cross-host redirect blocked", headers, fp)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def fetch(url: str, timeout: int = 15) -> bytes:
+def fetch(url: str, timeout: int = 15, allowed_host: str | None = None,
+          max_bytes: int = 10 * 1024 * 1024) -> bytes:
     if not is_safe_public_url(url, resolve_dns=True):
         raise ValueError("공개 HTTP(S) 주소만 요청할 수 있습니다.")
     req = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xml,text/xml,*/*"})
-    opener = build_opener(SafeRedirectHandler())
+    opener = build_opener(SafeRedirectHandler(allowed_host=allowed_host))
     with opener.open(req, timeout=timeout) as response:
-        return response.read()
+        body = response.read(max_bytes + 1)
+        if len(body) > max_bytes:
+            raise ValueError(f"응답 크기가 제한을 초과했습니다 ({max_bytes} bytes).")
+        return body
 
 
 def read_books(path: Path) -> list[dict[str, str]]:
@@ -130,7 +142,7 @@ def robots_for(start_url: str):
     parser = urllib.robotparser.RobotFileParser()
     parser.set_url(robots_url)
     try:
-        text = fetch(robots_url).decode("utf-8", errors="replace")
+        text = fetch(robots_url, allowed_host=parsed.hostname).decode("utf-8", errors="replace")
     except HTTPError as exc:
         if exc.code in (404, 410):
             # RFC 9309: a missing robots file means no rules were published.
@@ -298,7 +310,7 @@ def collect_pages(start_url: str, robots, sitemap_urls: list[str], limit: int, c
             continue
         visited.add(sitemap)
         try:
-            kind, locations = parse_sitemap(fetch(sitemap))
+            kind, locations = parse_sitemap(fetch(sitemap, allowed_host=host))
         except Exception as exc:
             log(callback, f"  sitemap 건너뜀: {sitemap} ({exc})")
             continue
@@ -455,7 +467,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     log(callback,f"교재 {len(books)}권 · 공식 출처 {len(sources)}곳 · 공개 검색엔진 {', '.join(engines) if web_enabled else '사용 안 함'}")
     log(callback,f"검색 전략: 교재당 최대 {query_limit}개 검색어 · 엔진별 검색 결과 최대 {search_limit}개")
     with sync_playwright() as p:
-        browser=p.chromium.launch(headless=not headed); context=browser.new_context(locale="ko-KR")
+        browser=p.chromium.launch(headless=not headed); context=browser.new_context(locale="ko-KR", service_workers="block", accept_downloads=False)
         page=context.new_page(); page.set_default_navigation_timeout(timeout)
         navigation_host_guard = None
         dns_safety_cache = {}
