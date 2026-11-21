@@ -19,7 +19,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-APP_VERSION = "2.6.0"
+APP_VERSION = "2.6.1"
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 APP_DATA_DIR = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")) / "DapjiMoumFinder"
 APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -586,7 +586,7 @@ class FinderApp:
             if migrated:
                 self.config_text.delete("1.0", "end")
                 self.config_text.insert("1.0", json.dumps(config, ensure_ascii=False, indent=2))
-                self.events.put(("log", "[검색 설정 자동 개선] 검색어·결과 수·후보 한도를 새 고회수 기본값으로 조정했습니다."))
+                self.events.put(("log", "[검색 설정 자동 개선] 공식 출판사 출처 목록과 검색·후보 한도를 최신 기본값으로 조정했습니다."))
             sources = config.get("sources", [])
             web_cfg = config.get("web_search", {})
             web_enabled = bool(web_cfg.get("enabled", True))
@@ -1000,9 +1000,9 @@ def self_test():
         from playwright.sync_api import sync_playwright
         example = ROOT / "sources.example.json"
         config = json.loads(example.read_text(encoding="utf-8"))
-        if not isinstance(config.get("sources"), list) or len(config["sources"]) < 5:
+        if not isinstance(config.get("sources"), list) or len(config["sources"]) < 6:
             raise RuntimeError("예시 공식 출처 목록이 비어 있거나 5개 출판사 미만입니다.")
-        expected_publishers = {"비상교육", "지학사", "천재교육", "NE능률", "좋은책신사고"}
+        expected_publishers = {"비상교육", "지학사", "천재교육", "NE능률", "좋은책신사고", "미래엔"}
         actual_publishers = {source.get("publisher") for source in config["sources"]}
         if not expected_publishers.issubset(actual_publishers):
             raise RuntimeError("공식 출처 목록의 출판사 구성이 올바르지 않습니다.")
