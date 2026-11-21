@@ -26,7 +26,7 @@ from urllib.error import HTTPError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-USER_AGENT = "DapjiMoumLocalFinder/2.3 (+local user-run tool)"
+USER_AGENT = "DapjiMoumLocalFinder/2.4 (+local user-run tool)"
 ALIASES = {
     "id": ["id", "book_id", "교재 ID"],
     "title": ["title", "book_title", "교재명", "도서명", "책이름", "책 제목"],
@@ -48,12 +48,86 @@ def log(callback, message: str):
     callback(message)
 
 
+CAPTCHA_PROVIDER_PATHS = {
+    "www.google.com": ("/recaptcha/",),
+    "www.recaptcha.net": ("/recaptcha/",),
+    "www.gstatic.com": ("/recaptcha/",),
+    "www.recaptcha.net": ("/",),
+    "js.hcaptcha.com": ("/",),
+    "newassets.hcaptcha.com": ("/",),
+    "hcaptcha.com": ("/",),
+    "challenges.cloudflare.com": ("/",),
+}
+
+
+def is_captcha_provider_url(value: str) -> bool:
+    """Allow only known CAPTCHA widget hosts so a user can complete a visible challenge."""
+    parsed = urlsplit(value)
+    host = (parsed.hostname or "").lower().rstrip(".")
+    path = parsed.path or "/"
+    return any(host == allowed and any(path.startswith(prefix) for prefix in prefixes)
+               for allowed, prefixes in CAPTCHA_PROVIDER_PATHS.items())
+
+
+def is_human_verification_page(page) -> bool:
+    """Detect common human-verification interstitials without attempting to solve them."""
+    try:
+        title = (page.title() or "").casefold()
+    except Exception:
+        title = ""
+    try:
+        body = page.locator("body").inner_text(timeout=1500).casefold()
+    except Exception:
+        body = ""
+    signals = (
+        "로봇이 아닙니다", "사람인지 확인", "사람임을 확인", "자동화된 요청",
+        "비정상적인 트래픽", "보안 확인", "i am not a robot", "i'm not a robot",
+        "verify you are human", "verify that you are human", "unusual traffic",
+        "checking your browser", "complete the captcha", "security challenge",
+    )
+    if any(signal in title or signal in body for signal in signals):
+        return True
+    try:
+        frames = [frame.url.casefold() for frame in page.frames]
+        if any(("recaptcha" in url or "hcaptcha" in url or "challenges.cloudflare.com" in url)
+               for url in frames):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def wait_for_manual_verification(page, callback: Callable[[str], None], headed: bool,
+                                 stop_event=None, timeout_seconds: int = 300) -> bool:
+    """Pause on a CAPTCHA for a human; continue only after the challenge disappears."""
+    if not is_human_verification_page(page):
+        return True
+    if not headed:
+        log(callback, "[수동 인증 필요] 브라우저 표시가 꺼져 있습니다. 브라우저 표시를 켜고 다시 실행하세요.")
+        return False
+    log(callback, "[수동 인증 필요] 브라우저에서 '로봇이 아닙니다' 확인을 직접 완료하세요. 인증이 끝나면 자동으로 계속합니다. 최대 5분 대기합니다.")
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if stop_event is not None and stop_event.is_set():
+            log(callback, "[수동 인증 중지] 사용자가 탐색 중지를 요청했습니다.")
+            return False
+        time.sleep(1.5)
+        if not is_human_verification_page(page):
+            log(callback, "[수동 인증 완료] 사람 인증이 해제되어 탐색을 이어갑니다.")
+            return True
+    log(callback, "[수동 인증 시간 초과] 5분 안에 인증이 끝나지 않아 해당 페이지를 건너뜁니다.")
+    return False
+
+
 def launch_browser(playwright, headless: bool):
-    """Use an installed Windows browser instead of shipping a second 400MB browser."""
+    """Use the installed Edge/Chrome; visible mode is required for manual CAPTCHA checks."""
     errors = []
     for channel in ("msedge", "chrome"):
         try:
-            return playwright.chromium.launch(channel=channel, headless=headless)
+            options = {"channel": channel, "headless": headless}
+            if not headless:
+                options["args"] = ["--start-maximized"]
+            return playwright.chromium.launch(**options)
         except Exception as exc:
             errors.append(f"{channel}: {exc}")
     raise RuntimeError(
@@ -477,7 +551,11 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     log(callback,f"교재 {len(books)}권 · 공식 출처 {len(sources)}곳 · 공개 검색엔진 {', '.join(engines) if web_enabled else '사용 안 함'}")
     log(callback,f"검색 전략: 교재당 최대 {query_limit}개 검색어 · 엔진별 검색 결과 최대 {search_limit}개")
     with sync_playwright() as p:
-        browser=launch_browser(p, headless=not headed); context=browser.new_context(locale="ko-KR", service_workers="block", accept_downloads=False)
+        browser=launch_browser(p, headless=not headed)
+        context_options = {"locale": "ko-KR", "service_workers": "block", "accept_downloads": False}
+        if headed:
+            context_options["no_viewport"] = True
+        context=browser.new_context(**context_options)
         page=context.new_page(); page.set_default_navigation_timeout(timeout); page.set_default_timeout(8000)
         if headed:
             page.set_content("""<!doctype html><html lang="ko"><meta charset="utf-8"><title>답지모음 탐색 준비 중</title>
@@ -508,6 +586,12 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
             if not safe:
                 log(callback, f"[비공개/로컬 네트워크 요청 차단] {request_url[:200]}")
                 route.abort("blockedbyclient")
+                return
+            # CAPTCHA widgets load cross-origin frames/scripts. Permit only their
+            # documented widget hosts in visible mode; all other cross-host requests
+            # remain subject to the existing host and robots restrictions.
+            if headed and is_captcha_provider_url(request_url):
+                route.continue_()
                 return
             if navigation and navigation_host_guard:
                 host = (urlparse(request_url).hostname or "").lower()
@@ -602,6 +686,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                             finally:
                                 navigation_host_guard = None
                             if response and response.status>=400: continue
+                            if not wait_for_manual_verification(page, callback, headed, stop_event): continue
                             if not allowed_host(page.url,host) or not is_safe_public_url(page.url, resolve_dns=True): continue
                             final_robots = robots_for_target(page.url)
                             if final_robots is None or not final_robots.can_fetch(USER_AGENT, page.url): continue
@@ -680,6 +765,8 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                         navigation_host_guard = None
                                     if response and response.status>=400:
                                         log(callback,f"  [HTTP {response.status}, 검증 제외] {target}"); continue
+                                    if not wait_for_manual_verification(page, callback, headed, stop_event):
+                                        continue
                                     final_url = canonicalize_url(page.url)
                                     if (urlparse(final_url).hostname or "").lower()!=parsed.hostname.lower():
                                         log(callback,f"  외부 리디렉션 건너뜀: {target}"); continue
