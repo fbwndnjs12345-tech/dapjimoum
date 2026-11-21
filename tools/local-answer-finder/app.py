@@ -11,6 +11,7 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from urllib.request import HTTPRedirectHandler, build_opener
 import webbrowser
 from pathlib import Path
@@ -88,11 +89,12 @@ class FinderApp:
         self.email = tk.StringVar()
         self.password = tk.StringVar()
         self.kakao_api_key = tk.StringVar()
+        self.kakao_key_visible = tk.BooleanVar(value=False)
         self.password_visible = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value="Supabase에서 교재를 불러오거나 CSV 파일을 선택하세요.")
-        self.headed = tk.BooleanVar(value=True)
+        self.headed = tk.BooleanVar(value=False)
         self.max_pages = tk.StringVar(value="500")
-        self.auto_upload = tk.BooleanVar(value=True)
+        self.auto_upload = tk.BooleanVar(value=False)
         self._build()
         self.root.after(150, self._poll)
 
@@ -100,8 +102,8 @@ class FinderApp:
         """Build a compact, enterprise-style workspace with clear task separation."""
         self.root.configure(bg="#f3f5f9")
         self.root.title("답지모음 | 로컬 탐색기")
-        self.root.geometry("1320x880")
-        self.root.minsize(1080, 740)
+        self.root.geometry("1280x740")
+        self.root.minsize(960, 640)
 
         style = ttk.Style()
         try:
@@ -196,7 +198,7 @@ class FinderApp:
         self._entry(supa, "프로젝트 URL", self.supabase_url, 2)
         self._entry(supa, "Anon / Publishable Key", self.anon_key, 3)
         self._entry(supa, "관리자 이메일", self.email, 4)
-        self._entry(supa, "관리자 비밀번호", self.password, 5, show="•")
+        self._entry(supa, "관리자 비밀번호", self.password, 5, show="•", reveal_var=self.password_visible, reveal_label="비밀번호 표시")
         buttons = ttk.Frame(supa, style="Surface.TFrame")
         buttons.grid(row=6, column=0, columnspan=3, sticky="w", pady=(16, 0))
         ttk.Button(buttons, text="로그인 및 교재 가져오기", command=self.fetch_books,
@@ -204,7 +206,7 @@ class FinderApp:
         ttk.Button(buttons, text="후보 업로드", command=self.upload_candidates).pack(side="left", padx=(8, 0))
         ttk.Separator(supa).grid(row=7, column=0, columnspan=3, sticky="ew", pady=(16, 10))
         ttk.Label(supa, text="공식 검색 API", style="Section.TLabel").grid(row=8, column=0, sticky="w", pady=(0, 6))
-        self._entry(supa, "Kakao REST API Key", self.kakao_api_key, 9, show="•")
+        self._entry(supa, "Kakao REST API Key", self.kakao_api_key, 9, show="•", reveal_var=self.kakao_key_visible, reveal_label="API 키 표시")
         ttk.Label(supa, text="검색 키는 실행 중 메모리에서만 사용합니다. 설정 파일에는 저장하지 않습니다. "
                   "Google/Bing 검색 결과 페이지 직접 수집은 robots.txt 및 서비스 정책 때문에 비활성화했습니다.",
                   style="MetricCaption.TLabel", wraplength=620).grid(
@@ -232,7 +234,7 @@ class FinderApp:
         ttk.Label(sourcehead, text="검색 및 출처 정책", style="Section.TLabel").pack(side="left")
         ttk.Label(sourcehead, text="JSON  ·  저장 전 형식과 필수값을 검사합니다.",
                   style="MetricCaption.TLabel").pack(side="right")
-        ttk.Label(sourcecard, text="Google·Bing 공개 검색과 출판사 공식 자료실을 설정합니다. robots.txt 및 대상 사이트 접근 정책을 준수합니다.",
+        ttk.Label(sourcecard, text="Kakao 공식 검색 API와 출판사 공식 자료실을 설정합니다. robots.txt 및 대상 사이트 접근 정책을 준수합니다.",
                   style="MetricCaption.TLabel", wraplength=1100).pack(anchor="w", pady=(6, 12))
         editor = ttk.Frame(sourcecard, style="Surface.TFrame")
         editor.pack(fill="both", expand=True)
@@ -314,7 +316,8 @@ class FinderApp:
         filter_entry = ttk.Entry(result_head, textvariable=self.filter_text, width=34)
         filter_entry.pack(side="right")
         ttk.Label(result_head, text="목록 필터", style="MetricCaption.TLabel").pack(side="right", padx=(0, 8))
-        self.filter_text.trace_add("write", lambda *_: self.load_results())
+        self._filter_after_id = None
+        self.filter_text.trace_add("write", lambda *_: self.schedule_load_results())
 
         table_wrap = ttk.Frame(results_card, style="Surface.TFrame")
         table_wrap.pack(fill="both", expand=True)
@@ -363,13 +366,14 @@ class FinderApp:
         self._last_progress = 0
         self.load_results()
 
-    def _entry(self, parent, label, variable, row, show=None):
+    def _entry(self, parent, label, variable, row, show=None, reveal_var=None, reveal_label="표시"):
         ttk.Label(parent, text=label, width=22).grid(row=row, column=0, sticky="w", pady=3)
         entry = ttk.Entry(parent, textvariable=variable, show=("•" if show and not self.password_visible.get() else ""))
         entry.grid(row=row, column=1, sticky="ew", pady=3)
         if show:
-            ttk.Checkbutton(parent, text="비밀번호 표시", variable=self.password_visible,
-                            command=lambda: entry.configure(show="" if self.password_visible.get() else "•")).grid(
+            reveal_var = reveal_var or self.password_visible
+            ttk.Checkbutton(parent, text=reveal_label, variable=reveal_var,
+                            command=lambda: entry.configure(show="" if reveal_var.get() else "•")).grid(
                                 row=row, column=2, sticky="w", padx=(8, 0))
         parent.columnconfigure(1, weight=1)
 
@@ -543,31 +547,35 @@ class FinderApp:
                 self.anon_key_value = key
                 if not token:
                     raise RuntimeError("로그인 응답에 access_token이 없습니다.")
-                rows, offset, limit = [], 0, 1000
-                while True:
-                    query = urllib.parse.urlencode({"select": "id,title,publisher,subject,grade,semester,series,edition,curriculum_revision,isbn13", "order": "title.asc", "limit": str(limit), "offset": str(offset)})
-                    data = request_json(base + "/rest/v1/books?" + query,
-                        {"apikey": key, "Authorization": "Bearer " + token, "Accept": "application/json"})
-                    if not isinstance(data, list):
-                        raise RuntimeError("교재 목록 응답 형식이 올바르지 않습니다.")
-                    rows.extend(data)
-                    self.events.put(("log", f"교재 {len(rows)}권 불러옴"))
-                    if len(data) < limit:
-                        break
-                    offset += limit
-                if not rows:
-                    raise RuntimeError("교재가 0권 조회됐습니다. 관리자 계정의 books 읽기 권한과 Supabase URL을 확인하세요.")
                 path = APP_DATA_DIR / "books.csv"
+                temporary_path = path.with_suffix(".csv.tmp")
                 fields = ["id", "title", "publisher", "subject", "grade", "semester", "series", "edition", "curriculum_revision", "isbn13"]
-                with path.open("w", encoding="utf-8-sig", newline="") as f:
-                    writer = csv.DictWriter(f, fieldnames=fields)
+                total = 0
+                offset, limit = 0, 1000
+                with temporary_path.open("w", encoding="utf-8-sig", newline="") as output_file:
+                    writer = csv.DictWriter(output_file, fieldnames=fields)
                     writer.writeheader()
-                    writer.writerows(rows)
+                    while True:
+                        query = urllib.parse.urlencode({"select": ",".join(fields), "order": "title.asc,id.asc", "limit": str(limit), "offset": str(offset)})
+                        data = request_json(base + "/rest/v1/books?" + query,
+                            {"apikey": key, "Authorization": "Bearer " + token, "Accept": "application/json"})
+                        if not isinstance(data, list):
+                            raise RuntimeError("교재 목록 응답 형식이 올바르지 않습니다.")
+                        writer.writerows(data)
+                        total += len(data)
+                        self.events.put(("log", f"교재 {total:,}권 불러옴"))
+                        if len(data) < limit:
+                            break
+                        offset += limit
+                if total == 0:
+                    temporary_path.unlink(missing_ok=True)
+                    raise RuntimeError("교재가 0권 조회됐습니다. 관리자 계정의 books 읽기 권한과 Supabase URL을 확인하세요.")
+                temporary_path.replace(path)
                 self.events.put(("books_path", str(path)))
-                self.events.put(("books_count", len(rows)))
+                self.events.put(("books_count", total))
                 self.events.put(("connected", True))
                 self.events.put(("clear_password", ""))
-                self.events.put(("status", f"교재 {len(rows)}권 저장 완료: {path}"))
+                self.events.put(("status", f"교재 {total:,}권 저장 완료: {path}"))
             except Exception as exc:
                 self.events.put(("error", str(exc)))
         threading.Thread(target=worker, daemon=True).start()
@@ -600,12 +608,13 @@ class FinderApp:
         self.metric_output.set("실행 중")
         self.log_line("[시작] 탐색 작업을 준비합니다.")
         auto_upload = self.auto_upload.get()
+        kakao_api_key = self.kakao_api_key.get().strip()
         def worker():
             try:
                 from finder import run_search
                 count = run_search(csv_path, OUTPUT, DEFAULT_CONFIG, headed, max_pages,
                                    lambda line: self.events.put(("log", line)), self.stop_event,
-                                   {"kakao_rest_api_key": self.kakao_api_key.get().strip()})
+                                   {"kakao_rest_api_key": kakao_api_key})
                 stopped = self.stop_event.is_set()
                 upload_summary = ""
                 if auto_upload and self.access_token and self.project_url and self.anon_key_value:
@@ -648,57 +657,80 @@ class FinderApp:
             raise RuntimeError("Supabase 로그인이 필요합니다.")
         if not OUTPUT.is_file():
             raise RuntimeError("업로드할 후보 CSV가 없습니다.")
-        with OUTPUT.open("r", encoding="utf-8-sig", newline="") as handle:
-            rows = list(csv.DictReader(handle))
-        if not rows:
-            return 0, 0
         from finder import canonicalize_url, is_safe_public_url
-        invalid = [index + 2 for index, row in enumerate(rows) if not row.get("book_id") or not row.get("url")]
-        if invalid:
-            preview = ", ".join(map(str, invalid[:10]))
-            suffix = " 외" if len(invalid) > 10 else ""
-            raise RuntimeError(f"CSV {len(invalid)}개 행에 교재 ID 또는 URL이 없습니다. 누락 행: {preview}{suffix}. 교재 ID가 포함된 Supabase 교재 CSV를 사용하세요.")
+
         endpoint = self.project_url + "/functions/v1/answer-link-import-candidates"
-        inserted = duplicates = sent = 0
-        for start in range(0, len(rows), 100):
-            batch = []
-            for row in rows[start:start + 100]:
-                candidate_url = (row.get("url") or "").strip()
-                if not is_safe_public_url(candidate_url, resolve_dns=True):
-                    raise RuntimeError(f"공개 HTTP(S) URL이 아니거나 안전한 공개 호스트가 아닙니다: {candidate_url[:180]}")
-                candidate_url = canonicalize_url(candidate_url)
-                try:
-                    raw_score = float(row.get("match_score") or 0)
-                except (TypeError, ValueError):
-                    raw_score = 0
-                score = int(max(0, min(100, raw_score))) if math.isfinite(raw_score) else 0
-                batch.append({
-                    "book_id": row["book_id"],
-                    "title": row.get("candidate_title") or row.get("source_name") or "답지 후보",
-                    "url": candidate_url,
-                    "snippet": row.get("snippet", ""),
-                    "match_status": row.get("match_status", "uncertain"),
-                    "match_score": score,
-                    "match_evidence": {
-                        "matched_answer_terms": row.get("matched_answer_terms", ""),
-                        "book_title": row.get("book_title", ""),
-                        "series": row.get("series", ""),
-                        "subject": row.get("subject", ""),
-                        "grade": row.get("grade", ""),
-                        "semester": row.get("semester", ""),
-                        "edition": row.get("edition", ""),
-                        "curriculum_revision": row.get("curriculum_revision", ""),
-                        "isbn13": row.get("isbn13", ""),
-                    },
-                    "link_type": row.get("link_type", "웹페이지"),
-                    "source_type": "official" if row.get("source_type") == "publisher" else "general",
-                    "query": row.get("search_query") or "local-search",
-                })
-            headers = {
-                "apikey": self.anon_key_value,
-                "Authorization": "Bearer " + self.access_token,
-                "Content-Type": "application/json",
+        headers = {
+            "apikey": self.anon_key_value,
+            "Authorization": "Bearer " + self.access_token,
+            "Content-Type": "application/json",
+        }
+
+        def prepare_candidate(row, line_number, validate_network):
+            book_id = str(row.get("book_id") or "").strip()
+            if not book_id or not row.get("url"):
+                raise RuntimeError(f"CSV {line_number}행에 교재 ID 또는 URL이 없습니다.")
+            try:
+                uuid.UUID(book_id)
+            except (ValueError, TypeError, AttributeError):
+                raise RuntimeError(f"CSV {line_number}행의 교재 ID가 UUID 형식이 아닙니다.")
+            candidate_url = str(row.get("url") or "").strip()
+            if len(candidate_url) > 2048:
+                raise RuntimeError(f"CSV {line_number}행의 URL이 2,048자를 초과합니다.")
+            if validate_network and not is_safe_public_url(candidate_url, resolve_dns=True):
+                raise RuntimeError(f"공개 HTTP(S) URL이 아니거나 안전한 공개 호스트가 아닙니다: {candidate_url[:180]}")
+            candidate_url = canonicalize_url(candidate_url)
+            status = str(row.get("match_status") or "uncertain").strip().lower()
+            if status not in ("likely", "uncertain"):
+                raise RuntimeError(f"CSV {line_number}행의 매칭 상태가 업로드 허용값이 아닙니다: {status}")
+            try:
+                raw_score = float(row.get("match_score") or 0)
+            except (TypeError, ValueError):
+                raw_score = 0
+            score = int(max(0, min(100, raw_score))) if math.isfinite(raw_score) else 0
+            evidence = {
+                "matched_answer_terms": row.get("matched_answer_terms", ""),
+                "book_title": row.get("book_title", ""),
+                "series": row.get("series", ""),
+                "subject": row.get("subject", ""),
+                "grade": row.get("grade", ""),
+                "semester": row.get("semester", ""),
+                "edition": row.get("edition", ""),
+                "curriculum_revision": row.get("curriculum_revision", ""),
+                "isbn13": row.get("isbn13", ""),
             }
+            if len(json.dumps(evidence, ensure_ascii=False)) > 8000:
+                raise RuntimeError(f"CSV {line_number}행의 매칭 근거가 8KB 제한을 초과합니다.")
+            return {
+                "book_id": book_id,
+                "title": str(row.get("candidate_title") or row.get("source_name") or "답지 후보")[:300],
+                "url": candidate_url,
+                "snippet": str(row.get("snippet", ""))[:4000],
+                "match_status": status,
+                "match_score": score,
+                "match_evidence": evidence,
+                "link_type": str(row.get("link_type", "웹페이지"))[:40],
+                "source_type": "official" if row.get("source_type") == "publisher" else "general",
+                "query": str(row.get("search_query") or "local-search")[:500],
+            }
+
+        # Validate the entire file before the first network write to avoid partial uploads
+        # caused by a malformed later row.
+        total_rows = 0
+        with OUTPUT.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            if not {"book_id", "url"}.issubset(set(reader.fieldnames or [])):
+                raise RuntimeError("CSV에 book_id와 url 열이 없습니다. Supabase에서 내려받은 교재 CSV로 다시 탐색하세요.")
+            for line_number, row in enumerate(reader, start=2):
+                prepare_candidate(row, line_number, validate_network=True)
+                total_rows += 1
+        if total_rows == 0:
+            return 0, 0
+
+        inserted = duplicates = sent = 0
+
+        def send_batch(batch):
+            nonlocal inserted, duplicates, sent, headers
             try:
                 result = request_json(endpoint, headers, {"candidates": batch})
             except RuntimeError as exc:
@@ -710,7 +742,17 @@ class FinderApp:
             inserted += int(result.get("inserted", 0))
             duplicates += int(result.get("duplicates", 0))
             sent += len(batch)
-            self.events.put(("log", f"[Supabase 업로드] {sent}/{len(rows)}개 처리 · 신규 {inserted} · 중복 {duplicates}"))
+            self.events.put(("log", f"[Supabase 업로드] {sent:,}/{total_rows:,}개 처리 · 신규 {inserted:,} · 중복 {duplicates:,}"))
+
+        batch = []
+        with OUTPUT.open("r", encoding="utf-8-sig", newline="") as handle:
+            for line_number, row in enumerate(csv.DictReader(handle), start=2):
+                batch.append(prepare_candidate(row, line_number, validate_network=False))
+                if len(batch) == 100:
+                    send_batch(batch)
+                    batch = []
+        if batch:
+            send_batch(batch)
         return inserted, duplicates
 
     def upload_candidates(self):
@@ -730,7 +772,16 @@ class FinderApp:
                 self.events.put(("error", str(exc)))
         threading.Thread(target=worker, daemon=True).start()
 
+    def schedule_load_results(self):
+        if self._filter_after_id is not None:
+            try:
+                self.root.after_cancel(self._filter_after_id)
+            except tk.TclError:
+                pass
+        self._filter_after_id = self.root.after(220, self.load_results)
+
     def load_results(self):
+        self._filter_after_id = None
         if not hasattr(self, "results"):
             return
         for item in self.results.get_children():
