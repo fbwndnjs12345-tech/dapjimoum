@@ -16,7 +16,7 @@ BOOK_TITLE = "오투 중등 과학 2-1"
 class FixtureHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/robots.txt":
-            body = b"User-agent: *\\nAllow: /\\n"
+            body = b"User-agent: *\nAllow: /\n"
             status = 200
             content_type = "text/plain; charset=utf-8"
         elif self.path == "/sitemap.xml":
@@ -86,9 +86,11 @@ class FinderEndToEndTests(unittest.TestCase):
                     }
                 }, ensure_ascii=False), encoding="utf-8")
                 output = root / "answer-link-candidates.csv"
-                with patch("finder.search_google_page", return_value=[search_result]) as google:
-                    with patch("finder.search_bing_rss", return_value=[search_result]) as bing:
-                        count = run_search(books, output, config, False, 10, lambda _line: None)
+                # The fixture deliberately uses loopback; production URL guards remain strict.
+                with patch("finder.is_safe_public_url", side_effect=lambda url, resolve_dns=False: url.startswith(base)):
+                    with patch("finder.search_google_page", return_value=[search_result]) as google:
+                        with patch("finder.search_bing_rss", return_value=[search_result]) as bing:
+                            count = run_search(books, output, config, False, 10, lambda _line: None)
                 self.assertGreaterEqual(count, 1)
                 self.assertTrue(output.is_file())
                 with output.open("r", encoding="utf-8-sig", newline="") as handle:
