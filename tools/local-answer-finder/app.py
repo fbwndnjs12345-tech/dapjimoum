@@ -652,57 +652,18 @@ class FinderApp:
             raise RuntimeError("Supabase 로그인이 필요합니다.")
         if not OUTPUT.is_file():
             raise RuntimeError("업로드할 후보 CSV가 없습니다.")
-        with OUTPUT.open("r", encoding="utf-8-sig", newline="") as handle:
-            rows = list(csv.DictReader(handle))
-        if not rows:
-            return 0, 0
         from finder import canonicalize_url, is_safe_public_url
-        invalid = [index + 2 for index, row in enumerate(rows) if not row.get("book_id") or not row.get("url")]
-        if invalid:
-            preview = ", ".join(map(str, invalid[:10]))
-            suffix = " 외" if len(invalid) > 10 else ""
-            raise RuntimeError(f"CSV {len(invalid)}개 행에 교재 ID 또는 URL이 없습니다. 누락 행: {preview}{suffix}. 교재 ID가 포함된 Supabase 교재 CSV를 사용하세요.")
+
         endpoint = self.project_url + "/functions/v1/answer-link-import-candidates"
         inserted = duplicates = sent = 0
-        for start in range(0, len(rows), 100):
-            batch = []
-            for row in rows[start:start + 100]:
-                candidate_url = (row.get("url") or "").strip()
-                if not is_safe_public_url(candidate_url, resolve_dns=True):
-                    raise RuntimeError(f"공개 HTTP(S) URL이 아니거나 안전한 공개 호스트가 아닙니다: {candidate_url[:180]}")
-                candidate_url = canonicalize_url(candidate_url)
-                try:
-                    raw_score = float(row.get("match_score") or 0)
-                except (TypeError, ValueError):
-                    raw_score = 0
-                score = int(max(0, min(100, raw_score))) if math.isfinite(raw_score) else 0
-                batch.append({
-                    "book_id": row["book_id"],
-                    "title": row.get("candidate_title") or row.get("source_name") or "답지 후보",
-                    "url": candidate_url,
-                    "snippet": row.get("snippet", ""),
-                    "match_status": row.get("match_status", "uncertain"),
-                    "match_score": score,
-                    "match_evidence": {
-                        "matched_answer_terms": row.get("matched_answer_terms", ""),
-                        "book_title": row.get("book_title", ""),
-                        "series": row.get("series", ""),
-                        "subject": row.get("subject", ""),
-                        "grade": row.get("grade", ""),
-                        "semester": row.get("semester", ""),
-                        "edition": row.get("edition", ""),
-                        "curriculum_revision": row.get("curriculum_revision", ""),
-                        "isbn13": row.get("isbn13", ""),
-                    },
-                    "link_type": row.get("link_type", "웹페이지"),
-                    "source_type": "official" if row.get("source_type") == "publisher" else "general",
-                    "query": row.get("search_query") or "local-search",
-                })
-            headers = {
-                "apikey": self.anon_key_value,
-                "Authorization": "Bearer " + self.access_token,
-                "Content-Type": "application/json",
-            }
+        headers = {
+            "apikey": self.anon_key_value,
+            "Authorization": "Bearer " + self.access_token,
+            "Content-Type": "application/json",
+        }
+
+        def send_batch(batch):
+            nonlocal inserted, duplicates, sent, headers
             try:
                 result = request_json(endpoint, headers, {"candidates": batch})
             except RuntimeError as exc:
@@ -714,7 +675,56 @@ class FinderApp:
             inserted += int(result.get("inserted", 0))
             duplicates += int(result.get("duplicates", 0))
             sent += len(batch)
-            self.events.put(("log", f"[Supabase 업로드] {sent}/{len(rows)}개 처리 · 신규 {inserted} · 중복 {duplicates}"))
+            self.events.put(("log", f"[Supabase 업로드] {sent:,}개 처리 · 신규 {inserted:,} · 중복 {duplicates:,}"))
+
+        batch = []
+        with OUTPUT.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            required = {"book_id", "url"}
+            if not required.issubset(set(reader.fieldnames or [])):
+                raise RuntimeError("CSV에 book_id와 url 열이 없습니다. Supabase에서 내려받은 교재 CSV로 다시 탐색하세요.")
+            for line_number, row in enumerate(reader, start=2):
+                if not row.get("book_id") or not row.get("url"):
+                    raise RuntimeError(f"CSV {line_number}행에 교재 ID 또는 URL이 없습니다.")
+                candidate_url = (row.get("url") or "").strip()
+                if not is_safe_public_url(candidate_url, resolve_dns=True):
+                    raise RuntimeError(f"공개 HTTP(S) URL이 아니거나 안전한 공개 호스트가 아닙니다: {candidate_url[:180]}")
+                candidate_url = canonicalize_url(candidate_url)
+                try:
+                    raw_score = float(row.get("match_score") or 0)
+                except (TypeError, ValueError):
+                    raw_score = 0
+                score = int(max(0, min(100, raw_score))) if math.isfinite(raw_score) else 0
+                evidence = {
+                    "matched_answer_terms": row.get("matched_answer_terms", ""),
+                    "book_title": row.get("book_title", ""),
+                    "series": row.get("series", ""),
+                    "subject": row.get("subject", ""),
+                    "grade": row.get("grade", ""),
+                    "semester": row.get("semester", ""),
+                    "edition": row.get("edition", ""),
+                    "curriculum_revision": row.get("curriculum_revision", ""),
+                    "isbn13": row.get("isbn13", ""),
+                }
+                if len(json.dumps(evidence, ensure_ascii=False)) > 8000:
+                    raise RuntimeError(f"CSV {line_number}행의 매칭 근거가 8KB 제한을 초과합니다.")
+                batch.append({
+                    "book_id": row["book_id"],
+                    "title": row.get("candidate_title") or row.get("source_name") or "답지 후보",
+                    "url": candidate_url,
+                    "snippet": row.get("snippet", "")[:4000],
+                    "match_status": row.get("match_status", "uncertain"),
+                    "match_score": score,
+                    "match_evidence": evidence,
+                    "link_type": row.get("link_type", "웹페이지"),
+                    "source_type": "official" if row.get("source_type") == "publisher" else "general",
+                    "query": row.get("search_query") or "local-search",
+                })
+                if len(batch) == 100:
+                    send_batch(batch)
+                    batch = []
+        if batch:
+            send_batch(batch)
         return inserted, duplicates
 
     def upload_candidates(self):
