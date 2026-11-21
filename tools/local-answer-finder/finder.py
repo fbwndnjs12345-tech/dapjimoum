@@ -179,7 +179,7 @@ def is_safe_public_url(value: str, resolve_dns: bool = False) -> bool:
             return False
         try:
             address = ipaddress.ip_address(host)
-            return address.is_global
+            return address.is_global and not address.is_multicast
         except ValueError:
             if not resolve_dns:
                 return True
@@ -187,7 +187,7 @@ def is_safe_public_url(value: str, resolve_dns: bool = False) -> bool:
             port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
             records = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
             addresses = {ipaddress.ip_address(record[4][0].split("%", 1)[0]) for record in records}
-            return bool(addresses) and all(address.is_global for address in addresses)
+            return bool(addresses) and all(address.is_global and not address.is_multicast for address in addresses)
         return True
     except (ValueError, TypeError, OSError):
         return False
