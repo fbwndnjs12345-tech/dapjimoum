@@ -623,7 +623,7 @@ def wait_for_page_content(page, timeout_ms: int = 3500):
 
 def extract_answer_links(page, limit: int = 40):
     """Extract answer/download links with nearby row context, not the entire page text."""
-    return page.locator("a[href], area[href], [data-href], [data-url]").evaluate_all(
+    return page.locator("a[href], area[href], [data-href], [data-url], [onclick]").evaluate_all(
         """(els, maxItems) => {
             const relevant = /(정답|해설|답지|답안지|정답지|빠른정답|pdf|다운로드|자료실|자료|교재|학습|수업|첨부|정답표|resource|book|answer|solution|download|file|attach|pds|view|page|\\.pdf|\\.hwp|\\.zip)/i;
             return els.map(a => {
