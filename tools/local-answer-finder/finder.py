@@ -857,6 +857,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                             source_books.append(candidate_book)
                     log(callback,f"[공식 자료실 탐색] {publisher or host}: {len(pages)}개 공개 페이지 · 대상 교재 {len(source_books)}권")
                     discovered_source_pages = {canonicalize_url(item) for item in pages if is_safe_public_url(item)}
+                    publisher_search_book_by_url = {}
                     for index,url in enumerate(pages,1):
                         if stop_event is not None and stop_event.is_set(): break
                         if not allowed_host(url,host) or not robots.can_fetch(USER_AGENT,url): continue
@@ -910,6 +911,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                             discovered_source_pages.add(normalized_search)
                                             insert_at = min(1 + added_search_pages, len(pages))
                                             pages.insert(insert_at, normalized_search)
+                                            publisher_search_book_by_url[normalized_search] = search_book
                                             added_search_pages += 1
                                             if len(pages) > limit:
                                                 pages.pop()
@@ -925,7 +927,9 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                         title, description, link.get("context") or "", link.get("text") or ""
                                     ) if x)
                                     targets.append((target,link.get("text") or title or "정답과 해설",link_context))
-                            for book in source_books:
+                            page_book = publisher_search_book_by_url.get(canonicalize_url(url))
+                            page_books = [page_book] if page_book else source_books
+                            for book in page_books:
                                 for target,target_title,snippet in targets:
                                     add_candidate(book,target,target_title,snippet,"publisher")
                         except PlaywrightTimeoutError: log(callback,f"[시간 초과] {url}")
