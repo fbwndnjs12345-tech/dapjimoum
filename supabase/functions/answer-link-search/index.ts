@@ -190,113 +190,6 @@ function stripHtml(value: string): string {
     .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')).trim();
 }
 
-function decodeBase64Url(value: string): string | null {
-  try {
-    const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
-    const binary = atob(padded);
-    const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
-    return new TextDecoder().decode(bytes);
-  } catch { return null; }
-}
-
-function extractHref(raw: string, base: string): string | null {
-  try {
-    const decoded = decodeHtml(raw.replace(/^['"]|['"]$/g, ''));
-    const parsed = new URL(decoded, base);
-    if (parsed.hostname.endsWith('google.com') && parsed.pathname === '/url') {
-      const target = parsed.searchParams.get('q') ?? parsed.searchParams.get('url');
-      if (target) return new URL(target).toString();
-    }
-    if ((parsed.hostname === 'bing.com' || parsed.hostname.endsWith('.bing.com')) && parsed.pathname === '/ck/a') {
-      const encoded = parsed.searchParams.get('u');
-      if (encoded?.startsWith('a1')) {
-        const target = decodeBase64Url(encoded.slice(2));
-        if (target && /^https?:\/\//i.test(target)) return new URL(target).toString();
-      }
-      const target = parsed.searchParams.get('url');
-      if (target) return new URL(target).toString();
-      return null;
-    }
-    if (parsed.hostname.includes('duckduckgo.com') && parsed.pathname.includes('/l/')) {
-      const target = parsed.searchParams.get('uddg');
-      if (target) return new URL(target).toString();
-    }
-    return parsed.toString();
-  } catch { return null; }
-}
-
-function parseSearchHtml(engine: string, html: string, base: string): HtmlSearchResult[] {
-  const results: HtmlSearchResult[] = [];
-  const seen = new Set<string>();
-  const blocks: string[] = [];
-  if (engine === 'google') {
-    for (const match of html.matchAll(/<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?<h3\b[\s\S]*?<\/h3>[\s\S]*?)<\/a>/gi)) {
-      blocks.push(match[0]);
-    }
-  } else if (engine === 'bing') {
-    for (const match of html.matchAll(/<li\b[^>]*class=["'][^"']*b_algo[^"']*["'][^>]*>[\s\S]*?<\/li>/gi)) blocks.push(match[0]);
-  } else if (engine === 'duckduckgo') {
-    // DDG cards contain nested divs; parse result anchors globally.
-    const anchorPattern = /<a\b(?=[^>]*class=["'][^"']*result__a[^"']*["'])[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-    for (const match of html.matchAll(anchorPattern)) {
-      const url = extractHref(match[1], base);
-      if (!url || !isSafeSearchUrl(url)) continue;
-      const title = stripHtml(match[2]);
-      if (!title || seen.has(canonicalUrl(url))) continue;
-      seen.add(canonicalUrl(url));
-      results.push({ title, url, description: '', meta_url: { hostname: new URL(url).hostname }, provider: 'duckduckgo_html' });
-    }
-    return results.slice(0, 20);
-  }
-  for (const block of blocks) {
-    const anchor = engine === 'duckduckgo'
-      ? block.match(/<a\b[^>]*class=["'][^"']*result__a[^"']*["'][^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i)
-      : engine === 'bing'
-        ? block.match(/<h2\b[^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/h2>/i)
-        : block.match(/<a\b[^>]*href=["']([^"']+)["'][^>]*>[\s\S]*?<h3\b[^>]*>([\s\S]*?)<\/h3>[\s\S]*?<\/a>/i);
-    if (!anchor) continue;
-    const url = extractHref(anchor[1], base);
-    if (!url || !isSafeSearchUrl(url)) continue;
-    const title = stripHtml(anchor[2]);
-    if (!title || seen.has(canonicalUrl(url))) continue;
-    seen.add(canonicalUrl(url));
-    const snippetMatch = engine === 'duckduckgo'
-      ? block.match(/<a\b[^>]*class=["'][^"']*result__snippet[^"']*["'][^>]*>([\s\S]*?)<\/a>|<div\b[^>]*class=["'][^"']*result__snippet[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)
-      : block.match(/<(?:p|div)\b[^>]*class=["'][^"']*(?:b_caption|snippet|VwiC3b)[^"']*["'][^>]*>([\s\S]*?)<\/(?:p|div)>/i);
-    const description = stripHtml(snippetMatch?.[1] ?? snippetMatch?.[2] ?? '');
-    results.push({ title, url, description, meta_url: { hostname: new URL(url).hostname }, provider: `${engine}_html` });
-  }
-  return results.slice(0, 10);
-}
-
-async function searchPublicHtml(engine: 'google' | 'bing' | 'duckduckgo', query: string, signal: AbortSignal, reserveSlot: () => Promise<void>): Promise<HtmlSearchResult[]> {
-  const encoded = encodeURIComponent(query);
-  const endpoints: Record<typeof engine, string> = {
-    google: `https://www.google.com/search?q=${encoded}&num=20&hl=ko&gl=kr`,
-    bing: `https://www.bing.com/search?q=${encoded}&count=20&setlang=ko-KR`,
-    duckduckgo: `https://html.duckduckgo.com/html/?q=${encoded}`,
-  };
-  await reserveSlot();
-  const response = await fetch(endpoints[engine], {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.7',
-    },
-    redirect: 'follow',
-    signal,
-  });
-  if (!response.ok) throw new Error(`${engine} 검색 페이지 응답 오류 (${response.status})`);
-  const html = await response.text();
-  if (/captcha|unusual traffic|자동화된 요청|verify you are human|robot check/i.test(html)) {
-    throw new Error(`${engine} 검색 페이지에서 자동 요청 확인이 발생했습니다.`);
-  }
-  const results = parseSearchHtml(engine, html, endpoints[engine]);
-  if (!results.length) throw new Error(`${engine} 검색 결과를 읽지 못했습니다.`);
-  return results;
-}
-
 async function searchKakao(query: string, apiKey: string, signal: AbortSignal, reserveSlot: () => Promise<void>): Promise<SearchResultBatch> {
   const endpoints = [
     { provider: 'kakao_blog', url: 'https://dapi.kakao.com/v2/search/blog' },
@@ -393,9 +286,8 @@ async function searchNaverApiHub(query: string, clientId: string, clientSecret: 
   return attachSearchWarnings(results, errors);
 }
 
-async function searchWithProviders(query: string, signal: AbortSignal, mode: 'naver' | 'kakao' | 'web' | 'combined', kakaoKey: string | undefined, naverCredentials: { clientId: string; clientSecret: string } | undefined, reserveSlot: () => Promise<void>) {
+async function searchWithProviders(query: string, signal: AbortSignal, mode: 'naver' | 'kakao' | 'combined', kakaoKey: string | undefined, naverCredentials: { clientId: string; clientSecret: string } | undefined, reserveSlot: () => Promise<void>) {
   const tasks: Array<Promise<SearchResultBatch>> = [];
-  if (mode === 'web' || mode === 'combined') tasks.push(searchWithoutApi(query, signal, reserveSlot));
   if ((mode === 'kakao' || mode === 'combined') && kakaoKey) tasks.push(searchKakao(query, kakaoKey, signal, reserveSlot));
   if ((mode === 'naver' || mode === 'combined') && naverCredentials) tasks.push(searchNaverApiHub(query, naverCredentials.clientId, naverCredentials.clientSecret, signal, reserveSlot));
   if (!tasks.length) throw new Error(mode === 'naver' ? '네이버 API 키가 설정되지 않았습니다.' : '카카오 API 키가 설정되지 않았습니다.');
@@ -415,32 +307,6 @@ async function searchWithProviders(query: string, signal: AbortSignal, mode: 'na
   }
   if (!unique.size && errors.length === settled.length) throw new Error(errors.join(' / ').slice(0, 1000));
   return { results: [...unique.values()], warnings: errors };
-}
-
-let googleBlockedUntil = 0;
-
-async function searchWithoutApi(query: string, signal: AbortSignal, reserveSlot: () => Promise<void>): Promise<SearchResultBatch> {
-  // Sequential fallback avoids burst requests that trigger provider throttling.
-  const engines = ['bing', 'duckduckgo', 'google'] as const;
-  const unique = new Map<string, HtmlSearchResult>();
-  const errors: string[] = [];
-  for (const engine of engines) {
-    if (engine === 'google' && Date.now() < googleBlockedUntil) continue;
-    if (unique.size >= 8) break;
-    try {
-      const rows = await searchPublicHtml(engine, query, signal, reserveSlot);
-      for (const row of rows) {
-        const key = canonicalUrl(row.url);
-        if (!unique.has(key)) unique.set(key, row);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '검색 실패';
-      errors.push(`${engine}: ${message}`);
-      if (engine === 'google' && /429|자동 요청 확인/i.test(message)) googleBlockedUntil = Date.now() + 10 * 60 * 1000;
-    }
-  }
-  if (!unique.size && errors.length) throw new Error(errors.join(' / ').slice(0, 1000));
-  return attachSearchWarnings([...unique.values()], errors);
 }
 
 Deno.serve(async (request) => {
@@ -496,6 +362,9 @@ Deno.serve(async (request) => {
   const { data: savedSearchSettings } = await admin.from('answer_link_search_settings').select('provider_mode').eq('singleton', true).maybeSingle();
   const providerMode = payload.providerMode ?? savedSearchSettings?.provider_mode ?? 'combined';
   if (!['naver', 'kakao', 'web', 'combined'].includes(providerMode)) return json({ error: '지원하지 않는 검색 경로입니다.' }, 400);
+  if (providerMode === 'web') {
+    return json({ error: 'Google/Bing/DuckDuckGo 검색 결과 HTML 수집은 robots.txt 및 제공자 정책에 따라 비활성화했습니다. Kakao 또는 NAVER 공식 검색 API를 선택하세요.' }, 400);
+  }
 
   if (action === 'start' || action === 'scheduled_start' || action === 'scheduled_queue_start') {
     const { data: activeRuns, error: activeRunsError } = await admin.from('answer_link_search_runs').select('id,status,book_ids,processed_books,candidate_count,api_requests,provider_mode,started_at').in('status',['running','paused']).order('started_at',{ascending:false}).limit(1);
@@ -503,6 +372,7 @@ Deno.serve(async (request) => {
     if (activeRuns?.length) return json({ error: '이미 공용 검색 작업이 실행 중입니다. 모든 관리자에게 표시되는 기존 작업을 이어서 관리해 주세요.', activeRun: activeRuns[0] }, 409);
     if (providerMode === 'naver' && !naverCredentials) return json({ error: '네이버 API가 선택되었지만 Client ID 또는 Client Secret이 설정되지 않았습니다. Supabase Edge Function Secrets를 확인하세요.' }, 400);
     if (providerMode === 'kakao' && !kakaoRestApiKey) return json({ error: '카카오 API가 선택되었지만 REST API 키가 설정되지 않았습니다. Supabase Edge Function Secrets를 확인하세요.' }, 400);
+    if (providerMode === 'combined' && !kakaoRestApiKey && !naverCredentials) return json({ error: '통합 검색에는 Kakao 또는 NAVER API 인증 정보가 하나 이상 필요합니다.' }, 400);
     let selectedIds = Array.isArray(payload.selectedBookIds) ? [...new Set(payload.selectedBookIds.filter(id => typeof id === 'string'))] : [];
     let queueReason: 'new_book' | 'user_request' | 'link_health' | 'manual' = 'manual';
     let queuePriority = 50;
@@ -590,6 +460,7 @@ Deno.serve(async (request) => {
     if (ownedRunError) return json({ error: ownedRunError.message }, 500);
     if (!ownedRun) return json({ error: '검색 작업을 찾을 수 없거나 접근 권한이 없습니다.' }, 404);
     const runProviderMode = (ownedRun.provider_mode ?? 'combined') as 'naver' | 'kakao' | 'web' | 'combined';
+    if (runProviderMode === 'web') return json({ error: '기존 작업이 비공식 검색 HTML 모드로 시작되어 안전하게 재개할 수 없습니다. 공식 API 모드로 새 작업을 시작하세요.' }, 400);
     if (runProviderMode === 'naver' && !naverCredentials) return json({ error: '이 작업은 네이버 API로 시작되었지만 현재 API 인증 정보가 없습니다. Secrets 설정 후 다시 이어서 실행하세요.' }, 400);
     if (runProviderMode === 'kakao' && !kakaoRestApiKey) return json({ error: '이 작업은 카카오 API로 시작되었지만 현재 API 키가 없습니다. Secrets 설정 후 다시 이어서 실행하세요.' }, 400);
     const { data: runSettings } = await admin.from('answer_link_search_settings').select('max_concurrency,retry_limit,requests_per_minute').eq('singleton', true).maybeSingle();
@@ -621,7 +492,7 @@ Deno.serve(async (request) => {
     const bookById = new Map(((batchBooks ?? []) as BookRow[]).map(book => [book.id, book]));
     let processed = 0;
     let candidateCount = 0;
-    let apiRequests = 0; // Legacy database column; counts public HTML search-page requests.
+    let apiRequests = 0; // Counts documented Kakao/NAVER API requests.
     const failedBookIds: string[] = [];
     const errors: string[] = [];
     for (const bookId of bookIds) {
@@ -643,13 +514,12 @@ Deno.serve(async (request) => {
           warnings: string[]; providersAttempted: string[]; providersWithResults: string[];
           errorMessage: string | null;
         }> = [];
-        const attemptedProviders = runProviderMode === 'web'
-          ? ['google_html', 'bing_html', 'duckduckgo_html']
-          : runProviderMode === 'kakao'
-            ? ['kakao_blog', 'kakao_cafe', 'kakao_web']
-            : runProviderMode === 'naver'
-              ? ['naver_blog', 'naver_cafe']
-              : ['google_html', 'bing_html', 'duckduckgo_html', ...(kakaoRestApiKey ? ['kakao_blog', 'kakao_cafe', 'kakao_web'] : []), ...(naverCredentials ? ['naver_blog', 'naver_cafe'] : [])];
+        const attemptedProviders = runProviderMode === 'kakao'
+          ? ['kakao_blog', 'kakao_cafe', 'kakao_web']
+          : runProviderMode === 'naver'
+            ? ['naver_blog', 'naver_cafe']
+            : [...(kakaoRestApiKey ? ['kakao_blog', 'kakao_cafe', 'kakao_web'] : []),
+               ...(naverCredentials ? ['naver_blog', 'naver_cafe'] : [])];
         const queryResults = await Promise.allSettled(queries.map(async query => {
           const started = Date.now();
           const startedAt = new Date(started).toISOString();
