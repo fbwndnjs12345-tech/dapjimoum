@@ -11,6 +11,8 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+from urllib.error import HTTPError
+from urllib.request import HTTPRedirectHandler, build_opener
 import webbrowser
 from pathlib import Path
 import tkinter as tk
@@ -35,12 +37,35 @@ for legacy_name, destination in (("sources.json", DEFAULT_CONFIG), ("answer-link
             pass
 
 
+class SameHostRedirectHandler(HTTPRedirectHandler):
+    def __init__(self, allowed_host: str):
+        super().__init__()
+        self.allowed_host = allowed_host.lower().rstrip(".")
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        target = urllib.parse.urlparse(newurl)
+        if (target.scheme != "https" or not target.hostname
+                or target.hostname.lower().rstrip(".") != self.allowed_host
+                or target.username or target.password):
+            raise urllib.error.HTTPError(req.full_url, code, "Supabase cross-host redirect blocked", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def request_json(url: str, headers: dict[str, str], data: dict | None = None):
+    parsed = urllib.parse.urlparse(url)
+    if (parsed.scheme != "https" or not parsed.hostname or parsed.username
+            or parsed.password or parsed.port not in (None, 443)):
+        raise RuntimeError("Supabase API는 HTTPS 기본 포트 주소만 허용합니다.")
     payload = json.dumps(data).encode("utf-8") if data is not None else None
-    req = urllib.request.Request(url, data=payload, headers=headers, method="POST" if payload else "GET")
+    req = urllib.request.Request(url, data=payload, headers=headers,
+                                 method="POST" if payload else "GET")
+    opener = build_opener(SameHostRedirectHandler(parsed.hostname))
     try:
-        with urllib.request.urlopen(req, timeout=30) as response:
-            return json.loads(response.read().decode("utf-8"))
+        with opener.open(req, timeout=30) as response:
+            body = response.read(20 * 1024 * 1024 + 1)
+            if len(body) > 20 * 1024 * 1024:
+                raise RuntimeError("Supabase 응답이 20MB 제한을 초과했습니다.")
+            return json.loads(body.decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"Supabase 요청 실패 ({exc.code}): {detail[:500]}") from exc
