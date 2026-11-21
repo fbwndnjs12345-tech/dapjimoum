@@ -811,7 +811,9 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     last_checkpoint = time.monotonic()
     api_mode = "Kakao 검색 API 사용" if web_enabled and kakao_api_key and engines else "API 없음 · 출판사 자료실/자체 검색 사용"
     log(callback,f"교재 {len(books)}권 · 공식 출처 {len(sources)}곳 · {api_mode}")
-    log(callback,f"탐색 한도: 출처별 최대 {limit}페이지 · 실제 페이지 검증 최대 {max_pages_to_verify}개 · 교재당 후보 최대 {max_candidates_per_book}개")
+    log(callback,f"자료실 URL별 탐색 한도: 최대 {limit}페이지 · 교재당 후보 최대 {max_candidates_per_book}개")
+    if web_enabled and kakao_api_key and engines:
+        log(callback,f"API 검색 한도: 교재당 검색어 {query_limit}개 · 검색어별 최대 {search_pages}페이지 · 실제 페이지 검증 {max_pages_to_verify}개")
     with sync_playwright() as p:
         browser=launch_browser(p, headless=not headed)
         context_options = {"locale": "ko-KR", "service_workers": "block", "accept_downloads": False}
