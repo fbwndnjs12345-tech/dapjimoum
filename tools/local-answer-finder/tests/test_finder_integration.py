@@ -86,7 +86,7 @@ class FinderEndToEndTests(unittest.TestCase):
                     "answer_keywords": ["정답과 해설", "답지"],
                     "web_search": {
                         "enabled": True, "engines": ["google", "bing"],
-                        "results_per_engine": 5, "max_queries_per_book": 1
+                        "results_per_engine": 5, "max_queries_per_book": 3, "early_stop_likely_candidates_per_book": 1
                     }
                 }, ensure_ascii=False), encoding="utf-8")
                 output = root / "answer-link-candidates.csv"
