@@ -19,7 +19,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-APP_VERSION = "2.5.0"
+APP_VERSION = "2.6.0"
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 APP_DATA_DIR = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")) / "DapjiMoumFinder"
 APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -1000,8 +1000,14 @@ def self_test():
         from playwright.sync_api import sync_playwright
         example = ROOT / "sources.example.json"
         config = json.loads(example.read_text(encoding="utf-8"))
-        if not isinstance(config.get("sources"), list) or not config["sources"]:
-            raise RuntimeError("예시 출처 설정이 비어 있습니다.")
+        if not isinstance(config.get("sources"), list) or len(config["sources"]) < 5:
+            raise RuntimeError("예시 공식 출처 목록이 비어 있거나 5개 출판사 미만입니다.")
+        expected_publishers = {"비상교육", "지학사", "천재교육", "NE능률", "좋은책신사고"}
+        actual_publishers = {source.get("publisher") for source in config["sources"]}
+        if not expected_publishers.issubset(actual_publishers):
+            raise RuntimeError("공식 출처 목록의 출판사 구성이 올바르지 않습니다.")
+        if config.get("web_search", {}).get("enabled") is not False:
+            raise RuntimeError("API 없는 검색이 기본값으로 설정되지 않았습니다.")
         for source in config["sources"]:
             for url in source.get("start_urls", []):
                 parsed = urllib.parse.urlparse(url)
@@ -1018,6 +1024,12 @@ def self_test():
             raise RuntimeError("UI 테마가 일관된 clam 테마로 설정되지 않았습니다.")
         if not ui.headed.get():
             raise RuntimeError("수동 CAPTCHA 인증을 위한 브라우저 표시 기본값이 꺼져 있습니다.")
+        if not hasattr(ui, "guide_text") or not hasattr(ui, "font_size_box"):
+            raise RuntimeError("사용 방법 탭 또는 글자 크기 조절 UI가 없습니다.")
+        ui.font_size_var.set("14")
+        ui.apply_font_size()
+        if ui.font_size_var.get() != "14":
+            raise RuntimeError("글자 크기 조절 자체 테스트 실패")
         root.update_idletasks()
         root.destroy()
         with sync_playwright() as playwright:
@@ -1064,7 +1076,7 @@ def self_test():
                 server.server_close()
                 server_thread.join(timeout=2)
                 browser.close()
-        (APP_DATA_DIR / "self-test.log").write_text("SELF-TEST PASSED: config, matching, DPI-aware Tk, installed browser HTTP navigation\\n", encoding="utf-8")
+        (APP_DATA_DIR / "self-test.log").write_text("SELF-TEST PASSED: publisher catalog, API-free defaults, matching, DPI-aware Tk, font scaling, usage guide, installed browser HTTP navigation\\n", encoding="utf-8")
         return 0
     except Exception as exc:
         print(f"SELF-TEST FAILED: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
