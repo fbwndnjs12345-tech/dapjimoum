@@ -196,7 +196,7 @@ class FinderDeepSafetyTests(unittest.TestCase):
                     {"action": "https://publisher.testdomain.com/search", "name": "keyword",
                      "hidden": [["category", "answer"]]},
                     {"action": "https://other.testdomain.com/search", "name": "q", "hidden": []},
-                    {"action": "https://publisher.testdomain.com/private", "name": "q", "hidden": []},
+                    {"action": "https://other.testdomain.com/private", "name": "q", "hidden": []},
                 ]
         class Page:
             def locator(self, selector):
