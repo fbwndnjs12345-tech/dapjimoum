@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import html
 from collections import OrderedDict, deque
 import json
 import ipaddress
@@ -110,6 +111,21 @@ def fetch(url: str, timeout: int = 15, allowed_host: str | None = None,
         return body
 
 
+def fetch_json(url: str, headers: dict[str, str], timeout: int = 15,
+              allowed_host: str | None = None, max_bytes: int = 5 * 1024 * 1024):
+    if not is_safe_public_url(url, resolve_dns=True):
+        raise ValueError("공개 HTTP(S) API 주소만 요청할 수 있습니다.")
+    request_headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+    request_headers.update(headers)
+    req = Request(url, headers=request_headers)
+    opener = build_opener(SafeRedirectHandler(allowed_host=allowed_host))
+    with opener.open(req, timeout=timeout) as response:
+        body = response.read(max_bytes + 1)
+        if len(body) > max_bytes:
+            raise ValueError(f"API 응답 크기가 제한을 초과했습니다 ({max_bytes} bytes).")
+    return json.loads(body.decode("utf-8"))
+
+
 def read_books(path: Path) -> list[dict[str, str]]:
     error = None
     for encoding in ("utf-8-sig", "cp949", "utf-8"):
@@ -154,75 +170,31 @@ def robots_for(start_url: str):
     return parser, sitemaps
 
 
-def search_bing_rss(query: str, limit: int = 10):
-    """Read publicly accessible Bing RSS search results; no API key is used."""
-    url = "https://www.bing.com/search?" + urlencode({"q": query, "format": "rss", "count": str(limit)})
-    root = ET.fromstring(fetch(url))
+def search_kakao_api(query: str, engine: str, api_key: str, limit: int = 10):
+    """Use Kakao's documented REST search APIs; never scrape blocked search result pages."""
+    endpoints = {
+        "kakao_web": "https://dapi.kakao.com/v2/search/web",
+        "kakao_blog": "https://dapi.kakao.com/v2/search/blog",
+        "kakao_cafe": "https://dapi.kakao.com/v2/search/cafe",
+    }
+    endpoint = endpoints.get(engine)
+    if not endpoint:
+        raise ValueError(f"지원하지 않는 검색 제공자: {engine}")
+    url = endpoint + "?" + urlencode({
+        "query": query,
+        "size": str(max(1, min(50, limit))),
+        "sort": "accuracy",
+    })
+    payload = fetch_json(url, {"Authorization": "KakaoAK " + api_key},
+                         allowed_host="dapi.kakao.com")
     results = []
-    for item in root.iter():
-        if item.tag.rsplit("}", 1)[-1].lower() != "item":
+    for document in payload.get("documents", []):
+        target = str(document.get("url") or "").strip()
+        if not target or not target.startswith(("https://", "http://")):
             continue
-        fields = {child.tag.rsplit("}", 1)[-1].lower(): (child.text or "").strip() for child in item}
-        link = fields.get("link", "")
-        if link.startswith(("http://", "https://")):
-            results.append({"url": link, "title": fields.get("title", ""), "snippet": fields.get("description", "")})
-        if len(results) >= limit:
-            break
-    return results
-
-
-def search_google_page(page, query: str, limit: int = 10, allow_manual: bool = False,
-                      callback: Callable[[str], None] = print, challenge_timeout: int = 180):
-    """Read Google results. If visible, let the user solve a challenge manually."""
-    url = "https://www.google.com/search?" + urlencode({"q": query, "num": str(limit), "hl": "ko"})
-    log(callback, f"[Google 접속] {url}")
-    try:
-        response = page.goto(url, wait_until="domcontentloaded", timeout=45000)
-    except PlaywrightTimeoutError as exc:
-        raise RuntimeError(f"Google 페이지 이동 시간 초과: {page.url or 'about:blank'} ({exc})") from exc
-    except Exception as exc:
-        raise RuntimeError(f"Google 페이지 이동 실패: {type(exc).__name__}: {exc}; 현재 주소={page.url or 'about:blank'}") from exc
-    if page.url == "about:blank":
-        raise RuntimeError("Google 페이지 이동 후에도 about:blank입니다. Chromium 네트워크/프록시 설정을 확인하세요.")
-    if response and response.status >= 400:
-        raise RuntimeError(f"Google 검색 응답 HTTP {response.status}")
-    def page_text():
-        try: return (page.locator("body").inner_text(timeout=3000) or "").lower()
-        except Exception: return ""
-    def challenged(text: str) -> bool:
-        text_hit = any(x in text for x in ("unusual traffic","자동화된 요청","비정상적인 트래픽","captcha","recaptcha","로봇이 아닙니다","verify you are human"))
-        try:
-            frame_hit = page.locator("iframe[src*=recaptcha], #captcha-form, form[action*=sorry]").count() > 0
-        except Exception:
-            frame_hit = False
-        return text_hit or frame_hit
-    if challenged(page_text()):
-        if not allow_manual:
-            raise RuntimeError("Google이 인증을 요구합니다. '브라우저 창 표시'를 켜고 다시 실행하면 직접 인증할 수 있습니다.")
-        log(callback, f"[Google 사용자 인증 필요] 브라우저에서 직접 인증하세요. 최대 {challenge_timeout}초 기다립니다.")
-        deadline = time.monotonic() + challenge_timeout
-        while time.monotonic() < deadline:
-            try:
-                if page.locator("a:has(h3)").count() > 0 and not challenged(page_text()):
-                    log(callback, "[Google 인증 완료] 검색을 이어갑니다.")
-                    break
-            except Exception: pass
-            page.wait_for_timeout(1000)
-        else:
-            raise RuntimeError("Google 직접 인증 대기 시간이 끝났습니다. Bing 및 다른 검색 결과는 계속 처리합니다.")
-    found = page.locator("a:has(h3)").evaluate_all("""els => els.map(a => {
-      const card = a.closest('div.MjjYud') || a.parentElement?.parentElement;
-      return {url:a.href, title:(a.querySelector('h3')?.innerText || a.innerText || '').trim(),
-              snippet:(card?.innerText || '').trim()};
-    }).filter(x => /^https?:/.test(x.url) &&
-      !/(google\\.com|accounts\\.google|support\\.google|policies\\.google)/i.test(new URL(x.url).hostname) &&
-      x.title.length > 2).slice(0, 50)""")
-    results, seen = [], set()
-    for item in found:
-        target=item["url"].split("#",1)[0]
-        if target not in seen:
-            seen.add(target); results.append({"url":target,"title":item["title"][:500],"snippet":item["snippet"][:1500]})
-        if len(results)>=limit: break
+        title = html.unescape(re.sub(r"<[^>]+>", " ", str(document.get("title") or ""))).strip()
+        snippet = html.unescape(re.sub(r"<[^>]+>", " ", str(document.get("contents") or ""))).strip()
+        results.append({"url": target, "title": title, "snippet": snippet})
     return results
 
 
@@ -248,7 +220,7 @@ def build_queries(book: dict[str, str], max_queries: int = 8) -> list[str]:
     identity = list(dict.fromkeys(identity))
     full_identity = " ".join(identity) if identity else title
     publisher_identity = " ".join(x for x in (publisher, *identity) if x)
-    platform_clause = "(site:tistory.com OR site:blog.naver.com OR site:blogspot.com OR site:brunch.co.kr OR site:velog.io OR site:wordpress.com OR site:cafe.naver.com)"
+    platform_clause = "블로그 카페 웹문서"
 
     # Each query combines the distinctive book identity with answer intent.
     # Platform-restricted searches are separate so one large OR expression
@@ -256,7 +228,7 @@ def build_queries(book: dict[str, str], max_queries: int = 8) -> list[str]:
     variants = [
         f'"{title}" "답지"',
         f'"{publisher_identity}" "정답과 해설"' if publisher else f'"{full_identity}" "정답과 해설"',
-        f'"{title}" {platform_clause} 답지',
+        f'"{title}" {publisher_identity} {platform_clause} 답지',
         f'"{full_identity}" "정답" "해설"',
         f'"{title}" "정답과 해설"',
         f'"{full_identity}" site:tistory.com 답지',
@@ -447,15 +419,28 @@ def _write_candidates(output_path: Path, candidates: dict):
 
 
 def run_search(input_path: Path, output_path: Path, config_path: Path, headed: bool,
-               max_pages_override: int, callback: Callable[[str], None] = print, stop_event=None) -> int:
+               max_pages_override: int, callback: Callable[[str], None] = print, stop_event=None,
+               provider_credentials: dict | None = None) -> int:
     books=read_books(input_path); config=json.loads(config_path.read_text(encoding="utf-8"))
     sources=config.get("sources",[]); web_cfg=config.get("web_search",{})
     web_enabled=bool(web_cfg.get("enabled",True)); engines=web_cfg.get("engines",["google","bing"])
-    if not sources and not web_enabled: raise ValueError("공식 자료실 또는 공개 웹 검색 중 하나 이상을 활성화하세요.")
+    if not sources and not web_enabled: raise ValueError("공식 자료실 또는 공식 검색 API 중 하나 이상을 활성화하세요.")
     terms=config.get("answer_keywords") or ["정답과 해설","정답 해설","정답 및 해설","답지"]
     delay=max(1.0,float(config.get("request_delay_seconds",2.0))); timeout=int(config.get("page_timeout_ms",20000))
     limit=max_pages_override or int(config.get("max_sitemap_urls_per_source",500))
-    search_limit=max(1,min(20,int(web_cfg.get("results_per_engine",8))))
+    allowed_engines = {"kakao_web", "kakao_blog", "kakao_cafe"}
+    legacy_engines = [engine for engine in engines if engine in ("google", "bing")]
+    if legacy_engines:
+        log(callback, "[검색 정책] Google/Bing 검색 결과 HTML 수집은 robots.txt에서 /search가 차단되거나 API가 종료되어 사용하지 않습니다.")
+    engines = [engine for engine in engines if engine in allowed_engines]
+    unsupported = [engine for engine in web_cfg.get("engines", []) if engine not in allowed_engines and engine not in ("google", "bing")]
+    if unsupported:
+        log(callback, f"[지원하지 않는 검색 제공자 제외] {', '.join(unsupported)}")
+    search_limit=max(1,min(50,int(web_cfg.get("results_per_engine",8))))
+    credentials = provider_credentials or {}
+    kakao_api_key = (credentials.get("kakao_rest_api_key") or os.environ.get("KAKAO_REST_API_KEY", "")).strip()
+    if web_enabled and not kakao_api_key:
+        log(callback, "[검색 API 키 없음] Kakao REST API 키를 입력하지 않아 공개 웹 검색은 실행하지 않습니다. 공식 자료실 탐색은 계속합니다.")
     query_limit=max(1,min(10,int(web_cfg.get("max_queries_per_book",8))))
     candidates={}; robots_cache={}; page_content_cache=OrderedDict(); search_result_cache=OrderedDict()
     checkpoint_every = max(25, min(1000, int(config.get("checkpoint_every_candidates", 50))))
@@ -494,14 +479,11 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                     log(callback, f"[동일 호스트 외부 리디렉션 차단] {request_url[:200]}")
                     route.abort("blockedbyclient")
                     return
-                search_hosts = {"google.com", "www.google.com", "bing.com", "www.bing.com",
-                                "duckduckgo.com", "html.duckduckgo.com"}
-                if host not in search_hosts:
-                    policy = robots_for_target(request_url)
-                    if policy is None or not policy.can_fetch(USER_AGENT, request_url):
-                        log(callback, f"[robots 정책으로 탐색 차단] {request_url[:200]}")
-                        route.abort("blockedbyclient")
-                        return
+                policy = robots_for_target(request_url)
+                if policy is None or not policy.can_fetch(USER_AGENT, request_url):
+                    log(callback, f"[robots 정책으로 탐색 차단] {request_url[:200]}")
+                    route.abort("blockedbyclient")
+                    return
             route.continue_()
         page.route("**/*", guard_browser_request)
         def remember_cache(cache, key, value, max_items):
@@ -602,50 +584,37 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                         if index == 1 or index % 10 == 0 or index == len(pages):
                             log(callback, f"[진행] {index}/{len(pages)} · {publisher or host} 자료실 · 후보 {len(candidates)}개")
                         time.sleep(delay)
-            if web_enabled and not (stop_event is not None and stop_event.is_set()):
+            if web_enabled and kakao_api_key and engines and not (stop_event is not None and stop_event.is_set()):
+                blocked_engines = set()
                 for book_index, book in enumerate(books, 1):
                     if stop_event is not None and stop_event.is_set(): break
                     log(callback, f"[진행] {book_index}/{len(books)} · {book['title']}")
                     queries=build_queries(book,query_limit); log(callback,f"[검색어 구성] {book['title']}: {len(queries)}개")
-                    seen_urls=set(); google_blocked=False; bing_blocked=False
+                    seen_urls=set()
                     for qi,query in enumerate(queries,1):
                         if stop_event is not None and stop_event.is_set(): break
                         results=[]
-                        if "bing" in engines and not bing_blocked:
+                        for engine in engines:
+                            if engine in blocked_engines:
+                                continue
+                            cache_key = (engine, query, search_limit)
                             try:
-                                cache_key = ("bing", query, search_limit)
                                 if cache_key in search_result_cache:
                                     got = search_result_cache[cache_key]
                                     search_result_cache.move_to_end(cache_key)
-                                    log(callback, f"[Bing 캐시] {len(got)}개 재사용")
+                                    log(callback, f"[{engine} 캐시] {len(got)}개 재사용")
                                 else:
-                                    got=search_bing_rss(query,search_limit)
+                                    got=search_kakao_api(query,engine,kakao_api_key,search_limit)
                                     remember_cache(search_result_cache, cache_key, got, 2000)
                                 results.extend(got)
-                                log(callback,f"[Bing {qi}/{len(queries)}] {len(got)}개 · {query}")
+                                log(callback,f"[{engine} {qi}/{len(queries)}] {len(got)}개 · {query}")
+                            except HTTPError as exc:
+                                log(callback,f"[{engine} API 실패] HTTP {exc.code}: {exc.reason}")
+                                if exc.code in (401,403,429):
+                                    blocked_engines.add(engine)
+                                    log(callback,f"[{engine} 중단] 인증·권한·쿼터 응답으로 이번 실행의 해당 검색 경로를 중단합니다.")
                             except Exception as exc:
-                                message = str(exc)
-                                log(callback,f"[Bing 검색 건너뜀] {book['title']}: {message}")
-                                if re.search(r"(?:HTTP\s*Error\s*)?(?:403|429)", message, re.I):
-                                    bing_blocked = True
-                                    log(callback, "[Bing 일시 중지] 접근 제한 응답을 받아 현재 교재의 추가 Bing 요청을 중단합니다.")
-                        if "google" in engines and not google_blocked:
-                            try:
-                                cache_key = ("google", query, search_limit)
-                                if cache_key in search_result_cache:
-                                    got = search_result_cache[cache_key]
-                                    search_result_cache.move_to_end(cache_key)
-                                    log(callback, f"[Google 캐시] {len(got)}개 재사용")
-                                else:
-                                    got=search_google_page(page,query,search_limit,allow_manual=headed,callback=callback)
-                                    remember_cache(search_result_cache, cache_key, got, 2000)
-                                results.extend(got); log(callback,f"[Google {qi}/{len(queries)}] {len(got)}개")
-                            except Exception as exc:
-                                log(callback,f"[Google 검색 건너뜀] {book['title']}: {exc}")
-                                if ("대기 시간이 끝났습니다" in str(exc) or "인증을 요구합니다" in str(exc)
-                                        or re.search(r"HTTP\s*(?:403|429)", str(exc), re.I)):
-                                    google_blocked=True
-                                    log(callback, "[Google 일시 중지] 접근 제한 또는 인증 응답을 받아 현재 교재의 추가 Google 요청을 중단합니다.")
+                                log(callback,f"[{engine} API 실패] {type(exc).__name__}: {exc}")
                         for item in results:
                             if stop_event is not None and stop_event.is_set(): break
                             raw=item.get("url","").strip(); parsed=urlparse(raw)
@@ -681,6 +650,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                     remember_cache(page_content_cache, target, (pt, desc, body), 1000)
                                     remember_cache(page_content_cache, final_url, (pt, desc, body), 1000)
                                     target = final_url
+                                    seen_urls.add(final_url)
                                     fetched_now = True
                                 else:
                                     pt,desc,body = cached
@@ -696,7 +666,6 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                         if likely_for_book >= early_stop_likely:
                             log(callback, f"[조기 종료] {book['title']}: likely 후보 {likely_for_book}개 확보")
                             break
-                        # Keep the configured polite interval between query batches.
                         time.sleep(delay)
                     likely_for_book = sum(1 for row in candidates.values()
                         if (row.get("book_id") or row.get("book_title")) == (book.get("id") or book.get("title"))
@@ -704,6 +673,8 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                     if likely_for_book >= early_stop_likely:
                         log(callback, f"[조기 종료] {book['title']}: likely 후보 {likely_for_book}개 확보")
                     log(callback,f"[웹 검색 완료] {book['title']} · 누적 후보 {len(candidates)}개")
+            elif web_enabled and engines and not kakao_api_key:
+                log(callback, "[검색 생략] Kakao REST API 키가 없어 API 검색을 실행하지 않았습니다.")
         finally:
             # Persist all collected candidates even when navigation or parsing raises.
             try:
