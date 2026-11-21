@@ -63,13 +63,18 @@ async function fetchRows(table, select) {
 }
 
 function qualifiesForIndex(book) {
-  const fields = [book.publisher, book.subject, book.grade, book.semester, book.series, book.edition].filter(value => String(value ?? '').trim());
-  // Keep every valid catalog detail page available, but only expose pages with meaningful book-specific content and a real source URL to search indexing.
-  const hasUsefulCatalogData = Boolean(book.title?.trim() && book.publisher?.trim() && fields.length >= 3);
+  const present = value => Boolean(String(value ?? '').trim());
+  const fields = [book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.curriculum_revision, book.isbn13].filter(present);
+  // A retailer URL is useful but is not a prerequisite for a book's own informational page.
+  // Require a substantial description plus several independently identifying catalog fields.
+  const hasUsefulCatalogData = Boolean(
+    present(book.title) && present(book.publisher) && present(book.subject) && present(book.grade) &&
+    fields.length >= 4 &&
+    (present(book.semester) || present(book.series) || present(book.edition) || present(book.isbn13))
+  );
   const hasSubstantiveDescription = String(book.description || '').trim().length >= 180;
-  const hasSourceUrl = isPublicHttpsUrl(book.book_url);
   const containsPlaceholder = /테스트|샘플|seed|example|예시|mock|placeholder/i.test([book.title, book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.description].join(' '));
-  return Boolean(hasUsefulCatalogData && hasSubstantiveDescription && hasSourceUrl && !containsPlaceholder);
+  return Boolean(hasUsefulCatalogData && hasSubstantiveDescription && !containsPlaceholder);
 }
 
 function subjectGuide(book) {
@@ -91,7 +96,8 @@ function pageHtml(template, book, bookLinks, relatedBooks) {
   const canonical = siteUrl ? siteUrl + '/books/' + encodeURIComponent(book.id) : '';
   const title = book.title + ' 교재 정보·답지 안내 | 답지모음';
   const facts = [book.publisher, book.subject, book.grade, book.semester, book.series, book.edition].filter(Boolean);
-  const description = (book.title + '의 출판사·과목·학년·학기 정보와 교재 소개, 서지정보 및 확인된 답지 링크를 안내합니다. ' + facts.join(' · ')).slice(0, 160);
+  const searchFacts = [book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.author, book.isbn13 ? 'ISBN ' + book.isbn13 : null].filter(Boolean);
+  const description = (book.title + ' 교재 정보. ' + searchFacts.join(' · ') + '. 교재 소개, 학습 활용법, 서지정보와 확인된 답지 자료를 확인하세요.').slice(0, 160);
   const verifiedLinks = bookLinks.filter(link => isRecentlyVerified(link) && isPublicHttpsUrl(link.url));
   const linksMarkup = verifiedLinks.map(link => '<li><a href="' + escapeHtml(link.url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(link.title) + '</a>' + (link.source_name ? ' <span>(' + escapeHtml(link.source_name) + ')</span>' : '') + '</li>').join('') || '<li>현재 확인된 답지 원본 링크가 없습니다. 교재명과 판본을 확인한 뒤 새 자료가 등록되면 반영합니다.</li>';
   const coverMarkup = isPublicHttpsUrl(book.thumbnail_url) ? '<figure class="mb-5"><img src="' + escapeHtml(book.thumbnail_url) + '" alt="' + escapeHtml(book.title) + ' 교재 표지" loading="eager" decoding="async" style="width:min(220px,60vw);max-height:300px;object-fit:contain" /><figcaption class="mt-2 text-xs text-[#8B95A1]">표지 이미지 · 출처: ' + escapeHtml(book.cover_image_source || '출처 확인 중') + '</figcaption></figure>' : '<p class="mb-5 text-sm text-[#8B95A1]">확인된 표지 이미지가 아직 등록되지 않았습니다.</p>';
