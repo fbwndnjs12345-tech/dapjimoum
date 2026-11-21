@@ -1,5 +1,5 @@
 {
-  "source_catalog_version": 2,
+  "source_catalog_version": 3,
   "sources": [
     {
       "publisher": "비상교육",
@@ -13,21 +13,21 @@
       "publisher": "지학사",
       "start_urls": [
         "https://www.jihak.co.kr/reference-book/reference-room",
-        "https://text.jihak.co.kr/"
+        "https://www.jihak.co.kr/reference-book"
       ]
     },
     {
       "publisher": "천재교육",
       "start_urls": [
         "https://book.chunjae.co.kr/#/textbook_pds",
-        "https://m.chunjaetext.co.kr/article/faq/3/345/"
+        "https://brand_check.chunjae.co.kr/"
       ]
     },
     {
       "publisher": "NE능률",
       "start_urls": [
         "https://www.nebooks.co.kr/pages/",
-        "https://www.nebooks.co.kr/pages/customer/faq.asp?p=3&t=2"
+        "https://www.nebooks.co.kr/pages/service/"
       ]
     },
     {
@@ -41,7 +41,7 @@
       "start_urls": [
         "https://truebook.sinsago.co.kr/book/pds.aspx?school_div=M",
         "https://truebook.sinsago.co.kr/book/pds.aspx?school_div=H",
-        "https://truebook.sinsago.co.kr/main/main.aspx"
+        "https://truebook.sinsago.co.kr/study/textbook_pds.aspx"
       ]
     }
   ],
