@@ -30,14 +30,14 @@ USER_AGENT = "DapjiMoumLocalFinder/2.4 (+local user-run tool)"
 ALIASES = {
     "id": ["id", "book_id", "교재 ID"],
     "title": ["title", "book_title", "교재명", "도서명", "책이름", "책 제목"],
-    "publisher": ["publisher", "출판사", "발행사"],
-    "subject": ["subject", "과목", "교과"],
-    "grade": ["grade", "학년"],
-    "semester": ["semester", "학기"],
-    "series": ["series", "시리즈", "교재 시리즈"],
+    "publisher": ["publisher", "출판사", "출판사명", "발행사", "발행처"],
+    "subject": ["subject", "과목", "과목명", "교과", "교과목"],
+    "grade": ["grade", "학년", "학교급", "대상학년"],
+    "semester": ["semester", "학기", "학기구분"],
+    "series": ["series", "시리즈", "교재 시리즈", "교재시리즈명"],
     "edition": ["edition", "판본", "개정판", "쇄"],
     "curriculum_revision": ["curriculum_revision", "교육과정", "개정 교육과정"],
-    "isbn13": ["isbn13", "isbn", "ISBN", "ISBN13"],
+    "isbn13": ["isbn13", "isbn", "ISBN", "ISBN13", "ISBN-13", "ISBN 번호"],
 }
 FIELDS = ["book_id", "book_title", "publisher", "subject", "grade", "semester", "series", "edition", "curriculum_revision", "isbn13",
           "candidate_title", "url", "source_name", "source_type", "snippet",
@@ -623,9 +623,9 @@ def wait_for_page_content(page, timeout_ms: int = 3500):
 
 def extract_answer_links(page, limit: int = 40):
     """Extract answer/download links with nearby row context, not the entire page text."""
-    return page.locator("a[href], area[href]").evaluate_all(
+    return page.locator("a[href], area[href], [data-href], [data-url]").evaluate_all(
         """(els, maxItems) => {
-            const relevant = /(정답|해설|답지|pdf|다운로드|자료실|자료|교재|학습|수업|첨부|정답표|resource|book|answer|solution|download|view|page|\\.pdf|\\.hwp|\\.zip)/i;
+            const relevant = /(정답|해설|답지|답안지|정답지|빠른정답|pdf|다운로드|자료실|자료|교재|학습|수업|첨부|정답표|resource|book|answer|solution|download|file|attach|pds|view|page|\\.pdf|\\.hwp|\\.zip)/i;
             return els.map(a => {
                 const row = a.closest('li, tr, article, dd, dt') ||
                     a.parentElement?.parentElement || a.parentElement || a;
@@ -687,7 +687,7 @@ def assess(book, title, snippet, terms):
     if expected_isbn and actual_isbns and not isbn_hit:
         edition_conflict = True
 
-    answer_signal = any(word in combined for word in ("정답", "해설", "답지", "answer", "solution"))
+    answer_signal = any(word in combined for word in ("정답", "해설", "답지", "답안지", "정답지", "빠른정답", "해설지", "answer", "answerkey", "solution"))
     matched = [term for term in terms if norm(term) and norm(term) in combined]
     tokens = [norm(token) for token in re.findall(r"[가-힣A-Za-z]+|[0-9]+", book.get("title", ""))
               if norm(token) and norm(token) not in {"중등", "중학", "중학교", "교재"}]
