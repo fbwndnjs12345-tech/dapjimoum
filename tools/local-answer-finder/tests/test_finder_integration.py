@@ -85,10 +85,7 @@ class FinderEndToEndTests(unittest.TestCase):
                 }, ensure_ascii=False), encoding="utf-8")
                 output = root / "api-free-candidates.csv"
                 messages = []
-                with patch("finder.is_safe_public_url",
-                           side_effect=lambda url, resolve_dns=False: url.startswith(base)), \\
-                     patch("finder.time.sleep"), \\
-                     patch("finder.search_kakao_api", side_effect=AssertionError("API must not be called")):
+                with patch("finder.is_safe_public_url", side_effect=lambda url, resolve_dns=False: url.startswith(base)), patch("finder.time.sleep"), patch("finder.search_kakao_api", side_effect=AssertionError("API must not be called")):
                     count = run_search(books, output, config, False, 10, messages.append)
                 self.assertGreaterEqual(count, 1, "\\n".join(messages))
                 with output.open("r", encoding="utf-8-sig", newline="") as handle:
