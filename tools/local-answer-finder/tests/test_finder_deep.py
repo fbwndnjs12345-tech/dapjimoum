@@ -193,20 +193,20 @@ class FinderDeepSafetyTests(unittest.TestCase):
         class Locator:
             def evaluate_all(self, _script):
                 return [
-                    {"action": "https://publisher.example/search", "name": "keyword",
+                    {"action": "https://publisher.testdomain.com/search", "name": "keyword",
                      "hidden": [["category", "answer"]]},
-                    {"action": "https://other.example/search", "name": "q", "hidden": []},
-                    {"action": "https://publisher.example/private", "name": "q", "hidden": []},
+                    {"action": "https://other.testdomain.com/search", "name": "q", "hidden": []},
+                    {"action": "https://publisher.testdomain.com/private", "name": "q", "hidden": []},
                 ]
         class Page:
             def locator(self, selector):
                 self.selector = selector
                 return Locator()
         page = Page()
-        urls = discover_site_search_urls(page, "오투 과학 정답과 해설", "publisher.example")
+        urls = discover_site_search_urls(page, "오투 과학 정답과 해설", "publisher.testdomain.com")
         self.assertEqual(len(urls), 1)
         parsed = urllib.parse.urlparse(urls[0])
-        self.assertEqual(parsed.netloc, "publisher.example")
+        self.assertEqual(parsed.netloc, "publisher.testdomain.com")
         params = urllib.parse.parse_qs(parsed.query)
         self.assertEqual(params["keyword"], ["오투 과학 정답과 해설"])
         self.assertEqual(params["category"], ["answer"])
@@ -216,12 +216,12 @@ class FinderDeepSafetyTests(unittest.TestCase):
             def evaluate_all(self, _script):
                 return [
                     {"action": "http://127.0.0.1/search", "name": "q", "hidden": []},
-                    {"action": "https://evil.example/search", "name": "q", "hidden": []},
+                    {"action": "https://evil.testdomain.com/search", "name": "q", "hidden": []},
                 ]
         class Page:
             def locator(self, _selector):
                 return Locator()
-        self.assertEqual(discover_site_search_urls(Page(), "답지", "publisher.example"), [])
+        self.assertEqual(discover_site_search_urls(Page(), "답지", "publisher.testdomain.com"), [])
 
     def test_answer_link_extraction_requests_nearby_context(self):
         class Locator:
@@ -249,7 +249,7 @@ class FinderDeepSafetyTests(unittest.TestCase):
         class Locator:
             def evaluate_all(self, script, limit):
                 self.script = script
-                return [{"href": "https://cdn.publisher.example/files/answer.pdf",
+                return [{"href": "https://cdn.publisher.testdomain.com/files/answer.pdf",
                          "text": "정답과 해설 다운로드", "context": "오투 과학 정답과 해설"}]
         class Page:
             def __init__(self): self.locator_result = Locator()
@@ -259,7 +259,7 @@ class FinderDeepSafetyTests(unittest.TestCase):
         page = Page()
         links = extract_answer_links(page, 20)
         self.assertIn("[data-href]", page.selector)
-        self.assertEqual(links[0]["href"], "https://cdn.publisher.example/files/answer.pdf")
+        self.assertEqual(links[0]["href"], "https://cdn.publisher.testdomain.com/files/answer.pdf")
 
     def test_kakao_search_rejects_unknown_provider(self):
         with self.assertRaisesRegex(ValueError, "지원하지 않는"):
