@@ -92,7 +92,7 @@ class FinderApp:
         self.headed = tk.BooleanVar(value=True)
         self.max_pages = tk.StringVar(value="80")
         self.auto_upload = tk.BooleanVar(value=False)
-        self.font_size_var = tk.StringVar(value="10")
+        self.font_size_var = tk.StringVar(value="11")
         self._build()
         self.root.after(150, self._poll)
 
@@ -1001,11 +1001,13 @@ def self_test():
         example = ROOT / "sources.example.json"
         config = json.loads(example.read_text(encoding="utf-8"))
         if not isinstance(config.get("sources"), list) or len(config["sources"]) < 6:
-            raise RuntimeError("예시 공식 출처 목록이 비어 있거나 5개 출판사 미만입니다.")
+            raise RuntimeError("예시 공식 출처 목록이 비어 있거나 6개 출판사 미만입니다.")
         expected_publishers = {"비상교육", "지학사", "천재교육", "NE능률", "좋은책신사고", "미래엔"}
         actual_publishers = {source.get("publisher") for source in config["sources"]}
         if not expected_publishers.issubset(actual_publishers):
             raise RuntimeError("공식 출처 목록의 출판사 구성이 올바르지 않습니다.")
+        if config.get("source_catalog_version", 0) < 2:
+            raise RuntimeError("공식 출처 카탈로그 버전이 최신이 아닙니다.")
         if config.get("web_search", {}).get("enabled") is not False:
             raise RuntimeError("API 없는 검색이 기본값으로 설정되지 않았습니다.")
         for source in config["sources"]:
