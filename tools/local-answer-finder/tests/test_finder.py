@@ -25,6 +25,29 @@ class FinderUnitTests(unittest.TestCase):
         self.assertTrue(is_human_verification_page(FakePage("Verify", "Please wait", ["https://www.google.com/recaptcha/api2/anchor"])))
         self.assertFalse(is_human_verification_page(FakePage("오투 답지", "정답과 해설 자료입니다.")))
 
+    def test_solved_recaptcha_checkbox_is_not_treated_as_pending(self):
+        class FakeLocator:
+            def get_attribute(self, name, timeout=None): return "true"
+        class FakeFrame:
+            url = "https://www.google.com/recaptcha/api2/anchor"
+            def locator(self, selector): return FakeLocator()
+        class FakePage:
+            frames = [FakeFrame()]
+            def title(self): return "Search results"
+            def locator(self, selector):
+                return type("Body", (), {"inner_text": lambda self, timeout=None: "정상 검색 결과"})()
+        self.assertFalse(is_human_verification_page(FakePage()))
+
+    def test_hidden_browser_does_not_claim_manual_verification_is_available(self):
+        class FakePage:
+            frames = []
+            def title(self): return "Verify"
+            def locator(self, selector):
+                return type("Body", (), {"inner_text": lambda self, timeout=None: "로봇이 아닙니다"})()
+        messages = []
+        self.assertFalse(wait_for_manual_verification(FakePage(), messages.append, False))
+        self.assertTrue(any("브라우저 표시가 꺼져" in message for message in messages))
+
     def test_captcha_widget_allowlist_is_narrow(self):
         self.assertTrue(is_captcha_provider_url("https://www.google.com/recaptcha/api2/anchor"))
         self.assertTrue(is_captcha_provider_url("https://challenges.cloudflare.com/turnstile/v0/api.js"))
