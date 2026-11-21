@@ -361,53 +361,52 @@ class FinderApp:
             self.progress_caption.configure(text=f"교재 처리 중 · {current:,}/{total:,} ({percent}%)")
 
     def _poll(self):
-        try:
-            while True:
+        # Drain a bounded number of events per tick so a burst of logs cannot freeze the UI.
+        for _ in range(250):
+            try:
                 kind, value = self.events.get_nowait()
-                if kind == "log":
-                    self.log_line(value)
-                elif kind == "status":
-                    self.status.set(value)
-                elif kind == "clear_password":
-                    self.password.set("")
-                elif kind == "books_path":
-                    self.books_path.set(value)
-                elif kind == "books_count":
-                    self.metric_books.set(f"{int(value):,}권")
-                elif kind == "connected":
-                    self.connection_badge.configure(text="● Supabase 연결됨", foreground="#176b43", background="#e8f5ed")
-                elif kind == "paused":
-                    self.run_button.configure(state="normal")
-                    self.stop_button.configure(state="disabled")
-                    self.progress.configure(value=100)
-                    self.progress_caption.configure(text="중지됨 · 현재까지의 결과를 저장했습니다.")
-                    self.metric_output.set("중지 저장")
-                    self.status.set(value)
-                    self.load_results()
-                    messagebox.showwarning("검색 중지", value)
-                elif kind == "done":
-                    self.stop_button.configure(state="disabled")
-                    self.run_button.configure(state="normal")
-                    if hasattr(self, "progress"):
-                        self.progress.configure(value=100)
-                    self.progress_caption.configure(text="완료 · 결과 CSV 저장됨")
-                    self.metric_output.set("완료")
-                    self.status.set(value)
-                    self.load_results()
-                    messagebox.showinfo("완료", value)
-                elif kind == "error":
-                    self.stop_button.configure(state="disabled")
-                    self.run_button.configure(state="normal")
-                    if hasattr(self, "progress"):
-                        self.progress.stop()
-                    self.progress_caption.configure(text="오류 · 로그를 확인하세요.")
-                    self.metric_output.set("오류")
-                    self.status.set("오류가 발생했습니다. 로그와 입력 설정을 확인하세요.")
-                    self.log_line("[오류] " + value)
-                    messagebox.showerror("오류", value)
-        except queue.Empty:
-            pass
-        self.root.after(150, self._poll)
+            except queue.Empty:
+                break
+            if kind == "log":
+                self.log_line(value)
+            elif kind == "status":
+                self.status.set(value)
+            elif kind == "clear_password":
+                self.password.set("")
+            elif kind == "books_path":
+                self.books_path.set(value)
+            elif kind == "books_count":
+                self.metric_books.set(f"{int(value):,}권")
+            elif kind == "connected":
+                self.connection_badge.configure(text="● Supabase 연결됨", foreground="#176b43", background="#e8f5ed")
+            elif kind == "paused":
+                self.run_button.configure(state="normal")
+                self.stop_button.configure(state="disabled")
+                self.progress.configure(value=100)
+                self.progress_caption.configure(text="중지됨 · 현재까지의 결과를 저장했습니다.")
+                self.metric_output.set("중지 저장")
+                self.status.set(value)
+                self.load_results()
+                messagebox.showwarning("검색 중지", value)
+            elif kind == "done":
+                self.stop_button.configure(state="disabled")
+                self.run_button.configure(state="normal")
+                self.progress.configure(value=100)
+                self.progress_caption.configure(text="완료 · 결과 CSV 저장됨")
+                self.metric_output.set("완료")
+                self.status.set(value)
+                self.load_results()
+                messagebox.showinfo("완료", value)
+            elif kind == "error":
+                self.stop_button.configure(state="disabled")
+                self.run_button.configure(state="normal")
+                self.progress.stop()
+                self.progress_caption.configure(text="오류 · 로그를 확인하세요.")
+                self.metric_output.set("오류")
+                self.status.set("오류가 발생했습니다. 로그와 입력 설정을 확인하세요.")
+                self.log_line("[오류] " + value)
+                messagebox.showerror("오류", value)
+        self.root.after(60 if not self.events.empty() else 150, self._poll)
 
     def choose_csv(self):
         path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
