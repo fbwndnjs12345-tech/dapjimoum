@@ -66,6 +66,7 @@ function isPublicIPv6(value: string): boolean {
     && !(first === 0x2001 && (second === 0x0db8 || second <= 0x0020));
 }
 
+const dnsSafetyCache = new Map<string, { expiresAt: number; isPublic: boolean }>();
 async function safeExternalUrl(value: string): Promise<boolean> {
   try {
     const url = new URL(value);
