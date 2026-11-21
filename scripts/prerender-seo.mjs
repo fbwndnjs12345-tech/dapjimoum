@@ -7,8 +7,6 @@ const outputRoot = path.join(projectRoot, 'dist');
 const env = loadEnv('production', projectRoot, ['NEXT_PUBLIC_', 'VITE_']);
 const siteUrl = (process.env.VITE_SITE_URL || env.VITE_SITE_URL || 'https://dapjimoum.pages.dev').trim().replace(/\/+$/, '');
 const contactEmail = (process.env.VITE_CONTACT_EMAIL || env.VITE_CONTACT_EMAIL || '').trim();
-const naverVerification = (process.env.VITE_NAVER_SITE_VERIFICATION || env.VITE_NAVER_SITE_VERIFICATION || '').trim();
-const naverVerificationMeta = naverVerification ? `<meta name="naver-site-verification" content="${escapeHtml(naverVerification)}" />` : '';
 const publisherId = (process.env.VITE_ADSENSE_CLIENT_ID || env.VITE_ADSENSE_CLIENT_ID || '').trim();
 const isValidPublisherId = /^ca-pub-\d{16}$/.test(publisherId);
 const adsenseCode = isValidPublisherId
@@ -20,6 +18,9 @@ const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || env.NEXT_PUBLIC_SUP
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
 })[char]);
+
+const naverVerification = (process.env.VITE_NAVER_SITE_VERIFICATION || env.VITE_NAVER_SITE_VERIFICATION || '').trim();
+const naverVerificationMeta = naverVerification ? `<meta name="naver-site-verification" content="${escapeHtml(naverVerification)}" />` : '';
 
 function stripMetaTag(html, attribute, name) {
   return html.replace(new RegExp(`<meta\\s+${attribute}="${name}"[^>]*\\/?\\s*>\\s*`, 'gi'), '');
