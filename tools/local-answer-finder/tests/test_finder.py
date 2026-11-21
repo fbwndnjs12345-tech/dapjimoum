@@ -91,8 +91,8 @@ class FinderUnitTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "books.csv"
             path.write_text(
-                "교재명,출판사명,과목명,학교급,학기구분,ISBN-13\\n"
-                "체크체크 수학 2-1,천재교과서,수학,중2,1학기,9781234567890\\n",
+                "교재명,출판사명,과목명,학교급,학기구분,ISBN-13\n"
+                "체크체크 수학 2-1,천재교과서,수학,중2,1학기,9781234567890\n",
                 encoding="utf-8"
             )
             row = read_books(path)[0]
@@ -119,7 +119,7 @@ class FinderUnitTests(unittest.TestCase):
     def test_run_search_rejects_empty_textbook_csv_before_browser_launch(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "books.csv"
-            path.write_text("title,publisher\\n", encoding="utf-8")
+            path.write_text("title,publisher\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "검색할 교재가 없습니다"):
                 run_search(path, Path(directory) / "out.csv",
                            Path(directory) / "missing-config.json", False, 20)
