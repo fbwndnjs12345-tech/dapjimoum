@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
 
-from finder import (ALIASES, allowed_host, assess, build_queries, canonicalize_url, norm, parse_sitemap,
+from finder import (ALIASES, allowed_host, assess, build_queries, build_publisher_queries, publisher_matches_source, canonicalize_url, norm, parse_sitemap,
                     read_books, robots_for, search_kakao_api, SafeRedirectHandler, USER_AGENT,
                     is_captcha_provider_url, is_human_verification_page, wait_for_manual_verification)
 
@@ -179,6 +179,26 @@ class FinderUnitTests(unittest.TestCase):
         _, status, _ = assess(book, "체크체크 중학 과학 2-1 정답과 해설",
                               "체크체크 과학 답지", ["답지"])
         self.assertEqual(status, "mismatch")
+
+    def test_publisher_aliases_match_common_csv_labels(self):
+        self.assertTrue(publisher_matches_source("천재교과서(주)", "천재교육"))
+        self.assertTrue(publisher_matches_source("비상", "비상교육"))
+        self.assertTrue(publisher_matches_source("동아출판(주)", "동아출판"))
+        self.assertFalse(publisher_matches_source("미래엔", "지학사"))
+        self.assertTrue(publisher_matches_source("", "지학사"))
+
+    def test_publisher_queries_use_plain_text_and_metadata(self):
+        book = {"title": "체크체크 중학 수학 2-1", "series": "체크체크",
+                "subject": "수학", "grade": "중2", "semester": "1학기",
+                "isbn13": "9781234567890"}
+        queries = build_publisher_queries(book, 4)
+        self.assertIn("체크체크 중학 수학 2-1", queries)
+        self.assertTrue(any("중2" in query and "1학기" in query for query in queries))
+        self.assertIn("9781234567890", queries)
+        self.assertFalse(any("site:" in query or '"' in query for query in queries))
+
+    def test_publisher_query_builder_handles_missing_title(self):
+        self.assertEqual(build_publisher_queries({"title": ""}), [])
 
     def test_build_queries_includes_blog_platforms(self):
         book = {"title": "오투 중등 과학 1-2", "series": "오투", "subject": "과학",
