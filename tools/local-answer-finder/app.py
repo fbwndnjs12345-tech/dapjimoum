@@ -547,31 +547,35 @@ class FinderApp:
                 self.anon_key_value = key
                 if not token:
                     raise RuntimeError("로그인 응답에 access_token이 없습니다.")
-                rows, offset, limit = [], 0, 1000
-                while True:
-                    query = urllib.parse.urlencode({"select": "id,title,publisher,subject,grade,semester,series,edition,curriculum_revision,isbn13", "order": "title.asc", "limit": str(limit), "offset": str(offset)})
-                    data = request_json(base + "/rest/v1/books?" + query,
-                        {"apikey": key, "Authorization": "Bearer " + token, "Accept": "application/json"})
-                    if not isinstance(data, list):
-                        raise RuntimeError("교재 목록 응답 형식이 올바르지 않습니다.")
-                    rows.extend(data)
-                    self.events.put(("log", f"교재 {len(rows)}권 불러옴"))
-                    if len(data) < limit:
-                        break
-                    offset += limit
-                if not rows:
-                    raise RuntimeError("교재가 0권 조회됐습니다. 관리자 계정의 books 읽기 권한과 Supabase URL을 확인하세요.")
                 path = APP_DATA_DIR / "books.csv"
+                temporary_path = path.with_suffix(".csv.tmp")
                 fields = ["id", "title", "publisher", "subject", "grade", "semester", "series", "edition", "curriculum_revision", "isbn13"]
-                with path.open("w", encoding="utf-8-sig", newline="") as f:
-                    writer = csv.DictWriter(f, fieldnames=fields)
+                total = 0
+                offset, limit = 0, 1000
+                with temporary_path.open("w", encoding="utf-8-sig", newline="") as output_file:
+                    writer = csv.DictWriter(output_file, fieldnames=fields)
                     writer.writeheader()
-                    writer.writerows(rows)
+                    while True:
+                        query = urllib.parse.urlencode({"select": ",".join(fields), "order": "title.asc,id.asc", "limit": str(limit), "offset": str(offset)})
+                        data = request_json(base + "/rest/v1/books?" + query,
+                            {"apikey": key, "Authorization": "Bearer " + token, "Accept": "application/json"})
+                        if not isinstance(data, list):
+                            raise RuntimeError("교재 목록 응답 형식이 올바르지 않습니다.")
+                        writer.writerows(data)
+                        total += len(data)
+                        self.events.put(("log", f"교재 {total:,}권 불러옴"))
+                        if len(data) < limit:
+                            break
+                        offset += limit
+                if total == 0:
+                    temporary_path.unlink(missing_ok=True)
+                    raise RuntimeError("교재가 0권 조회됐습니다. 관리자 계정의 books 읽기 권한과 Supabase URL을 확인하세요.")
+                temporary_path.replace(path)
                 self.events.put(("books_path", str(path)))
-                self.events.put(("books_count", len(rows)))
+                self.events.put(("books_count", total))
                 self.events.put(("connected", True))
                 self.events.put(("clear_password", ""))
-                self.events.put(("status", f"교재 {len(rows)}권 저장 완료: {path}"))
+                self.events.put(("status", f"교재 {total:,}권 저장 완료: {path}"))
             except Exception as exc:
                 self.events.put(("error", str(exc)))
         threading.Thread(target=worker, daemon=True).start()
