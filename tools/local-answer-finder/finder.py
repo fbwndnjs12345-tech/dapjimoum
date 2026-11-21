@@ -660,7 +660,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     unsupported = [engine for engine in web_cfg.get("engines", []) if engine not in allowed_engines and engine not in ("google", "bing")]
     if unsupported:
         log(callback, f"[지원하지 않는 검색 제공자 제외] {', '.join(unsupported)}")
-    search_limit=max(1,min(50,int(web_cfg.get("results_per_engine",8))))
+    search_limit=max(1,min(50,int(web_cfg.get("results_per_engine",12))))
     credentials = provider_credentials or {}
     kakao_api_key = (credentials.get("kakao_rest_api_key") or os.environ.get("KAKAO_REST_API_KEY", "")).strip()
     if web_enabled and not kakao_api_key:
@@ -673,7 +673,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     candidates={}; robots_cache=OrderedDict(); page_content_cache=OrderedDict(); search_result_cache=OrderedDict()
     checkpoint_every = max(25, min(1000, int(config.get("checkpoint_every_candidates", 50))))
     early_stop_likely = max(1, min(10, int(web_cfg.get("early_stop_likely_candidates_per_book", 3))))
-    max_candidates_per_book = max(1, min(50, int(web_cfg.get("max_candidates_per_book", 5))))
+    max_candidates_per_book = max(1, min(50, int(web_cfg.get("max_candidates_per_book", 12))))
     last_checkpoint = time.monotonic()
     log(callback,f"교재 {len(books)}권 · 공식 출처 {len(sources)}곳 · 공개 검색엔진 {', '.join(engines) if web_enabled else '사용 안 함'}")
     log(callback,f"검색 전략: 교재당 최대 {query_limit}개 검색어 · 엔진별 {search_limit}개 결과 · 검색어별 최대 {search_pages}페이지 · 실제 페이지 검증 최대 {max_pages_to_verify}개")
