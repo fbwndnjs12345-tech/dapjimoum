@@ -526,7 +526,15 @@ def upgrade_search_config(config: dict) -> tuple[dict, bool]:
     changed = False
     if source_catalog_version < 4:
         try:
-            catalog_path = Path(__file__).with_name("sources.example.json")
+            catalog_candidates = [Path(__file__).with_name("sources.example.json")]
+            executable_dir = Path(sys.executable).resolve().parent
+            catalog_candidates.append(executable_dir / "sources.example.json")
+            bundle_dir = getattr(sys, "_MEIPASS", None)
+            if bundle_dir:
+                catalog_candidates.append(Path(bundle_dir) / "sources.example.json")
+            catalog_path = next((item for item in catalog_candidates if item.is_file()), None)
+            if catalog_path is None:
+                raise FileNotFoundError("sources.example.json을 앱 폴더에서 찾을 수 없습니다.")
             catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
             target_catalog_version = int(catalog.get("source_catalog_version", 1))
             configured = config.setdefault("sources", [])
