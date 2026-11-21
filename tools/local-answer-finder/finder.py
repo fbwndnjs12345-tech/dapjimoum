@@ -632,9 +632,15 @@ def extract_answer_links(page, limit: int = 40):
                     a.parentElement?.parentElement || a.parentElement || a;
                 const text = (a.innerText || a.getAttribute('aria-label') ||
                     a.getAttribute('title') || '').trim();
+                const onclick = a.getAttribute('onclick') || '';
+                const clickMatch = onclick.match(/(?:window\\.open|location(?:\\.href)?)\\s*\\(\\s*['"]([^'"]+)['"]/i);
+                const rawHref = a.getAttribute('href') || a.getAttribute('data-href') ||
+                    a.getAttribute('data-url') || (clickMatch && clickMatch[1]) || '';
+                let href = '';
+                try { href = rawHref ? new URL(rawHref, location.href).href : (a.href || ''); } catch (_) {}
                 const context = (row.innerText || row.textContent || '')
                     .replace(/\\s+/g, ' ').trim().slice(0, 1600);
-                return {href: a.href, text, context};
+                return {href, text, context};
             }).filter(x => relevant.test([x.text, x.href, x.context].join(' ')))
               .filter(x => /^https?:\\/\\//i.test(x.href))
               .slice(0, maxItems);
