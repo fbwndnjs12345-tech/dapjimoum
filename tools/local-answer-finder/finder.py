@@ -526,10 +526,10 @@ def upgrade_search_config(config: dict) -> tuple[dict, bool]:
         return config, False
     web_cfg["max_queries_per_book"] = max(8, int(web_cfg.get("max_queries_per_book", 3)))
     web_cfg["results_per_engine"] = max(12, int(web_cfg.get("results_per_engine", 5)))
-    web_cfg["max_candidates_per_book"] = max(12, int(web_cfg.get("max_candidates_per_book", 5)))
+    web_cfg["max_candidates_per_book"] = max(20, int(web_cfg.get("max_candidates_per_book", 5)))
     web_cfg["max_search_pages_per_query"] = max(2, min(3, int(web_cfg.get("max_search_pages_per_query", 1))))
-    web_cfg["strategy_version"] = 2
-    config["max_pages_to_verify_per_book"] = max(40, int(config.get("max_pages_to_verify_per_book", 40)))
+    web_cfg["strategy_version"] = 3
+    config["max_pages_to_verify_per_book"] = max(80, int(config.get("max_pages_to_verify_per_book", 40)))
     config["api_request_delay_seconds"] = max(0.0, min(0.5, float(config.get("api_request_delay_seconds", 0.1))))
     return config, True
 
@@ -966,7 +966,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                             for link in links:
                                 target=link.get("href","")
                                 # Publisher-hosted downloads may use a separate public CDN.
-                                if is_safe_public_url(target, resolve_dns=True):
+                                if is_safe_public_url(target):
                                     target_policy = robots_for_target(target)
                                     if target_policy is not None and target_policy.can_fetch(USER_AGENT, target):
                                         link_context = " ".join(x for x in (
