@@ -18,7 +18,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.1.0"
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 if getattr(sys, "frozen", False):
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(ROOT / "ms-playwright")
@@ -190,7 +190,7 @@ class FinderApp:
 
         supa = ttk.Frame(account, style="Surface.TFrame", padding=18)
         supa.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
-        ttk.Label(supa, text="Supabase 연결", style="Section.TLabel").grid(
+        ttk.Label(supa, text="서비스 연결 및 검색 API", style="Section.TLabel").grid(
             row=0, column=0, columnspan=3, sticky="w", pady=(0, 5))
         ttk.Label(supa, text="관리자 계정으로 교재 목록을 가져오고, 탐색 결과를 검수 대기 후보로 전달합니다.",
                   style="MetricCaption.TLabel", wraplength=620).grid(
@@ -205,7 +205,7 @@ class FinderApp:
                    style="Accent.TButton").pack(side="left")
         ttk.Button(buttons, text="후보 업로드", command=self.upload_candidates).pack(side="left", padx=(8, 0))
         ttk.Separator(supa).grid(row=7, column=0, columnspan=3, sticky="ew", pady=(16, 10))
-        ttk.Label(supa, text="공식 검색 API", style="Section.TLabel").grid(row=8, column=0, sticky="w", pady=(0, 6))
+        ttk.Label(supa, text="검색 API 키 (Supabase와 별개)", style="Section.TLabel").grid(row=8, column=0, sticky="w", pady=(0, 6))
         self._entry(supa, "Kakao REST API Key", self.kakao_api_key, 9, show="•", reveal_var=self.kakao_key_visible, reveal_label="API 키 표시")
         ttk.Label(supa, text="검색 키는 실행 중 메모리에서만 사용합니다. 설정 파일에는 저장하지 않습니다. "
                   "Google/Bing 검색 결과 페이지 직접 수집은 robots.txt 및 서비스 정책 때문에 비활성화했습니다.",
