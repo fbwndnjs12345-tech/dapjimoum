@@ -555,17 +555,18 @@ def upgrade_search_config(config: dict) -> tuple[dict, bool]:
             changed = True
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
             raise ValueError(f"기본 출판사 출처 목록을 불러오지 못했습니다: {exc}") from exc
-    if version >= 3:
-        return config, changed
+    old_values = dict(web_cfg)
+    old_page_limit = config.get("max_pages_to_verify_per_book", 40)
     web_cfg["max_queries_per_book"] = max(8, int(web_cfg.get("max_queries_per_book", 3)))
     web_cfg["results_per_engine"] = max(12, int(web_cfg.get("results_per_engine", 5)))
     web_cfg["max_candidates_per_book"] = max(20, int(web_cfg.get("max_candidates_per_book", 5)))
     web_cfg["max_search_pages_per_query"] = max(2, min(3, int(web_cfg.get("max_search_pages_per_query", 1))))
     web_cfg["strategy_version"] = 3
-    config["max_pages_to_verify_per_book"] = max(80, int(config.get("max_pages_to_verify_per_book", 40)))
-    changed = True
+    config["max_pages_to_verify_per_book"] = max(80, int(old_page_limit))
     config["api_request_delay_seconds"] = max(0.0, min(0.5, float(config.get("api_request_delay_seconds", 0.1))))
-    return config, True
+    if web_cfg != old_values or config["max_pages_to_verify_per_book"] != old_page_limit:
+        changed = True
+    return config, changed
 
 
 def _candidate_rank(row: dict) -> tuple[int, int]:
