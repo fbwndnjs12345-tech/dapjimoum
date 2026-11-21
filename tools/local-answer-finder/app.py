@@ -1006,7 +1006,7 @@ def self_test():
         actual_publishers = {source.get("publisher") for source in config["sources"]}
         if not expected_publishers.issubset(actual_publishers):
             raise RuntimeError("공식 출처 목록의 출판사 구성이 올바르지 않습니다.")
-        if config.get("source_catalog_version", 0) < 2:
+        if config.get("source_catalog_version", 0) < 3:
             raise RuntimeError("공식 출처 카탈로그 버전이 최신이 아닙니다.")
         if config.get("web_search", {}).get("enabled") is not False:
             raise RuntimeError("API 없는 검색이 기본값으로 설정되지 않았습니다.")
