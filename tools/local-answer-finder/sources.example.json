@@ -3,21 +3,43 @@
     {
       "publisher": "비상교육",
       "start_urls": [
-        "https://s-book.visang.com/resources",
         "https://t-book.visang.com/resources",
-        "https://book.visang.com/search"
+        "https://book.visang.com/search",
+        "https://s-book.visang.com/resources"
       ]
     },
     {
       "publisher": "지학사",
       "start_urls": [
         "https://www.jihak.co.kr/reference-book/reference-room",
-        "https://m.jihak.co.kr/tb/rfbook/book_list_pds_eng.asp"
+        "https://text.jihak.co.kr/"
+      ]
+    },
+    {
+      "publisher": "천재교육",
+      "start_urls": [
+        "https://book.chunjae.co.kr/#/textbook_pds",
+        "https://m.chunjaetext.co.kr/article/faq/3/345/"
+      ]
+    },
+    {
+      "publisher": "NE능률",
+      "start_urls": [
+        "https://www.nebooks.co.kr/pages/",
+        "https://www.nebooks.co.kr/pages/customer/faq.asp?p=3&t=2"
+      ]
+    },
+    {
+      "publisher": "좋은책신사고",
+      "start_urls": [
+        "https://truebook.sinsago.co.kr/book/pds.aspx?school_div=M",
+        "https://truebook.sinsago.co.kr/book/pds.aspx?school_div=H",
+        "https://truebook.sinsago.co.kr/main/main.aspx"
       ]
     }
   ],
-  "max_sitemap_urls_per_source": 80,
-  "max_pages_to_verify_per_book": 40,
+  "max_sitemap_urls_per_source": 120,
+  "max_pages_to_verify_per_book": 80,
   "api_request_delay_seconds": 0.1,
   "request_delay_seconds": 1,
   "page_timeout_ms": 20000,
@@ -26,6 +48,10 @@
     "정답·해설",
     "정답 및 해설",
     "정답 해설",
+    "정답지",
+    "답안지",
+    "빠른 정답",
+    "해설지",
     "답지"
   ],
   "web_search": {
@@ -33,9 +59,9 @@
     "engines": [],
     "results_per_engine": 12,
     "max_queries_per_book": 8,
-    "max_candidates_per_book": 12,
+    "max_candidates_per_book": 20,
     "max_search_pages_per_query": 2,
-    "strategy_version": 2,
+    "strategy_version": 3,
     "early_stop_likely_candidates_per_book": 3
   }
 }
