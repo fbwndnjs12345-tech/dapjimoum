@@ -810,20 +810,21 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                 navigation_host_guard = None
                             if response and response.status>=400: continue
                             if not wait_for_manual_verification(page, callback, headed, stop_event): continue
+                            wait_for_page_content(page, timeout_ms=min(timeout, 5000))
                             if not allowed_host(page.url,host) or not is_safe_public_url(page.url, resolve_dns=True): continue
                             final_robots = robots_for_target(page.url)
                             if final_robots is None or not final_robots.can_fetch(USER_AGENT, page.url): continue
                             title,description,body=extract_page(page); combined=" ".join([title,description,body])
                             remember_cache(page_content_cache, canonicalize_url(page.url), (title, description, body), 1000)
-                            links=page.locator("a[href]").evaluate_all("""els => els.map(a => ({
-                              href:a.href,text:(a.innerText||a.getAttribute('aria-label')||'').trim()
-                            })).filter(x => /정답|해설|답지|pdf/i.test(x.text+' '+x.href)).slice(0,20)""")
+                            links=extract_answer_links(page, 40)
                             targets=[]
-                            if any(norm(term) in norm(combined) for term in terms): targets.append((url,title," ".join([description,body])))
+                            if any(norm(term) in norm(combined) for term in terms):
+                                targets.append((url,title," ".join([description,body])))
                             for link in links:
                                 target=link.get("href","")
                                 if allowed_host(target,host) and robots.can_fetch(USER_AGENT,target):
-                                    targets.append((target,link.get("text") or "정답과 해설"," ".join([description,body])))
+                                    context = link.get("context") or link.get("text") or ""
+                                    targets.append((target,link.get("text") or "정답과 해설",context))
                             for book in source_books:
                                 for target,target_title,snippet in targets:
                                     add_candidate(book,target,target_title,snippet,"publisher")
