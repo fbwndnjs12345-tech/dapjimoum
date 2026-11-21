@@ -11,7 +11,7 @@ Windows용 데스크톱 프로그램입니다. Kakao 공식 REST API의 웹문�
 3. ZIP을 압축 해제합니다.
 4. 폴더 안의 DapjiMoumFinder.exe를 실행합니다.
 
-이 패키지는 Python, 라이브러리, Playwright Chromium을 함께 포함하므로 별도 Python 설치나 BAT 실행이 필요하지 않습니다.
+이 패키지는 Python과 필요한 라이브러리를 포함하므로 별도 Python 설치나 BAT 실행이 필요하지 않습니다. 브라우저는 Windows에 설치된 Microsoft Edge를 우선 사용하고, Edge가 없으면 Google Chrome을 사용합니다. 브라우저를 패키지에 중복 포함하지 않아 다운로드 크기를 줄였습니다.
 
 **스마트 앱 컨트롤 관련 주의:** 서명되지 않은 실행 파일은 스마트 앱 컨트롤이 차단할 수 있습니다. EXE 패키징만으로 차단 해제가 보장되지는 않습니다. 현재 빌드에는 코드 서명 인증서가 없습니다. 스마트 앱 컨트롤을 끄거나 우회하지 마세요.
 
