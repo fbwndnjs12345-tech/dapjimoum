@@ -660,12 +660,74 @@ class FinderApp:
         from finder import canonicalize_url, is_safe_public_url
 
         endpoint = self.project_url + "/functions/v1/answer-link-import-candidates"
-        inserted = duplicates = sent = 0
         headers = {
             "apikey": self.anon_key_value,
             "Authorization": "Bearer " + self.access_token,
             "Content-Type": "application/json",
         }
+
+        def prepare_candidate(row, line_number, validate_network):
+            book_id = str(row.get("book_id") or "").strip()
+            if not book_id or not row.get("url"):
+                raise RuntimeError(f"CSV {line_number}행에 교재 ID 또는 URL이 없습니다.")
+            try:
+                uuid.UUID(book_id)
+            except (ValueError, TypeError, AttributeError):
+                raise RuntimeError(f"CSV {line_number}행의 교재 ID가 UUID 형식이 아닙니다.")
+            candidate_url = str(row.get("url") or "").strip()
+            if len(candidate_url) > 2048:
+                raise RuntimeError(f"CSV {line_number}행의 URL이 2,048자를 초과합니다.")
+            if validate_network and not is_safe_public_url(candidate_url, resolve_dns=True):
+                raise RuntimeError(f"공개 HTTP(S) URL이 아니거나 안전한 공개 호스트가 아닙니다: {candidate_url[:180]}")
+            candidate_url = canonicalize_url(candidate_url)
+            status = str(row.get("match_status") or "uncertain").strip().lower()
+            if status not in ("likely", "uncertain"):
+                raise RuntimeError(f"CSV {line_number}행의 매칭 상태가 업로드 허용값이 아닙니다: {status}")
+            try:
+                raw_score = float(row.get("match_score") or 0)
+            except (TypeError, ValueError):
+                raw_score = 0
+            score = int(max(0, min(100, raw_score))) if math.isfinite(raw_score) else 0
+            evidence = {
+                "matched_answer_terms": row.get("matched_answer_terms", ""),
+                "book_title": row.get("book_title", ""),
+                "series": row.get("series", ""),
+                "subject": row.get("subject", ""),
+                "grade": row.get("grade", ""),
+                "semester": row.get("semester", ""),
+                "edition": row.get("edition", ""),
+                "curriculum_revision": row.get("curriculum_revision", ""),
+                "isbn13": row.get("isbn13", ""),
+            }
+            if len(json.dumps(evidence, ensure_ascii=False)) > 8000:
+                raise RuntimeError(f"CSV {line_number}행의 매칭 근거가 8KB 제한을 초과합니다.")
+            return {
+                "book_id": book_id,
+                "title": str(row.get("candidate_title") or row.get("source_name") or "답지 후보")[:300],
+                "url": candidate_url,
+                "snippet": str(row.get("snippet", ""))[:4000],
+                "match_status": status,
+                "match_score": score,
+                "match_evidence": evidence,
+                "link_type": str(row.get("link_type", "웹페이지"))[:40],
+                "source_type": "official" if row.get("source_type") == "publisher" else "general",
+                "query": str(row.get("search_query") or "local-search")[:500],
+            }
+
+        # Validate the entire file before the first network write to avoid partial uploads
+        # caused by a malformed later row.
+        total_rows = 0
+        with OUTPUT.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            if not {"book_id", "url"}.issubset(set(reader.fieldnames or [])):
+                raise RuntimeError("CSV에 book_id와 url 열이 없습니다. Supabase에서 내려받은 교재 CSV로 다시 탐색하세요.")
+            for line_number, row in enumerate(reader, start=2):
+                prepare_candidate(row, line_number, validate_network=True)
+                total_rows += 1
+        if total_rows == 0:
+            return 0, 0
+
+        inserted = duplicates = sent = 0
 
         def send_batch(batch):
             nonlocal inserted, duplicates, sent, headers
@@ -680,51 +742,12 @@ class FinderApp:
             inserted += int(result.get("inserted", 0))
             duplicates += int(result.get("duplicates", 0))
             sent += len(batch)
-            self.events.put(("log", f"[Supabase 업로드] {sent:,}개 처리 · 신규 {inserted:,} · 중복 {duplicates:,}"))
+            self.events.put(("log", f"[Supabase 업로드] {sent:,}/{total_rows:,}개 처리 · 신규 {inserted:,} · 중복 {duplicates:,}"))
 
         batch = []
         with OUTPUT.open("r", encoding="utf-8-sig", newline="") as handle:
-            reader = csv.DictReader(handle)
-            required = {"book_id", "url"}
-            if not required.issubset(set(reader.fieldnames or [])):
-                raise RuntimeError("CSV에 book_id와 url 열이 없습니다. Supabase에서 내려받은 교재 CSV로 다시 탐색하세요.")
-            for line_number, row in enumerate(reader, start=2):
-                if not row.get("book_id") or not row.get("url"):
-                    raise RuntimeError(f"CSV {line_number}행에 교재 ID 또는 URL이 없습니다.")
-                candidate_url = (row.get("url") or "").strip()
-                if not is_safe_public_url(candidate_url, resolve_dns=True):
-                    raise RuntimeError(f"공개 HTTP(S) URL이 아니거나 안전한 공개 호스트가 아닙니다: {candidate_url[:180]}")
-                candidate_url = canonicalize_url(candidate_url)
-                try:
-                    raw_score = float(row.get("match_score") or 0)
-                except (TypeError, ValueError):
-                    raw_score = 0
-                score = int(max(0, min(100, raw_score))) if math.isfinite(raw_score) else 0
-                evidence = {
-                    "matched_answer_terms": row.get("matched_answer_terms", ""),
-                    "book_title": row.get("book_title", ""),
-                    "series": row.get("series", ""),
-                    "subject": row.get("subject", ""),
-                    "grade": row.get("grade", ""),
-                    "semester": row.get("semester", ""),
-                    "edition": row.get("edition", ""),
-                    "curriculum_revision": row.get("curriculum_revision", ""),
-                    "isbn13": row.get("isbn13", ""),
-                }
-                if len(json.dumps(evidence, ensure_ascii=False)) > 8000:
-                    raise RuntimeError(f"CSV {line_number}행의 매칭 근거가 8KB 제한을 초과합니다.")
-                batch.append({
-                    "book_id": row["book_id"],
-                    "title": row.get("candidate_title") or row.get("source_name") or "답지 후보",
-                    "url": candidate_url,
-                    "snippet": row.get("snippet", "")[:4000],
-                    "match_status": row.get("match_status", "uncertain"),
-                    "match_score": score,
-                    "match_evidence": evidence,
-                    "link_type": row.get("link_type", "웹페이지"),
-                    "source_type": "official" if row.get("source_type") == "publisher" else "general",
-                    "query": row.get("search_query") or "local-search",
-                })
+            for line_number, row in enumerate(csv.DictReader(handle), start=2):
+                batch.append(prepare_candidate(row, line_number, validate_network=False))
                 if len(batch) == 100:
                     send_batch(batch)
                     batch = []
