@@ -122,7 +122,7 @@ class FinderDeepSafetyTests(unittest.TestCase):
         self.assertFalse(changed_again)
         self.assertEqual(again, upgraded)
 
-    def test_catalog_v1_migrates_to_v3_and_adds_mirae(self):
+    def test_catalog_v1_migrates_to_v4_and_adds_mirae(self):
         config = {"source_catalog_version": 1,
                   "sources": [{"publisher": "사용자 출처",
                                "start_urls": ["https://custom.example/"]}],
@@ -133,7 +133,7 @@ class FinderDeepSafetyTests(unittest.TestCase):
         self.assertIn("미래엔", {item["publisher"] for item in upgraded["sources"]})
         self.assertIn("사용자 출처", {item["publisher"] for item in upgraded["sources"]})
 
-    def test_catalog_v2_migrates_to_v3_official_portal_urls(self):
+    def test_catalog_v2_migrates_to_v4_official_portal_urls(self):
         config = {"source_catalog_version": 2,
                   "sources": [{"publisher": "천재교육", "start_urls": ["https://book.chunjae.co.kr/"]}],
                   "web_search": {"strategy_version": 3}}
