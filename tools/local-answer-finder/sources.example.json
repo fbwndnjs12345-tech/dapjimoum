@@ -21,8 +21,9 @@
   "web_search": {
     "enabled": true,
     "engines": [
-      "google",
-      "bing"
+      "kakao_web",
+      "kakao_blog",
+      "kakao_cafe"
     ],
     "results_per_engine": 5,
     "max_queries_per_book": 3,
