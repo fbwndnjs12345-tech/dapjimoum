@@ -703,15 +703,15 @@ class FinderApp:
                 raise RuntimeError(f"CSV {line_number}행의 매칭 근거가 3KB 제한을 초과합니다.")
             return {
                 "book_id": book_id,
-                "title": str(row.get("candidate_title") or row.get("source_name") or "답지 후보")[:300],
+                "title": str(row.get("candidate_title") or row.get("source_name") or "답지 후보")[:200],
                 "url": candidate_url,
-                "snippet": str(row.get("snippet", ""))[:1000],
+                "snippet": str(row.get("snippet", ""))[:500],
                 "match_status": status,
                 "match_score": score,
                 "match_evidence": evidence,
                 "link_type": str(row.get("link_type", "웹페이지"))[:40],
                 "source_type": "official" if row.get("source_type") == "publisher" else "general",
-                "query": str(row.get("search_query") or "local-search")[:500],
+                "query": str(row.get("search_query") or "local-search")[:300],
             }
 
         # Validate the entire file before the first network write to avoid partial uploads
