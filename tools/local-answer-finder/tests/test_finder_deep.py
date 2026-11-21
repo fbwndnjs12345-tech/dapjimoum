@@ -230,9 +230,25 @@ class FinderDeepSafetyTests(unittest.TestCase):
                 return self.loc
         page = Page()
         result = extract_answer_links(page, 40)
-        self.assertEqual(page.selector, "a[href], area[href]")
+        self.assertEqual(page.selector, "a[href], area[href], [data-href], [data-url]")
         self.assertEqual(page.loc.args, 40)
         self.assertIn("context", result[0])
+
+    def test_answer_link_extraction_includes_data_attribute_downloads(self):
+        class Locator:
+            def evaluate_all(self, script, limit):
+                self.script = script
+                return [{"href": "https://cdn.publisher.example/files/answer.pdf",
+                         "text": "정답과 해설 다운로드", "context": "오투 과학 정답과 해설"}]
+        class Page:
+            def __init__(self): self.locator_result = Locator()
+            def locator(self, selector):
+                self.selector = selector
+                return self.locator_result
+        page = Page()
+        links = extract_answer_links(page, 20)
+        self.assertIn("[data-href]", page.selector)
+        self.assertEqual(links[0]["href"], "https://cdn.publisher.example/files/answer.pdf")
 
     def test_kakao_search_rejects_unknown_provider(self):
         with self.assertRaisesRegex(ValueError, "지원하지 않는"):
