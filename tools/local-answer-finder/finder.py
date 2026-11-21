@@ -88,10 +88,33 @@ def is_human_verification_page(page) -> bool:
     if any(signal in title or signal in body for signal in signals):
         return True
     try:
-        frames = [frame.url.casefold() for frame in page.frames]
-        if any(("recaptcha" in url or "hcaptcha" in url or "challenges.cloudflare.com" in url)
-               for url in frames):
-            return True
+        for frame in page.frames:
+            frame_url = frame.url.casefold()
+            if "recaptcha" in frame_url:
+                if "bframe" in frame_url or "challenge" in frame_url:
+                    return True
+                if "anchor" in frame_url:
+                    try:
+                        checked = frame.locator("#recaptcha-anchor").get_attribute("aria-checked", timeout=500)
+                        if checked == "false":
+                            return True
+                        if checked == "true":
+                            continue
+                    except Exception:
+                        pass
+            if "hcaptcha" in frame_url and ("challenge" in frame_url or "captcha" in frame_url):
+                try:
+                    checked = frame.locator("[aria-checked]").first.get_attribute("aria-checked", timeout=500)
+                    if checked == "false":
+                        return True
+                    if checked == "true":
+                        continue
+                except Exception:
+                    pass
+            if "challenges.cloudflare.com" in frame_url and any(
+                word in body for word in ("verify you are human", "보안 확인", "사람인지 확인")
+            ):
+                return True
     except Exception:
         pass
     return False
@@ -571,9 +594,6 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
             if parsed_request.scheme in ("data", "blob", "about"):
                 route.continue_()
                 return
-            if route.request.resource_type in ("image", "media", "font"):
-                route.abort("blockedbyclient")
-                return
             navigation = route.request.is_navigation_request()
             host_key = (parsed_request.hostname or "").lower()
             cached_dns = dns_safety_cache.get(host_key)
@@ -592,6 +612,9 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
             # remain subject to the existing host and robots restrictions.
             if headed and is_captcha_provider_url(request_url):
                 route.continue_()
+                return
+            if route.request.resource_type in ("image", "media", "font"):
+                route.abort("blockedbyclient")
                 return
             if navigation and navigation_host_guard:
                 host = (urlparse(request_url).hostname or "").lower()
