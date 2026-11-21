@@ -475,17 +475,17 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                 log(callback, f"[비공개/로컬 네트워크 요청 차단] {request_url[:200]}")
                 route.abort("blockedbyclient")
                 return
-            if navigation:
+            if navigation and navigation_host_guard:
                 host = (urlparse(request_url).hostname or "").lower()
-                if navigation_host_guard and host != navigation_host_guard:
+                if host != navigation_host_guard:
                     log(callback, f"[동일 호스트 외부 리디렉션 차단] {request_url[:200]}")
                     route.abort("blockedbyclient")
                     return
-                policy = robots_for_target(request_url)
-                if policy is None or not policy.can_fetch(USER_AGENT, request_url):
-                    log(callback, f"[robots 정책으로 탐색 차단] {request_url[:200]}")
-                    route.abort("blockedbyclient")
-                    return
+            policy = robots_for_target(request_url)
+            if policy is None or not policy.can_fetch(USER_AGENT, request_url):
+                log(callback, f"[robots 정책으로 탐색 차단] {request_url[:200]}")
+                route.abort("blockedbyclient")
+                return
             route.continue_()
         page.route("**/*", guard_browser_request)
         def remember_cache(cache, key, value, max_items):
