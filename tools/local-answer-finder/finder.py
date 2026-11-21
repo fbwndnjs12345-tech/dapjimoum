@@ -26,7 +26,7 @@ from urllib.error import HTTPError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-USER_AGENT = "DapjiMoumLocalFinder/2.4 (+local user-run tool)"
+USER_AGENT = "DapjiMoumLocalFinder/2.6.1 (+local user-run tool)"
 ALIASES = {
     "id": ["id", "book_id", "교재 ID"],
     "title": ["title", "book_title", "교재명", "도서명", "책이름", "책 제목"],
