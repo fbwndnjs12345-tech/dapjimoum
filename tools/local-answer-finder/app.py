@@ -496,6 +496,8 @@ class FinderApp:
                 raise ValueError("sources는 배열이어야 합니다.")
             if not sources and not web_enabled:
                 raise ValueError("출판사 자료실 출처를 하나 이상 추가하거나 검색 API를 선택하세요.")
+            if not sources and not self.kakao_api_key.get().strip():
+                raise ValueError("API 키 없이 검색하려면 출판사 공식 자료실 주소를 sources에 1곳 이상 추가하세요.")
             engines = web_cfg.get("engines", ["kakao_web", "kakao_blog", "kakao_cafe"])
             if not isinstance(engines, list):
                 raise ValueError("web_search.engines는 배열이어야 합니다.")
