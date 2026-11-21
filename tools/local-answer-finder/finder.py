@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Discover answer-link candidates from configured sites and public search result pages.
-Search result access is best-effort; the crawler never bypasses robots, logins,
-CAPTCHAs, paywalls, or other access controls.
+"""Discover answer-link candidates from configured publisher sites and official search APIs.
+The crawler never bypasses robots, logins, CAPTCHAs, paywalls, or other access controls.
 """
 from __future__ import annotations
 
