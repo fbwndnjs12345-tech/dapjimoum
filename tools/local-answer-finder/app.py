@@ -93,7 +93,7 @@ class FinderApp:
         self.password_visible = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value="Supabase에서 교재를 불러오거나 CSV 파일을 선택하세요.")
         self.headed = tk.BooleanVar(value=False)
-        self.max_pages = tk.StringVar(value="500")
+        self.max_pages = tk.StringVar(value="80")
         self.auto_upload = tk.BooleanVar(value=False)
         self._build()
         self.root.after(150, self._poll)
@@ -509,7 +509,7 @@ class FinderApp:
             timeout = int(config.get("page_timeout_ms", 20000))
             pages = int(config.get("max_sitemap_urls_per_source", 500))
             terms = config.get("answer_keywords")
-            if not math.isfinite(delay) or delay < 1 or timeout < 1000 or pages < 1:
+            if not math.isfinite(delay) or delay < 1 or timeout < 1000 or pages < 1 or pages > 500:
                 raise ValueError("요청 간격은 1초 이상, 페이지 시간 제한은 1000ms 이상, 최대 페이지는 1 이상이어야 합니다.")
             if not isinstance(terms, list) or not terms or any(not isinstance(term, str) or not term.strip() for term in terms):
                 raise ValueError("answer_keywords는 비어 있지 않은 문자열 배열이어야 합니다.")
@@ -592,8 +592,8 @@ class FinderApp:
             if not self.save_config():
                 return
             max_pages = int(self.max_pages.get())
-            if max_pages < 1:
-                raise ValueError("최대 페이지는 1 이상이어야 합니다.")
+            if max_pages < 1 or max_pages > 500:
+                raise ValueError("출처별 페이지 한도는 1~500 사이여야 합니다.")
         except Exception as exc:
             messagebox.showerror("설정 확인", str(exc))
             return
@@ -699,13 +699,13 @@ class FinderApp:
                 "curriculum_revision": row.get("curriculum_revision", ""),
                 "isbn13": row.get("isbn13", ""),
             }
-            if len(json.dumps(evidence, ensure_ascii=False)) > 8000:
-                raise RuntimeError(f"CSV {line_number}행의 매칭 근거가 8KB 제한을 초과합니다.")
+            if len(json.dumps(evidence, ensure_ascii=False).encode("utf-8")) > 3000:
+                raise RuntimeError(f"CSV {line_number}행의 매칭 근거가 3KB 제한을 초과합니다.")
             return {
                 "book_id": book_id,
                 "title": str(row.get("candidate_title") or row.get("source_name") or "답지 후보")[:300],
                 "url": candidate_url,
-                "snippet": str(row.get("snippet", ""))[:4000],
+                "snippet": str(row.get("snippet", ""))[:1000],
                 "match_status": status,
                 "match_score": score,
                 "match_evidence": evidence,
