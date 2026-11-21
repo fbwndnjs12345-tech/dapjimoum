@@ -481,6 +481,13 @@ class FinderApp:
         key = self.anon_key.get().strip()
         email = self.email.get().strip()
         password = self.password.get()
+        if base:
+            parsed_base = urllib.parse.urlparse(base)
+            if (parsed_base.scheme != "https" or not parsed_base.hostname or parsed_base.username
+                    or parsed_base.password or parsed_base.query or parsed_base.fragment
+                    or parsed_base.path not in ("", "/")):
+                messagebox.showerror("프로젝트 URL 확인", "Supabase 프로젝트 URL은 경로·인증정보가 없는 HTTPS 주소여야 합니다.")
+                return
         def worker():
             try:
                 if not all([base, key, email, password]):
