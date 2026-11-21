@@ -514,22 +514,55 @@ def extract_page(page):
 
 
 def upgrade_search_config(config: dict) -> tuple[dict, bool]:
-    """Raise legacy conservative defaults to the higher-recall search profile once."""
+    """Migrate legacy search limits and merge the maintained official source catalog once."""
     web_cfg = config.setdefault("web_search", {})
     if not isinstance(web_cfg, dict):
         raise ValueError("web_search 설정은 객체여야 합니다.")
     try:
         version = int(web_cfg.get("strategy_version", 0))
+        source_catalog_version = int(config.get("source_catalog_version", 0))
     except (TypeError, ValueError):
-        version = 0
-    if version >= 3:
+        version, source_catalog_version = 0, 0
+    if version >= 3 and source_catalog_version >= 1:
         return config, False
+    changed = False
+    if source_catalog_version < 1:
+        try:
+            catalog_path = Path(__file__).with_name("sources.example.json")
+            catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+            configured = config.setdefault("sources", [])
+            if not isinstance(configured, list):
+                raise ValueError("sources 설정은 배열이어야 합니다.")
+            by_publisher = {str(item.get("publisher", "")).strip(): item
+                            for item in configured if isinstance(item, dict)}
+            for default_source in catalog.get("sources", []):
+                publisher = str(default_source.get("publisher", "")).strip()
+                if not publisher:
+                    continue
+                current = by_publisher.get(publisher)
+                if current is None:
+                    configured.append(dict(default_source))
+                    by_publisher[publisher] = configured[-1]
+                else:
+                    urls = current.setdefault("start_urls", [])
+                    if not isinstance(urls, list):
+                        current["start_urls"] = urls = []
+                    for url in default_source.get("start_urls", []):
+                        if url not in urls:
+                            urls.append(url)
+            config["source_catalog_version"] = 1
+            changed = True
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"기본 출판사 출처 목록을 불러오지 못했습니다: {exc}") from exc
+    if version >= 3:
+        return config, changed
     web_cfg["max_queries_per_book"] = max(8, int(web_cfg.get("max_queries_per_book", 3)))
     web_cfg["results_per_engine"] = max(12, int(web_cfg.get("results_per_engine", 5)))
     web_cfg["max_candidates_per_book"] = max(20, int(web_cfg.get("max_candidates_per_book", 5)))
     web_cfg["max_search_pages_per_query"] = max(2, min(3, int(web_cfg.get("max_search_pages_per_query", 1))))
     web_cfg["strategy_version"] = 3
     config["max_pages_to_verify_per_book"] = max(80, int(config.get("max_pages_to_verify_per_book", 40)))
+    changed = True
     config["api_request_delay_seconds"] = max(0.0, min(0.5, float(config.get("api_request_delay_seconds", 0.1))))
     return config, True
 
