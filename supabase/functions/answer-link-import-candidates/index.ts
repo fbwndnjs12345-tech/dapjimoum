@@ -92,15 +92,16 @@ Deno.serve(async (request) => {
       const bookId = typeof item.book_id === 'string' ? item.book_id : '';
       const title = typeof item.title === 'string' ? item.title.trim().slice(0, 500) : '';
       const rawUrl = typeof item.url === 'string' ? item.url : '';
-      if (!bookId || !title || !rawUrl) continue;
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(bookId)
+          || !title || !rawUrl) continue;
       const urlIdentity = canonicalUrl(rawUrl);
       const url = new URL(urlIdentity);
-      const rowIdentity = bookId + ':' + urlIdentity;
-      if (rowIdentities.has(rowIdentity)) continue;
-      rowIdentities.add(rowIdentity);
       const matchStatus = ['likely', 'uncertain', 'mismatch'].includes(String(item.match_status)) ? String(item.match_status) : 'uncertain';
       // Never place an explicitly mismatched book/link pair into the review queue.
       if (matchStatus === 'mismatch') continue;
+      const rowIdentity = bookId + ':' + urlIdentity;
+      if (rowIdentities.has(rowIdentity)) continue;
+      rowIdentities.add(rowIdentity);
       const rawScore = Number(item.match_score ?? 0);
       const matchScore = Number.isFinite(rawScore) ? Math.max(0, Math.min(100, Math.round(rawScore))) : 0;
       const rawEvidence = item.match_evidence;
