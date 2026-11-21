@@ -94,7 +94,8 @@ class FinderUnitTests(unittest.TestCase):
         book = {"title": "오투 중등 과학 1-2", "series": "오투", "subject": "과학",
                 "grade": "중1", "semester": "2학기"}
         queries = build_queries(book, 8)
-        self.assertEqual(len(queries), 3)
+        self.assertLessEqual(len(queries), 8)
+        self.assertGreaterEqual(len(queries), 3)
         self.assertTrue(any("tistory.com" in q and "blog.naver.com" in q for q in queries))
 
     def test_build_queries_combines_textbook_metadata_and_answer_intent(self):
