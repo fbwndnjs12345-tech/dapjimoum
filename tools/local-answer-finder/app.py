@@ -911,7 +911,7 @@ def self_test():
                 server.server_close()
                 server_thread.join(timeout=2)
                 browser.close()
-        (APP_DATA_DIR / "self-test.log").write_text("SELF-TEST PASSED: config, matching, Tk, installed browser\\n", encoding="utf-8")
+        (APP_DATA_DIR / "self-test.log").write_text("SELF-TEST PASSED: config, matching, DPI-aware Tk, installed browser HTTP navigation\\n", encoding="utf-8")
         return 0
     except Exception as exc:
         print(f"SELF-TEST FAILED: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
