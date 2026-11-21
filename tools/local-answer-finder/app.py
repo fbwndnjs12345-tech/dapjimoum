@@ -209,7 +209,7 @@ class FinderApp:
 
         supa = ttk.Frame(account, style="Surface.TFrame", padding=18)
         supa.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
-        ttk.Label(supa, text="서비스 연결 및 검색 API", style="Section.TLabel").grid(
+        ttk.Label(supa, text="서비스 연결 및 API 없는 검색", style="Section.TLabel").grid(
             row=0, column=0, columnspan=3, sticky="w", pady=(0, 5))
         ttk.Label(supa, text="관리자 계정으로 교재 목록을 가져오고, 탐색 결과를 검수 대기 후보로 전달합니다.",
                   style="MetricCaption.TLabel", wraplength=620).grid(
@@ -224,10 +224,10 @@ class FinderApp:
                    style="Accent.TButton").pack(side="left")
         ttk.Button(buttons, text="후보 업로드", command=self.upload_candidates).pack(side="left", padx=(8, 0))
         ttk.Separator(supa).grid(row=7, column=0, columnspan=3, sticky="ew", pady=(16, 10))
-        ttk.Label(supa, text="검색 API 키 (Supabase와 별개)", style="Section.TLabel").grid(row=8, column=0, sticky="w", pady=(0, 6))
+        ttk.Label(supa, text="선택 사항 · 검색 API 키 (없어도 실행 가능)", style="Section.TLabel").grid(row=8, column=0, sticky="w", pady=(0, 6))
         self._entry(supa, "Kakao REST API Key", self.kakao_api_key, 9, show="•", reveal_var=self.kakao_key_visible, reveal_label="API 키 표시")
         ttk.Label(supa, text="검색 키는 실행 중 메모리에서만 사용합니다. 설정 파일에는 저장하지 않습니다. "
-                  "Google/Bing 검색 결과 페이지 직접 수집은 robots.txt 및 서비스 정책 때문에 비활성화했습니다.",
+                  "API 키가 없어도 출판사 공식 자료실과 출판사 자체 검색창을 이용해 탐색합니다. 검색 API 키는 선택 사항입니다.",
                   style="MetricCaption.TLabel", wraplength=620).grid(
             row=10, column=0, columnspan=3, sticky="w", pady=(12, 0))
 
@@ -253,7 +253,7 @@ class FinderApp:
         ttk.Label(sourcehead, text="검색 및 출처 정책", style="Section.TLabel").pack(side="left")
         ttk.Label(sourcehead, text="JSON  ·  저장 전 형식과 필수값을 검사합니다.",
                   style="MetricCaption.TLabel").pack(side="right")
-        ttk.Label(sourcecard, text="Kakao 공식 검색 API와 출판사 공식 자료실을 설정합니다. robots.txt 및 대상 사이트 접근 정책을 준수합니다.",
+        ttk.Label(sourcecard, text="API 키 없이 출판사 공식 자료실의 공개 페이지와 사이트 자체 검색 기능을 탐색합니다. 출처 주소를 추가할수록 검색 범위가 넓어집니다.",
                   style="MetricCaption.TLabel", wraplength=1100).pack(anchor="w", pady=(6, 12))
         editor = ttk.Frame(sourcecard, style="Surface.TFrame")
         editor.pack(fill="both", expand=True)
@@ -495,7 +495,7 @@ class FinderApp:
             if not isinstance(sources, list):
                 raise ValueError("sources는 배열이어야 합니다.")
             if not sources and not web_enabled:
-                raise ValueError("공식 자료실 또는 공식 검색 API 중 하나 이상 활성화하세요.")
+                raise ValueError("출판사 자료실 출처를 하나 이상 추가하거나 검색 API를 선택하세요.")
             engines = web_cfg.get("engines", ["kakao_web", "kakao_blog", "kakao_cafe"])
             if not isinstance(engines, list):
                 raise ValueError("web_search.engines는 배열이어야 합니다.")
@@ -513,7 +513,7 @@ class FinderApp:
                 raise ValueError("web_search.engines에는 kakao_web, kakao_blog, kakao_cafe 중 하나 이상을 지정하세요.")
             results_per_engine = int(web_cfg.get("results_per_engine", 8))
             if results_per_engine < 1 or results_per_engine > 50:
-                raise ValueError("검색 API별 결과 수는 1~50 사이여야 합니다.")
+                raise ValueError("검색 제공자 결과 수는 1~50 사이여야 합니다.")
             max_queries = int(web_cfg.get("max_queries_per_book", 8))
             if max_queries < 1 or max_queries > 10:
                 raise ValueError("교재별 검색어 수는 1~10 사이여야 합니다.")
@@ -527,7 +527,7 @@ class FinderApp:
             if search_pages < 1 or search_pages > 3 or verify_pages < 10 or verify_pages > 200:
                 raise ValueError("검색 페이지 수는 1~3, 실제 페이지 검증 한도는 10~200 사이여야 합니다.")
             if not math.isfinite(api_delay) or api_delay < 0 or api_delay > 1:
-                raise ValueError("검색 API 요청 간격은 0~1초 사이여야 합니다.")
+                raise ValueError("검색 제공자 요청 간격은 0~1초 사이여야 합니다.")
             seen = set()
             for index, source in enumerate(sources, 1):
                 if not isinstance(source, dict):
