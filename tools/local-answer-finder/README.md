@@ -20,7 +20,7 @@ Windows용 데스크톱 프로그램입니다. Kakao 공식 REST API의 웹문�
 1. 선택적으로 Supabase URL, anon/publishable key, 관리자 이메일과 비밀번호를 입력하고 로그인 후 교재 CSV를 저장합니다. 비밀번호는 파일에 저장하지 않습니다.
 2. Supabase에서 가져오거나 id,title,publisher,subject,grade,semester,series 열이 있는 CSV를 선택합니다.
 3. 출처 설정 JSON에서 `web_search.enabled`를 true로 두고 `engines`에 `kakao_web`, `kakao_blog`, `kakao_cafe`를 지정합니다. Kakao REST API 키는 프로그램의 데이터 및 계정 화면에 입력합니다.
-4. 공식 자료실도 탐색하려면 `sources` 배열에 출판사명과 자료실 주소를 추가합니다. 출처별 사이트맵 탐색 기본 한도는 80페이지(최대 100페이지)입니다. 공개 웹 검색만 사용할 경우 `sources`를 빈 배열로 둘 수 있습니다.
+4. 공식 자료실도 탐색하려면 `sources` 배열에 출판사명과 자료실 주소를 추가합니다. 출처별 사이트맵 탐색 기본 한도는 80페이지(최대 100페이지)입니다. 공식 검색 API만 사용할 경우 `sources`를 빈 배열로 둘 수 있습니다.
 5. 탐색 시작을 누르면 `%LOCALAPPDATA%\\DapjiMoumFinder\\answer-link-candidates.csv`에 결과가 저장됩니다.
 6. Supabase 로그인 상태에서 검색 후보를 사이트에 등록하면 관리자 검수 대기 목록에 등록됩니다. 후보는 자동 승인되지 않습니다.
 
