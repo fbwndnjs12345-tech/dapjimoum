@@ -24,7 +24,7 @@ APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
 DEFAULT_CONFIG = APP_DATA_DIR / "sources.json"
 OUTPUT = APP_DATA_DIR / "answer-link-candidates.csv"
 # Preserve settings/results from older portable builds when moving to the writable app-data location.
-for legacy_name, destination in (("sources.json", DEFAULT_CONFIG), ("answer-link-candidates.csv", OUTPUT)):
+for legacy_name, destination in (("sources.json", DEFAULT_CONFIG), ("answer-link-candidates.csv", OUTPUT), ("books.csv", APP_DATA_DIR / "books.csv")):
     legacy_path = ROOT / legacy_name
     if not destination.exists() and legacy_path.is_file():
         try:
@@ -779,7 +779,7 @@ def self_test():
     except Exception as exc:
         print(f"SELF-TEST FAILED: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
         try:
-            (ROOT / "self-test.log").write_text(f"SELF-TEST FAILED: {type(exc).__name__}: {exc}\\n", encoding="utf-8")
+            (APP_DATA_DIR / "self-test.log").write_text(f"SELF-TEST FAILED: {type(exc).__name__}: {exc}\\n", encoding="utf-8")
         except Exception:
             pass
         return 1
