@@ -245,7 +245,7 @@ def build_queries(book: dict[str, str], max_queries: int = 8) -> list[str]:
         f'"{title}" "정답과 해설"',
         f'"{full_identity}" "답지"',
         f'"{full_identity}" "정답" "해설"',
-        f'"{publisher_identity}" "답지"' if publisher else f'"{full_identity}" "해설"',
+        f'"{publisher_identity}" "정답과 해설"' if publisher else f'"{full_identity}" "해설"',
         f'"{title}" {platform_clause} 답지',
         f'"{full_identity}" site:tistory.com 답지',
         f'"{full_identity}" site:blog.naver.com 답지',
