@@ -18,7 +18,11 @@ class FinderUnitTests(unittest.TestCase):
         class FakePage:
             def __init__(self, title, body, frames=()):
                 self._title, self._body = title, body
-                self.frames = [type("Frame", (), {"url": url}) for url in frames]
+                class Frame:
+                    def __init__(self, url): self.url = url
+                    def locator(self, selector):
+                        return type("Anchor", (), {"get_attribute": lambda self, name, timeout=None: "false"})()
+                self.frames = [Frame(url) for url in frames]
             def title(self): return self._title
             def locator(self, selector): return FakeLocator(self._body)
         self.assertTrue(is_human_verification_page(FakePage("보안 확인", "로봇이 아닙니다 체크박스를 선택하세요")))
