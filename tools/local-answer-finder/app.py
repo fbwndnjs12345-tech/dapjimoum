@@ -19,8 +19,19 @@ from tkinter import filedialog, messagebox, ttk
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 if getattr(sys, "frozen", False):
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(ROOT / "ms-playwright")
-DEFAULT_CONFIG = ROOT / "sources.json"
-OUTPUT = ROOT / "answer-link-candidates.csv"
+APP_DATA_DIR = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")) / "DapjiMoumFinder"
+APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
+DEFAULT_CONFIG = APP_DATA_DIR / "sources.json"
+OUTPUT = APP_DATA_DIR / "answer-link-candidates.csv"
+# Preserve settings/results from older portable builds when moving to the writable app-data location.
+for legacy_name, destination in (("sources.json", DEFAULT_CONFIG), ("answer-link-candidates.csv", OUTPUT)):
+    legacy_path = ROOT / legacy_name
+    if not destination.exists() and legacy_path.is_file():
+        try:
+            import shutil
+            shutil.copy2(legacy_path, destination)
+        except OSError:
+            pass
 
 
 def request_json(url: str, headers: dict[str, str], data: dict | None = None):
@@ -499,7 +510,7 @@ class FinderApp:
                     offset += limit
                 if not rows:
                     raise RuntimeError("교재가 0권 조회됐습니다. 관리자 계정의 books 읽기 권한과 Supabase URL을 확인하세요.")
-                path = ROOT / "books.csv"
+                path = APP_DATA_DIR / "books.csv"
                 fields = ["id", "title", "publisher", "subject", "grade", "semester", "series", "edition", "curriculum_revision", "isbn13"]
                 with path.open("w", encoding="utf-8-sig", newline="") as f:
                     writer = csv.DictWriter(f, fieldnames=fields)
@@ -671,29 +682,35 @@ class FinderApp:
             self.metric_candidates.set("0개")
             return
         try:
-            with OUTPUT.open("r", encoding="utf-8-sig", newline="") as handle:
-                rows = list(csv.DictReader(handle))
-            self.all_result_rows = rows
             needle = self.filter_text.get().strip().casefold() if hasattr(self, "filter_text") else ""
-            if needle:
-                rows = [row for row in rows if needle in " ".join(
-                    str(row.get(key, "")) for key in ("book_title", "candidate_title", "url", "source_name")
-                ).casefold()]
-            shown = rows[:1000]
-            for row in shown:
-                status = row.get("match_status", "")
-                tag = status if status in ("likely", "uncertain") else ""
-                self.results.insert("", "end", values=(
-                    row.get("book_title", ""),
-                    row.get("candidate_title", ""),
-                    status,
-                    row.get("match_score", ""),
-                    row.get("url", ""),
-                ), tags=(tag,) if tag else ())
-            self.result_count.set(f"{len(rows):,}개 · {len(shown):,}개 표시")
-            self.metric_candidates.set(f"{len(self.all_result_rows):,}개")
-            if len(rows) > 1000:
-                self.progress_caption.configure(text="목록 1,000개 표시 제한 · CSV에는 전체 결과가 저장되어 있습니다.")
+            total = 0
+            matched = 0
+            shown = 0
+            with OUTPUT.open("r", encoding="utf-8-sig", newline="") as handle:
+                for row in csv.DictReader(handle):
+                    total += 1
+                    searchable = " ".join(str(row.get(key, "")) for key in (
+                        "book_title", "candidate_title", "url", "source_name"
+                    )).casefold()
+                    if needle and needle not in searchable:
+                        continue
+                    matched += 1
+                    if shown >= 1000:
+                        continue
+                    status = row.get("match_status", "")
+                    tag = status if status in ("likely", "uncertain") else ""
+                    self.results.insert("", "end", values=(
+                        row.get("book_title", ""),
+                        row.get("candidate_title", ""),
+                        status,
+                        row.get("match_score", ""),
+                        row.get("url", ""),
+                    ), tags=(tag,) if tag else ())
+                    shown += 1
+            self.result_count.set(f"{matched:,}개 일치 · {shown:,}개 표시")
+            self.metric_candidates.set(f"{total:,}개")
+            if matched > 1000:
+                self.progress_caption.configure(text="화면 표시 1,000개 제한 · 전체 결과는 CSV에 보존됩니다.")
         except Exception as exc:
             self.log_line(f"[결과 미리보기 오류] {exc}")
 
@@ -741,7 +758,7 @@ def self_test():
             if page.title() != "DapjiMoum smoke test":
                 raise RuntimeError("Chromium 페이지 테스트 실패")
             browser.close()
-        (ROOT / "self-test.log").write_text("SELF-TEST PASSED: config, matching, Tk, Playwright Chromium\\n", encoding="utf-8")
+        (APP_DATA_DIR / "self-test.log").write_text("SELF-TEST PASSED: config, matching, Tk, Playwright Chromium\\n", encoding="utf-8")
         return 0
     except Exception as exc:
         print(f"SELF-TEST FAILED: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
