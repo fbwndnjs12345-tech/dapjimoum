@@ -19,7 +19,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-APP_VERSION = "2.4.0"
+APP_VERSION = "2.5.0"
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 APP_DATA_DIR = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")) / "DapjiMoumFinder"
 APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -483,6 +483,12 @@ class FinderApp:
     def save_config(self):
         try:
             config = json.loads(self.config_text.get("1.0", "end"))
+            from finder import upgrade_search_config
+            config, migrated = upgrade_search_config(config)
+            if migrated:
+                self.config_text.delete("1.0", "end")
+                self.config_text.insert("1.0", json.dumps(config, ensure_ascii=False, indent=2))
+                self.events.put(("log", "[검색 설정 자동 개선] 검색어·결과 수·후보 한도를 새 고회수 기본값으로 조정했습니다."))
             sources = config.get("sources", [])
             web_cfg = config.get("web_search", {})
             web_enabled = bool(web_cfg.get("enabled", True))
@@ -511,10 +517,17 @@ class FinderApp:
             max_queries = int(web_cfg.get("max_queries_per_book", 8))
             if max_queries < 1 or max_queries > 10:
                 raise ValueError("교재별 검색어 수는 1~10 사이여야 합니다.")
-            max_candidates = int(web_cfg.get("max_candidates_per_book", 5))
+            max_candidates = int(web_cfg.get("max_candidates_per_book", 12))
             early_stop = int(web_cfg.get("early_stop_likely_candidates_per_book", 3))
+            search_pages = int(web_cfg.get("max_search_pages_per_query", 2))
+            verify_pages = int(config.get("max_pages_to_verify_per_book", 40))
+            api_delay = float(config.get("api_request_delay_seconds", 0.1))
             if max_candidates < 1 or max_candidates > 50 or early_stop < 1 or early_stop > 10:
                 raise ValueError("교재별 후보 한도는 1~50, 조기 종료 기준은 1~10 사이여야 합니다.")
+            if search_pages < 1 or search_pages > 3 or verify_pages < 10 or verify_pages > 200:
+                raise ValueError("검색 페이지 수는 1~3, 실제 페이지 검증 한도는 10~200 사이여야 합니다.")
+            if not math.isfinite(api_delay) or api_delay < 0 or api_delay > 1:
+                raise ValueError("검색 API 요청 간격은 0~1초 사이여야 합니다.")
             seen = set()
             for index, source in enumerate(sources, 1):
                 if not isinstance(source, dict):
