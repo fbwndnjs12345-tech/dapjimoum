@@ -411,12 +411,23 @@ def _csv_safe(value):
 
 
 def _write_candidates(output_path: Path, candidates: dict):
+    """Write a complete checkpoint and atomically replace the last valid CSV."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = output_path.with_name(output_path.name + ".tmp")
     rows = sorted(candidates.values(), key=lambda row: (-int(row["match_score"]), row["book_title"]))
-    with output_path.open("w", encoding="utf-8-sig", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=FIELDS)
-        writer.writeheader()
-        writer.writerows({key: _csv_safe(value) for key, value in row.items()} for row in rows)
+    try:
+        with temporary_path.open("w", encoding="utf-8-sig", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=FIELDS)
+            writer.writeheader()
+            writer.writerows({key: _csv_safe(value) for key, value in row.items()} for row in rows)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, output_path)
+    finally:
+        try:
+            temporary_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def run_search(input_path: Path, output_path: Path, config_path: Path, headed: bool,
