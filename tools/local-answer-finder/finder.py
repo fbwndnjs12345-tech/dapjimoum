@@ -357,6 +357,54 @@ def build_queries(book: dict[str, str], max_queries: int = 8) -> list[str]:
             break
     return result
 
+def discover_site_search_urls(page, query: str, expected_host: str, limit: int = 5) -> list[str]:
+    """Build same-host GET search URLs from publisher-provided search forms only.
+
+    This is the API-free discovery path: it uses a publisher's own public search
+    form, never search-engine result pages or undocumented third-party endpoints.
+    """
+    try:
+        forms = page.locator("form").evaluate_all(
+            """forms => forms.map(form => {
+                const input = form.querySelector(
+                    'input[type="search"], input[name*="search" i], input[name*="keyword" i], ' +
+                    'input[name*="query" i], input[name*="sch" i], input[name="q"]'
+                );
+                if (!input || !input.name) return null;
+                const method = (form.method || "get").toLowerCase();
+                if (method !== "get") return null;
+                const action = new URL(form.getAttribute("action") || location.href, location.href).href;
+                const hidden = Array.from(form.querySelectorAll('input[type="hidden"][name]'))
+                    .map(item => [item.name, item.value || ""]);
+                return {action, name: input.name, hidden};
+            }).filter(Boolean)"""
+        )
+    except Exception:
+        return []
+    from urllib.parse import urlencode
+    host = (expected_host or "").lower().rstrip(".")
+    found = []
+    for form in forms or []:
+        action = str(form.get("action") or "")
+        if not is_safe_public_url(action):
+            continue
+        if (urlparse(action).hostname or "").lower().rstrip(".") != host:
+            continue
+        params = list(form.get("hidden") or [])
+        params = [(key, value) for key, value in params if key.casefold() not in {
+            "q", "query", "keyword", "search", "searchword", "searchtext", "sch", "schtxt"
+        }]
+        params.append((str(form.get("name") or "q"), query[:120]))
+        parts = urlsplit(action)
+        merged = parse_qsl(parts.query, keep_blank_values=True) + params
+        target = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(merged), ""))
+        if target not in found:
+            found.append(target)
+        if len(found) >= max(1, min(10, int(limit))):
+            break
+    return found
+
+
 def canonicalize_url(value: str) -> str:
     if not is_safe_public_url(value):
         raise ValueError("안전하지 않은 URL은 후보로 등록할 수 없습니다.")
@@ -560,10 +608,11 @@ def assess(book, title, snippet, terms):
         edition_conflict = True
     expected_isbn = re.sub(r"[^0-9Xx]", "", book.get("isbn13", ""))
     actual_isbns = set(re.findall(r"(?<![0-9])[0-9]{13}(?![0-9])", raw))
-    if expected_isbn and actual_isbns and expected_isbn not in actual_isbns:
+    isbn_hit = bool(expected_isbn and expected_isbn in actual_isbns)
+    if expected_isbn and actual_isbns and not isbn_hit:
         edition_conflict = True
 
-    answer_signal = any(word in combined for word in ("정답", "해설", "답지"))
+    answer_signal = any(word in combined for word in ("정답", "해설", "답지", "answer", "solution"))
     matched = [term for term in terms if norm(term) and norm(term) in combined]
     tokens = [norm(token) for token in re.findall(r"[가-힣A-Za-z]+|[0-9]+", book.get("title", ""))
               if norm(token) and norm(token) not in {"중등", "중학", "중학교", "교재"}]
@@ -588,14 +637,15 @@ def assess(book, title, snippet, terms):
     score = round(ratio * 30 + (30 if exact_title else 0) + (25 if answer_signal else 0)
                   + (8 if series_hit else 0) + (6 if subject_hit else 0)
                   + (3 if publisher_hit else 0) + (2 if grade_hit else 0)
-                  + (1 if semester_hit else 0) + (5 if edition_hit else 0))
+                  + (1 if semester_hit else 0) + (5 if edition_hit else 0)
+                  + (50 if isbn_hit else 0))
     if edition_conflict:
         score -= 50
     score = max(0, min(100, score))
 
     if edition_conflict or not identity_ok or not answer_signal:
         status = "mismatch"
-    elif (score >= 75 and (exact_title or (series_hit and subject_hit and edition_hit)) and
+    elif (score >= 75 and (exact_title or isbn_hit or (series_hit and subject_hit and edition_hit)) and
               all(not (book.get(key) or "").strip() or norm(book.get(key, "")) in combined
                   for key in ("edition", "curriculum_revision", "isbn13"))):
         status = "likely"
@@ -675,8 +725,9 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     early_stop_likely = max(1, min(10, int(web_cfg.get("early_stop_likely_candidates_per_book", 3))))
     max_candidates_per_book = max(1, min(50, int(web_cfg.get("max_candidates_per_book", 12))))
     last_checkpoint = time.monotonic()
-    log(callback,f"교재 {len(books)}권 · 공식 출처 {len(sources)}곳 · 공개 검색엔진 {', '.join(engines) if web_enabled else '사용 안 함'}")
-    log(callback,f"검색 전략: 교재당 최대 {query_limit}개 검색어 · 엔진별 {search_limit}개 결과 · 검색어별 최대 {search_pages}페이지 · 실제 페이지 검증 최대 {max_pages_to_verify}개")
+    api_mode = "Kakao 검색 API 사용" if web_enabled and kakao_api_key and engines else "API 없음 · 출판사 자료실/자체 검색 사용"
+    log(callback,f"교재 {len(books)}권 · 공식 출처 {len(sources)}곳 · {api_mode}")
+    log(callback,f"탐색 한도: 출처별 최대 {limit}페이지 · 실제 페이지 검증 최대 {max_pages_to_verify}개 · 교재당 후보 최대 {max_candidates_per_book}개")
     with sync_playwright() as p:
         browser=launch_browser(p, headless=not headed)
         context_options = {"locale": "ko-KR", "service_workers": "block", "accept_downloads": False}
@@ -757,7 +808,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                 robots_cache.popitem(last=False)
             return robots_cache[key]
         def add_candidate(book,target,title,snippet,source_label,query=""):
-            target=canonicalize_url(target); score,status,matched=assess(book,title,snippet,terms)
+            target=canonicalize_url(target); evidence = " ".join(x for x in (snippet, target) if x); score,status,matched=assess(book,title,evidence,terms)
             if status=="mismatch": return
             parsed=urlparse(target); host=(parsed.hostname or "").lower()
             blog_domains = ("tistory.com", "blog.naver.com", "blogspot.com", "brunch.co.kr", "velog.io", "wordpress.com", "cafe.naver.com")
@@ -806,6 +857,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                             source_books.append(candidate_book)
                     log(callback,f"[공식 자료실 탐색] {publisher or host}: {len(pages)}개 공개 페이지 · 대상 교재 {len(source_books)}권")
                     discovered_source_pages = {canonicalize_url(item) for item in pages if is_safe_public_url(item)}
+                    publisher_search_book_by_url = {}
                     for index,url in enumerate(pages,1):
                         if stop_event is not None and stop_event.is_set(): break
                         if not allowed_host(url,host) or not robots.can_fetch(USER_AGENT,url): continue
@@ -839,15 +891,45 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                     if normalized_discovered not in discovered_source_pages:
                                         discovered_source_pages.add(normalized_discovered)
                                         pages.append(normalized_discovered)
+                            # Search the publisher's own GET form without any search API key.
+                            # Reserve part of the crawl budget for per-book searches before generic sitemap pages.
+                            if index == 1:
+                                added_search_pages = 0
+                                search_page_budget = min(100, max(1, limit // 2))
+                                for search_book in source_books:
+                                    if added_search_pages >= search_page_budget:
+                                        break
+                                    identity = (search_book.get("title") or "").strip()
+                                    if not identity:
+                                        continue
+                                    for search_url in discover_site_search_urls(page, identity, host, limit=1):
+                                        if (added_search_pages >= search_page_budget
+                                                or not robots.can_fetch(USER_AGENT, search_url)):
+                                            continue
+                                        normalized_search = canonicalize_url(search_url)
+                                        if normalized_search not in discovered_source_pages:
+                                            discovered_source_pages.add(normalized_search)
+                                            insert_at = min(1 + added_search_pages, len(pages))
+                                            pages.insert(insert_at, normalized_search)
+                                            publisher_search_book_by_url[normalized_search] = search_book
+                                            added_search_pages += 1
+                                            if len(pages) > limit:
+                                                pages.pop()
+                                if added_search_pages:
+                                    log(callback, f"  [출판사 자체 검색] 교재별 검색 결과 페이지 {added_search_pages}개 우선 추가")
                             targets=[]
                             if any(norm(term) in norm(combined) for term in terms):
                                 targets.append((url,title," ".join([description,body])))
                             for link in links:
                                 target=link.get("href","")
                                 if allowed_host(target,host) and robots.can_fetch(USER_AGENT,target):
-                                    link_context = link.get("context") or link.get("text") or ""
-                                    targets.append((target,link.get("text") or "정답과 해설",link_context))
-                            for book in source_books:
+                                    link_context = " ".join(x for x in (
+                                        title, description, link.get("context") or "", link.get("text") or ""
+                                    ) if x)
+                                    targets.append((target,link.get("text") or title or "정답과 해설",link_context))
+                            page_book = publisher_search_book_by_url.get(canonicalize_url(url))
+                            page_books = [page_book] if page_book else source_books
+                            for book in page_books:
                                 for target,target_title,snippet in targets:
                                     add_candidate(book,target,target_title,snippet,"publisher")
                         except PlaywrightTimeoutError: log(callback,f"[시간 초과] {url}")
