@@ -13,7 +13,7 @@ function readSupabaseKey(legacyName: string, keySetName: string): string | undef
   if (legacy) return legacy;
   try {
     const keySet = JSON.parse(Deno.env.get(keySetName) ?? '{}') as Record<string, string>;
-    return keySet.default ?? Object.values(keySet)[0];
+    return keySet.default;
   } catch { return undefined; }
 }
 
@@ -22,8 +22,14 @@ function canonicalUrl(value: string): string {
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
     throw new Error('HTTP(S) URL만 등록할 수 있습니다.');
   }
+  const hostname = url.hostname.toLowerCase().replace(/^\\[|\\]$/g, '');
+  if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local')
+      || hostname.endsWith('.internal') || hostname.endsWith('.test')
+      || /^\\d{1,3}(?:\\.\\d{1,3}){3}$/.test(hostname) || hostname.includes(':')) {
+    throw new Error('로컬 또는 IP 직접 지정 URL은 등록할 수 없습니다.');
+  }
   url.hash = '';
-  url.hostname = url.hostname.toLowerCase();
+  url.hostname = hostname;
   if ((url.protocol === 'https:' && url.port === '443') || (url.protocol === 'http:' && url.port === '80')) url.port = '';
   for (const key of [...url.searchParams.keys()]) {
     const normalized = key.toLowerCase();
@@ -54,23 +60,31 @@ Deno.serve(async (request) => {
   if (adminError) return json({ error: '관리자 권한을 확인하지 못했습니다.' }, 500);
   if (!adminRow) return json({ error: '관리자 권한이 필요합니다.' }, 403);
 
-  const { data: roleAssignment, error: roleError } = await admin.from('admin_user_roles')
-    .select('role_key').eq('user_id', authData.user.id).maybeSingle();
+  const { data: roleRows, error: roleError } = await admin.from('admin_user_roles')
+    .select('role_key').eq('user_id', authData.user.id);
   if (roleError) return json({ error: '관리자 역할을 확인하지 못했습니다.' }, 500);
-  if (!roleAssignment) return json({ error: '후보 등록 역할이 할당되지 않았습니다.' }, 403);
+  const roleKeys = [...new Set((roleRows ?? []).map(row => row.role_key).filter(Boolean))];
+  if (!roleKeys.length) return json({ error: '후보 등록 역할이 할당되지 않았습니다.' }, 403);
   const { data: reviewPermission, error: permissionError } = await admin.from('admin_role_permissions')
-    .select('permission_key').eq('role_key', roleAssignment.role_key)
-    .eq('permission_key', 'candidates.review').maybeSingle();
+    .select('permission_key').in('role_key', roleKeys)
+    .eq('permission_key', 'candidates.review').limit(1).maybeSingle();
   if (permissionError) return json({ error: '후보 등록 권한을 확인하지 못했습니다.' }, 500);
   if (!reviewPermission) return json({ error: '답지 후보 검수 권한이 필요합니다.' }, 403);
 
   let payload: { candidates?: unknown };
-  try { payload = await request.json(); } catch { return json({ error: 'JSON 요청 본문이 올바르지 않습니다.' }, 400); }
+  try {
+    const rawBody = await request.text();
+    if (new TextEncoder().encode(rawBody).byteLength > 1_000_000) {
+      return json({ error: '요청 본문은 1MB 이하여야 합니다.' }, 413);
+    }
+    payload = JSON.parse(rawBody);
+  } catch { return json({ error: 'JSON 요청 본문이 올바르지 않습니다.' }, 400); }
   if (!Array.isArray(payload.candidates) || payload.candidates.length < 1 || payload.candidates.length > 100) {
     return json({ error: '후보는 한 번에 1~100개씩 전송해야 합니다.' }, 400);
   }
 
-  const rows = [];
+  const rows: Record<string, unknown>[] = [];
+  const rowIdentities = new Set<string>();
   try {
     for (const raw of payload.candidates) {
       if (!raw || typeof raw !== 'object') continue;
@@ -78,18 +92,25 @@ Deno.serve(async (request) => {
       const bookId = typeof item.book_id === 'string' ? item.book_id : '';
       const title = typeof item.title === 'string' ? item.title.trim().slice(0, 500) : '';
       const rawUrl = typeof item.url === 'string' ? item.url : '';
-      if (!bookId || !title || !rawUrl) continue;
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(bookId)
+          || !title || !rawUrl) continue;
       const urlIdentity = canonicalUrl(rawUrl);
       const url = new URL(urlIdentity);
       const matchStatus = ['likely', 'uncertain', 'mismatch'].includes(String(item.match_status)) ? String(item.match_status) : 'uncertain';
       // Never place an explicitly mismatched book/link pair into the review queue.
       if (matchStatus === 'mismatch') continue;
+      const rowIdentity = bookId + ':' + urlIdentity;
+      if (rowIdentities.has(rowIdentity)) continue;
+      rowIdentities.add(rowIdentity);
       const rawScore = Number(item.match_score ?? 0);
       const matchScore = Number.isFinite(rawScore) ? Math.max(0, Math.min(100, Math.round(rawScore))) : 0;
       const rawEvidence = item.match_evidence;
       const matchEvidence = rawEvidence && typeof rawEvidence === 'object' && !Array.isArray(rawEvidence)
         ? rawEvidence as Record<string, unknown>
         : {};
+      if (JSON.stringify(matchEvidence).length > 10_000) {
+        throw new Error('후보 매칭 근거는 10KB 이하여야 합니다.');
+      }
       const linkType = item.link_type === 'PDF' ? 'PDF' : '웹페이지';
       const sourceType = ['official', 'general', 'unknown'].includes(String(item.source_type)) ? String(item.source_type) : 'unknown';
       const query = typeof item.query === 'string' ? item.query.trim().slice(0, 1000) : 'local-search';
