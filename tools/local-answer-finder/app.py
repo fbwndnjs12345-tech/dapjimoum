@@ -257,7 +257,7 @@ class FinderApp:
         controls.grid(row=1, column=0, sticky="ew", pady=(12, 0))
         ttk.Label(controls, text="출처별 페이지 한도").pack(side="left")
         ttk.Entry(controls, textvariable=self.max_pages, width=8).pack(side="left", padx=(8, 18))
-        ttk.Checkbutton(controls, text="브라우저 창 표시 (Google 수동 인증)",
+        ttk.Checkbutton(controls, text="브라우저 창 표시 (출처 사이트 확인)",
                         variable=self.headed).pack(side="left")
         ttk.Button(controls, text="결과 CSV 열기", command=self.open_output).pack(side="right")
         self.stop_button = ttk.Button(controls, text="중지 및 저장",
@@ -486,7 +486,7 @@ class FinderApp:
             if not isinstance(terms, list) or not terms or any(not isinstance(term, str) or not term.strip() for term in terms):
                 raise ValueError("answer_keywords는 비어 있지 않은 문자열 배열이어야 합니다.")
             DEFAULT_CONFIG.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            self.events.put(("status", f"설정 검사 및 저장 완료: 공식 출처 {len(sources)}곳 · 공개 웹 검색 {'활성화' if web_enabled else '비활성화'}"))
+            self.events.put(("status", f"설정 검사 및 저장 완료: 공식 출처 {len(sources)}곳 · 공식 검색 API {'활성화' if web_enabled else '비활성화'}"))
             return True
         except Exception as exc:
             messagebox.showerror("설정 오류", str(exc))
