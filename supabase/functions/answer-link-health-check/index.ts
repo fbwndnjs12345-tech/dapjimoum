@@ -70,11 +70,11 @@ async function safeExternalUrl(value: string): Promise<boolean> {
   try {
     const url = new URL(value);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return false;
-    const host = url.hostname.toLowerCase().replace(/^\\[|\\]$/g, '');
+    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
     if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')
         || host.endsWith('.internal') || host.endsWith('.test') || host.endsWith('.invalid')
         || host.endsWith('.example') || host.endsWith('.onion')) return false;
-    if (/^\\d{1,3}(\\.\\d{1,3}){3}$/.test(host) || host.includes(':')) return false;
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':')) return false;
     const [ipv4, ipv6] = await Promise.all([
       Deno.resolveDns(host, 'A').catch(() => [] as string[]),
       Deno.resolveDns(host, 'AAAA').catch(() => [] as string[]),
@@ -131,8 +131,8 @@ async function firstBytes(response: Response, count = 5): Promise<Uint8Array> {
 
 function filenameFromResponse(response: Response, finalUrl: string): string | null {
   const disposition = response.headers.get('content-disposition') ?? '';
-  const encoded = disposition.match(/filename\\*\\s*=\\s*UTF-8''([^;]+)/i)?.[1];
-  const plain = disposition.match(/filename\\s*=\\s*"?([^";]+)"?/i)?.[1];
+  const encoded = disposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i)?.[1];
+  const plain = disposition.match(/filename\s*=\s*"?([^";]+)"?/i)?.[1];
   let filename = encoded ?? plain ?? '';
   try { filename = decodeURIComponent(filename.replace(/^["']|["']$/g, '')); } catch { /* Keep raw header value. */ }
   if (!filename) {
@@ -152,13 +152,13 @@ function assessFileName(book: Record<string, unknown> | undefined, filename: str
   const expected = [book.series, book.subject, book.grade, book.semester, book.edition, book.curriculum_revision]
     .map(value => String(value ?? '').trim()).filter(Boolean);
   const hits = expected.filter(value => fileText.includes(normalizedFileText(value)));
-  const expectedPair = String(book.title ?? '').match(/(?<![0-9])([1-3])\\s*[-–]\\s*([12])(?![0-9])/);
-  const actualPair = filename.match(/(?<![0-9])([1-3])\\s*[-–]\\s*([12])(?![0-9])/);
+  const expectedPair = String(book.title ?? '').match(/(?<![0-9])([1-3])\s*[-–]\s*([12])(?![0-9])/);
+  const actualPair = filename.match(/(?<![0-9])([1-3])\s*[-–]\s*([12])(?![0-9])/);
   if (expectedPair && actualPair && (expectedPair[1] !== actualPair[1] || expectedPair[2] !== actualPair[2])) {
     return { status: 'mismatch' as const, note: '파일명에 표시된 학년·학기가 교재 정보와 다릅니다.' };
   }
   const expectedIsbn = String(book.isbn13 ?? '').replace(/[^0-9Xx]/g, '');
-  const actualIsbn = filename.match(/(?<![0-9])\\d{13}(?![0-9])/)?.[0] ?? '';
+  const actualIsbn = filename.match(/(?<![0-9])\d{13}(?![0-9])/)?.[0] ?? '';
   if (expectedIsbn && actualIsbn && expectedIsbn !== actualIsbn) {
     return { status: 'mismatch' as const, note: '파일명 ISBN이 교재 ISBN과 다릅니다.' };
   }
@@ -239,14 +239,12 @@ Deno.serve(async request => {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 30000);
       try {
-        const head = await fetchFollowingSafeRedirects(
-          link.url, { method: 'HEAD' }, reserveSlot, controller.signal,
-        );
+        const head = await fetchFollowingSafeRedirects(link.url, { method: 'HEAD' }, reserveSlot, controller.signal);
         let response = head.response;
         finalUrl = head.finalUrl;
         let usedGet = false;
         const headType = response.headers.get('content-type') ?? '';
-        const pdfExpectedFromUrl = /\\.pdf(?:$|[?#])/i.test(finalUrl);
+        const pdfExpectedFromUrl = /\.pdf(?:$|[?#])/i.test(finalUrl);
         if (response.status === 403 || response.status === 405 || response.status === 501
             || (response.ok && (pdfExpectedFromUrl || headType.toLowerCase().includes('application/pdf')))) {
           await response.body?.cancel().catch(() => undefined);
@@ -264,8 +262,8 @@ Deno.serve(async request => {
         contentType = response.headers.get('content-type');
         const lengthHeader = response.headers.get('content-length');
         const contentRange = response.headers.get('content-range');
-        const totalFromRange = contentRange?.match(/\\/(\\d+)$/)?.[1];
-        fileSize = totalFromRange ? Number(totalFromRange) : lengthHeader && /^\\d+$/.test(lengthHeader) ? Number(lengthHeader) : null;
+        const totalFromRange = contentRange?.match(/\/(\d+)$/)?.[1];
+        fileSize = totalFromRange ? Number(totalFromRange) : lengthHeader && /^\d+$/.test(lengthHeader) ? Number(lengthHeader) : null;
         if (response.status === 404 || response.status === 410) {
           status = 'broken';
           errorMessage = '페이지가 삭제되었거나 찾을 수 없습니다.';
@@ -283,8 +281,8 @@ Deno.serve(async request => {
           const disposition = response.headers.get('content-disposition') ?? '';
           isDownload = /attachment/i.test(disposition)
             || (contentType ?? '').toLowerCase().includes('application/pdf')
-            || /\\.pdf(?:$|[?#])/i.test(finalUrl);
-          const expectsPdf = /\\.pdf(?:$|[?#])/i.test(finalUrl)
+            || /\.pdf(?:$|[?#])/i.test(finalUrl);
+          const expectsPdf = /\.pdf(?:$|[?#])/i.test(finalUrl)
             || (contentType ?? '').toLowerCase().includes('application/pdf');
           if (expectsPdf) {
             if (!usedGet) {
