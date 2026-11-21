@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import argparse
 import csv
-from collections import deque
+from collections import OrderedDict, deque
 import json
 import ipaddress
 import socket
@@ -255,11 +255,10 @@ def build_queries(book: dict[str, str], max_queries: int = 8) -> list[str]:
     # cannot cause the search engine to silently ignore individual platforms.
     variants = [
         f'"{title}" "답지"',
-        f'"{title}" "정답과 해설"',
-        f'"{full_identity}" "답지"',
-        f'"{full_identity}" "정답" "해설"',
-        f'"{publisher_identity}" "정답과 해설"' if publisher else f'"{full_identity}" "해설"',
+        f'"{publisher_identity}" "정답과 해설"' if publisher else f'"{full_identity}" "정답과 해설"',
         f'"{title}" {platform_clause} 답지',
+        f'"{full_identity}" "정답" "해설"',
+        f'"{title}" "정답과 해설"',
         f'"{full_identity}" site:tistory.com 답지',
         f'"{full_identity}" site:blog.naver.com 답지',
         f'"{full_identity}" site:blogspot.com 답지',
@@ -458,7 +457,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     limit=max_pages_override or int(config.get("max_sitemap_urls_per_source",500))
     search_limit=max(1,min(20,int(web_cfg.get("results_per_engine",8))))
     query_limit=max(1,min(10,int(web_cfg.get("max_queries_per_book",8))))
-    candidates={}; robots_cache={}; page_content_cache={}; search_result_cache={}
+    candidates={}; robots_cache={}; page_content_cache=OrderedDict(); search_result_cache=OrderedDict()
     checkpoint_every = max(25, min(1000, int(config.get("checkpoint_every_candidates", 50))))
     early_stop_likely = max(1, min(10, int(web_cfg.get("early_stop_likely_candidates_per_book", 3))))
     max_candidates_per_book = max(1, min(50, int(web_cfg.get("max_candidates_per_book", 5))))
@@ -505,6 +504,11 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                         return
             route.continue_()
         page.route("**/*", guard_browser_request)
+        def remember_cache(cache, key, value, max_items):
+            cache[key] = value
+            cache.move_to_end(key)
+            while len(cache) > max_items:
+                cache.popitem(last=False)
         def robots_for_target(target):
             parsed=urlparse(target); key=(parsed.scheme,parsed.netloc)
             if key not in robots_cache:
@@ -580,7 +584,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                             final_robots = robots_for_target(page.url)
                             if final_robots is None or not final_robots.can_fetch(USER_AGENT, page.url): continue
                             title,description,body=extract_page(page); combined=" ".join([title,description,body])
-                            page_content_cache[canonicalize_url(page.url)] = (title, description, body)
+                            remember_cache(page_content_cache, canonicalize_url(page.url), (title, description, body), 1000)
                             links=page.locator("a[href]").evaluate_all("""els => els.map(a => ({
                               href:a.href,text:(a.innerText||a.getAttribute('aria-label')||'').trim()
                             })).filter(x => /정답|해설|답지|pdf/i.test(x.text+' '+x.href)).slice(0,20)""")
@@ -595,7 +599,8 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                     add_candidate(book,target,target_title,snippet,"publisher")
                         except PlaywrightTimeoutError: log(callback,f"[시간 초과] {url}")
                         except Exception as exc: log(callback,f"[오류] {url}: {exc}")
-                        if index%20==0: log(callback,f"  공식 자료실 진행 {index}/{len(pages)} · 후보 {len(candidates)}개")
+                        if index == 1 or index % 10 == 0 or index == len(pages):
+                            log(callback, f"[진행] {index}/{len(pages)} · {publisher or host} 자료실 · 후보 {len(candidates)}개")
                         time.sleep(delay)
             if web_enabled and not (stop_event is not None and stop_event.is_set()):
                 for book_index, book in enumerate(books, 1):
@@ -611,10 +616,11 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                 cache_key = ("bing", query, search_limit)
                                 if cache_key in search_result_cache:
                                     got = search_result_cache[cache_key]
+                                    search_result_cache.move_to_end(cache_key)
                                     log(callback, f"[Bing 캐시] {len(got)}개 재사용")
                                 else:
                                     got=search_bing_rss(query,search_limit)
-                                    search_result_cache[cache_key] = got
+                                    remember_cache(search_result_cache, cache_key, got, 2000)
                                 results.extend(got)
                                 log(callback,f"[Bing {qi}/{len(queries)}] {len(got)}개 · {query}")
                             except Exception as exc:
@@ -628,10 +634,11 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                 cache_key = ("google", query, search_limit)
                                 if cache_key in search_result_cache:
                                     got = search_result_cache[cache_key]
+                                    search_result_cache.move_to_end(cache_key)
                                     log(callback, f"[Google 캐시] {len(got)}개 재사용")
                                 else:
                                     got=search_google_page(page,query,search_limit,allow_manual=headed,callback=callback)
-                                    search_result_cache[cache_key] = got
+                                    remember_cache(search_result_cache, cache_key, got, 2000)
                                 results.extend(got); log(callback,f"[Google {qi}/{len(queries)}] {len(got)}개")
                             except Exception as exc:
                                 log(callback,f"[Google 검색 건너뜀] {book['title']}: {exc}")
@@ -653,6 +660,8 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                 if parsed.path.lower().endswith(".pdf"):
                                     add_candidate(book,target,title,snippet,"web-search",query); continue
                                 cached = page_content_cache.get(target)
+                                if cached is not None:
+                                    page_content_cache.move_to_end(target)
                                 fetched_now = False
                                 if cached is None:
                                     navigation_host_guard = (urlparse(target).hostname or "").lower()
@@ -669,8 +678,8 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                     if final_policy is None or not final_policy.can_fetch(USER_AGENT, final_url):
                                         log(callback,f"  [리디렉션 최종 주소 robots 차단] {final_url}"); continue
                                     pt,desc,body=extract_page(page)
-                                    page_content_cache[target] = (pt, desc, body)
-                                    page_content_cache[final_url] = (pt, desc, body)
+                                    remember_cache(page_content_cache, target, (pt, desc, body), 1000)
+                                    remember_cache(page_content_cache, final_url, (pt, desc, body), 1000)
                                     target = final_url
                                     fetched_now = True
                                 else:
