@@ -4,6 +4,7 @@ import csv
 import json
 import math
 import os
+import re
 import sys
 import queue
 import threading
@@ -335,8 +336,18 @@ class FinderApp:
     def log_line(self, text):
         self.log.configure(state="normal")
         self.log.insert("end", text + "\n")
+        # Bound the text widget so long-running searches do not consume unbounded UI memory.
+        line_count = int(self.log.index("end-1c").split(".")[0])
+        if line_count > 5000:
+            self.log.delete("1.0", f"{line_count - 5000}.0")
         self.log.see("end")
         self.log.configure(state="disabled")
+        match = re.search(r"\[진행\]\s*(\d+)\s*/\s*(\d+)", text)
+        if match and hasattr(self, "progress"):
+            current, total = int(match.group(1)), max(1, int(match.group(2)))
+            percent = min(99, round(current * 100 / total))
+            self.progress.configure(value=percent)
+            self.progress_caption.configure(text=f"교재 처리 중 · {current:,}/{total:,} ({percent}%)")
 
     def _poll(self):
         try:
@@ -350,10 +361,16 @@ class FinderApp:
                     self.password.set("")
                 elif kind == "books_path":
                     self.books_path.set(value)
+                elif kind == "books_count":
+                    self.metric_books.set(f"{int(value):,}권")
+                elif kind == "connected":
+                    self.connection_badge.configure(text="● Supabase 연결됨", foreground="#176b43", background="#e8f5ed")
                 elif kind == "paused":
                     self.run_button.configure(state="normal")
                     self.stop_button.configure(state="disabled")
-                    self.progress.stop()
+                    self.progress.configure(value=100)
+                    self.progress_caption.configure(text="중지됨 · 현재까지의 결과를 저장했습니다.")
+                    self.metric_output.set("중지 저장")
                     self.status.set(value)
                     self.load_results()
                     messagebox.showwarning("검색 중지", value)
@@ -361,7 +378,9 @@ class FinderApp:
                     self.stop_button.configure(state="disabled")
                     self.run_button.configure(state="normal")
                     if hasattr(self, "progress"):
-                        self.progress.stop()
+                        self.progress.configure(value=100)
+                    self.progress_caption.configure(text="완료 · 결과 CSV 저장됨")
+                    self.metric_output.set("완료")
                     self.status.set(value)
                     self.load_results()
                     messagebox.showinfo("완료", value)
@@ -370,6 +389,8 @@ class FinderApp:
                     self.run_button.configure(state="normal")
                     if hasattr(self, "progress"):
                         self.progress.stop()
+                    self.progress_caption.configure(text="오류 · 로그를 확인하세요.")
+                    self.metric_output.set("오류")
                     self.status.set("오류가 발생했습니다. 로그와 입력 설정을 확인하세요.")
                     self.log_line("[오류] " + value)
                     messagebox.showerror("오류", value)
@@ -381,6 +402,14 @@ class FinderApp:
         path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
         if path:
             self.books_path.set(path)
+            try:
+                from finder import read_books
+                count = len(read_books(Path(path)))
+                self.metric_books.set(f"{count:,}권")
+                self.status.set(f"교재 CSV 확인 완료 · {count:,}권")
+            except Exception as exc:
+                self.metric_books.set("확인 필요")
+                self.status.set(f"CSV 확인 실패: {exc}")
 
     def save_config(self):
         try:
@@ -473,6 +502,8 @@ class FinderApp:
                     writer.writeheader()
                     writer.writerows(rows)
                 self.events.put(("books_path", str(path)))
+                self.events.put(("books_count", len(rows)))
+                self.events.put(("connected", True))
                 self.events.put(("clear_password", ""))
                 self.events.put(("status", f"교재 {len(rows)}권 저장 완료: {path}"))
             except Exception as exc:
@@ -502,7 +533,9 @@ class FinderApp:
         self.stop_button.configure(state="normal")
         self.status.set("탐색 중입니다. 검색엔진과 대상 사이트의 접근 정책을 확인하며 진행합니다.")
         self.tabs.select(2)
-        self.progress.start(12)
+        self.progress.configure(value=0)
+        self.progress_caption.configure(text="작업 준비 중")
+        self.metric_output.set("실행 중")
         self.log_line("[시작] 탐색 작업을 준비합니다.")
         auto_upload = self.auto_upload.get()
         def worker():
@@ -625,23 +658,38 @@ class FinderApp:
         threading.Thread(target=worker, daemon=True).start()
 
     def load_results(self):
-        if not hasattr(self, "results") or not OUTPUT.is_file():
+        if not hasattr(self, "results"):
             return
         for item in self.results.get_children():
             self.results.delete(item)
+        if not OUTPUT.is_file():
+            self.result_count.set("0개")
+            self.metric_candidates.set("0개")
+            return
         try:
             with OUTPUT.open("r", encoding="utf-8-sig", newline="") as handle:
                 rows = list(csv.DictReader(handle))
-            for row in rows[:500]:
+            self.all_result_rows = rows
+            needle = self.filter_text.get().strip().casefold() if hasattr(self, "filter_text") else ""
+            if needle:
+                rows = [row for row in rows if needle in " ".join(
+                    str(row.get(key, "")) for key in ("book_title", "candidate_title", "url", "source_name")
+                ).casefold()]
+            shown = rows[:1000]
+            for row in shown:
+                status = row.get("match_status", "")
+                tag = status if status in ("likely", "uncertain") else ""
                 self.results.insert("", "end", values=(
                     row.get("book_title", ""),
                     row.get("candidate_title", ""),
-                    row.get("match_status", ""),
+                    status,
                     row.get("match_score", ""),
                     row.get("url", ""),
-                ))
-            if len(rows) > 500:
-                self.log_line(f"[안내] 후보 {len(rows)}개 중 처음 500개만 미리 표시합니다.")
+                ), tags=(tag,) if tag else ())
+            self.result_count.set(f"{len(rows):,}개 · {len(shown):,}개 표시")
+            self.metric_candidates.set(f"{len(self.all_result_rows):,}개")
+            if len(rows) > 1000:
+                self.progress_caption.configure(text="목록 1,000개 표시 제한 · CSV에는 전체 결과가 저장되어 있습니다.")
         except Exception as exc:
             self.log_line(f"[결과 미리보기 오류] {exc}")
 
