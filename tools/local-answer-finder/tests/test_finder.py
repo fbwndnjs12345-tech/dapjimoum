@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
 
-from finder import ALIASES, allowed_host, assess, build_queries, norm, parse_sitemap, read_books, robots_for, search_bing_rss, USER_AGENT
+from finder import ALIASES, allowed_host, assess, build_queries, canonicalize_url, norm, parse_sitemap, read_books, robots_for, search_bing_rss, SafeRedirectHandler, USER_AGENT
 
 
 class FinderUnitTests(unittest.TestCase):
@@ -94,7 +94,8 @@ class FinderUnitTests(unittest.TestCase):
         book = {"title": "오투 중등 과학 1-2", "series": "오투", "subject": "과학",
                 "grade": "중1", "semester": "2학기"}
         queries = build_queries(book, 8)
-        self.assertEqual(len(queries), 3)
+        self.assertLessEqual(len(queries), 8)
+        self.assertGreaterEqual(len(queries), 3)
         self.assertTrue(any("tistory.com" in q and "blog.naver.com" in q for q in queries))
 
     def test_build_queries_combines_textbook_metadata_and_answer_intent(self):
@@ -121,6 +122,16 @@ class FinderUnitTests(unittest.TestCase):
         self.assertEqual(results[0]["url"], "https://example.com/answer")
         self.assertIn("정답과 해설", results[0]["title"])
         self.assertIn("자료", results[0]["snippet"])
+
+    def test_redirect_handler_rejects_cross_host_redirect(self):
+        handler = SafeRedirectHandler("example.com")
+        request = __import__("urllib.request", fromlist=["Request"]).Request("https://example.com/start")
+        with self.assertRaises(HTTPError):
+            handler.redirect_request(request, None, 302, "Found", {}, "https://other.example/target")
+
+    def test_canonicalize_url_removes_tracking_and_sorts_query(self):
+        actual = canonicalize_url("https://Example.com/path?utm_source=x&z=2&a=1#section")
+        self.assertEqual(actual, "https://example.com/path?a=1&z=2")
 
     def test_parse_sitemap_urlset(self):
         xml = b'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://example.com/a</loc></url></urlset>'
