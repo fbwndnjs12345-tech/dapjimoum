@@ -354,7 +354,7 @@ class FinderApp:
                   style="MetricCaption.TLabel").pack(side="right")
         controls = ttk.Frame(runbox, style="Surface.TFrame")
         controls.grid(row=1, column=0, sticky="ew", pady=(12, 0))
-        ttk.Label(controls, text="출처별 페이지 한도").pack(side="left")
+        ttk.Label(controls, text="자료실 URL별 페이지 한도").pack(side="left")
         ttk.Entry(controls, textvariable=self.max_pages, width=8).pack(side="left", padx=(8, 18))
         ttk.Checkbutton(controls, text="브라우저 표시 · CAPTCHA 직접 인증 가능",
                         variable=self.headed).pack(side="left")
