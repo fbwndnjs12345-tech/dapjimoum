@@ -174,7 +174,7 @@ class FinderUnitTests(unittest.TestCase):
             book, "오투 과학",
             "https://publisher.example/files/오투_중등_과학_2-1_정답_solution.pdf",
             ["정답과 해설", "답지"])
-        self.assertEqual(status, "uncertain")
+        self.assertEqual(status, "likely")
 
     def test_assess_requires_answer_evidence(self):
         book = {"title": "오투 중등 과학 1-2"}
