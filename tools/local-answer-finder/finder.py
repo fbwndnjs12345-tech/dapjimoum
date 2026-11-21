@@ -608,10 +608,11 @@ def assess(book, title, snippet, terms):
         edition_conflict = True
     expected_isbn = re.sub(r"[^0-9Xx]", "", book.get("isbn13", ""))
     actual_isbns = set(re.findall(r"(?<![0-9])[0-9]{13}(?![0-9])", raw))
-    if expected_isbn and actual_isbns and expected_isbn not in actual_isbns:
+    isbn_hit = bool(expected_isbn and expected_isbn in actual_isbns)
+    if expected_isbn and actual_isbns and not isbn_hit:
         edition_conflict = True
 
-    answer_signal = any(word in combined for word in ("정답", "해설", "답지"))
+    answer_signal = any(word in combined for word in ("정답", "해설", "답지", "answer", "solution"))
     matched = [term for term in terms if norm(term) and norm(term) in combined]
     tokens = [norm(token) for token in re.findall(r"[가-힣A-Za-z]+|[0-9]+", book.get("title", ""))
               if norm(token) and norm(token) not in {"중등", "중학", "중학교", "교재"}]
@@ -636,14 +637,15 @@ def assess(book, title, snippet, terms):
     score = round(ratio * 30 + (30 if exact_title else 0) + (25 if answer_signal else 0)
                   + (8 if series_hit else 0) + (6 if subject_hit else 0)
                   + (3 if publisher_hit else 0) + (2 if grade_hit else 0)
-                  + (1 if semester_hit else 0) + (5 if edition_hit else 0))
+                  + (1 if semester_hit else 0) + (5 if edition_hit else 0)
+                  + (25 if isbn_hit else 0))
     if edition_conflict:
         score -= 50
     score = max(0, min(100, score))
 
     if edition_conflict or not identity_ok or not answer_signal:
         status = "mismatch"
-    elif (score >= 75 and (exact_title or (series_hit and subject_hit and edition_hit)) and
+    elif (score >= 75 and (exact_title or isbn_hit or (series_hit and subject_hit and edition_hit)) and
               all(not (book.get(key) or "").strip() or norm(book.get(key, "")) in combined
                   for key in ("edition", "curriculum_revision", "isbn13"))):
         status = "likely"
@@ -805,7 +807,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                 robots_cache.popitem(last=False)
             return robots_cache[key]
         def add_candidate(book,target,title,snippet,source_label,query=""):
-            target=canonicalize_url(target); score,status,matched=assess(book,title,snippet,terms)
+            target=canonicalize_url(target); evidence = " ".join(x for x in (snippet, target) if x); score,status,matched=assess(book,title,evidence,terms)
             if status=="mismatch": return
             parsed=urlparse(target); host=(parsed.hostname or "").lower()
             blog_domains = ("tistory.com", "blog.naver.com", "blogspot.com", "brunch.co.kr", "velog.io", "wordpress.com", "cafe.naver.com")
