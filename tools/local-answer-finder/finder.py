@@ -523,10 +523,10 @@ def upgrade_search_config(config: dict) -> tuple[dict, bool]:
         source_catalog_version = int(config.get("source_catalog_version", 0))
     except (TypeError, ValueError):
         version, source_catalog_version = 0, 0
-    if version >= 3 and source_catalog_version >= 1:
+    if version >= 3 and source_catalog_version >= 2:
         return config, False
     changed = False
-    if source_catalog_version < 1:
+    if source_catalog_version < 2:
         try:
             catalog_path = Path(__file__).with_name("sources.example.json")
             catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
