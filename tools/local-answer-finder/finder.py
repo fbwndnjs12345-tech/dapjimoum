@@ -357,6 +357,48 @@ def build_queries(book: dict[str, str], max_queries: int = 8) -> list[str]:
             break
     return result
 
+PUBLISHER_ALIASES = {
+    "비상교육": ("비상교육", "비상"),
+    "지학사": ("지학사",),
+    "천재교육": ("천재교육", "천재교과서", "천재"),
+    "미래엔": ("미래엔", "미래엔교육"),
+    "동아출판": ("동아출판", "동아"),
+    "좋은책신사고": ("좋은책신사고", "신사고"),
+    "NE능률": ("NE능률", "능률", "NE Books"),
+}
+
+
+def publisher_matches_source(book_publisher: str, source_publisher: str) -> bool:
+    book_norm = norm(book_publisher)
+    if not book_norm or not source_publisher:
+        return True
+    aliases = PUBLISHER_ALIASES.get(source_publisher.strip(), (source_publisher,))
+    return any(norm(alias) in book_norm or book_norm in norm(alias) for alias in aliases)
+
+
+def build_publisher_queries(book: dict[str, str], max_queries: int = 3) -> list[str]:
+    """Plain-text queries suitable for publisher search forms, not web search operators."""
+    title = (book.get("title") or "").strip()
+    if not title:
+        return []
+    variants = [
+        title,
+        " ".join(x for x in (title, book.get("subject", ""), book.get("grade", ""),
+                              book.get("semester", ""), book.get("edition", "")) if x).strip(),
+        " ".join(x for x in (book.get("series", ""), book.get("subject", ""),
+                              book.get("grade", ""), book.get("semester", "")) if x).strip(),
+        re.sub(r"[^0-9Xx]", "", book.get("isbn13", "")),
+    ]
+    result = []
+    for query in variants:
+        query = re.sub(r"\\s+", " ", query).strip()
+        if query and query not in result:
+            result.append(query[:120])
+        if len(result) >= max(1, min(5, int(max_queries))):
+            break
+    return result
+
+
 def discover_site_search_urls(page, query: str, expected_host: str, limit: int = 5) -> list[str]:
     """Build same-host GET search URLs from publisher-provided search forms only.
 
@@ -849,12 +891,13 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                     except Exception as exc:
                         log(callback,f"[건너뜀] robots.txt를 확인할 수 없음: {start_url} ({exc})"); continue
                     pages=collect_pages(start_url,robots,sitemaps,limit,callback)
-                    source_books = []
-                    for candidate_book in books:
-                        book_publisher = norm(candidate_book.get("publisher", ""))
-                        source_publisher = norm(publisher)
-                        if not book_publisher or not source_publisher or book_publisher in source_publisher or source_publisher in book_publisher:
-                            source_books.append(candidate_book)
+                    source_books = [
+                        candidate_book for candidate_book in books
+                        if publisher_matches_source(candidate_book.get("publisher", ""), publisher)
+                    ]
+                    if not source_books:
+                        source_books = list(books)
+                        log(callback, f"[출판사 매칭 대체] {publisher or host}: 교재 출판사를 특정하지 못해 전체 {len(books)}권을 검색합니다.")
                     log(callback,f"[공식 자료실 탐색] {publisher or host}: {len(pages)}개 공개 페이지 · 대상 교재 {len(source_books)}권")
                     discovered_source_pages = {canonicalize_url(item) for item in pages if is_safe_public_url(item)}
                     publisher_search_book_by_url = {}
@@ -891,42 +934,45 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                     if normalized_discovered not in discovered_source_pages:
                                         discovered_source_pages.add(normalized_discovered)
                                         pages.append(normalized_discovered)
-                            # Search the publisher's own GET form without any search API key.
-                            # Reserve part of the crawl budget for per-book searches before generic sitemap pages.
-                            if index == 1:
+                            # Detect the publisher's own GET search form on every visited page.
+                            # Search by title and metadata; reserve page budget for targeted queries.
+                            if len(publisher_search_book_by_url) < min(150, max(1, limit)):
                                 added_search_pages = 0
-                                search_page_budget = min(100, max(1, limit // 2))
+                                search_page_budget = min(150, max(1, limit))
                                 for search_book in source_books:
-                                    if added_search_pages >= search_page_budget:
+                                    if len(publisher_search_book_by_url) >= search_page_budget:
                                         break
-                                    identity = (search_book.get("title") or "").strip()
-                                    if not identity:
-                                        continue
-                                    for search_url in discover_site_search_urls(page, identity, host, limit=1):
-                                        if (added_search_pages >= search_page_budget
-                                                or not robots.can_fetch(USER_AGENT, search_url)):
-                                            continue
-                                        normalized_search = canonicalize_url(search_url)
-                                        if normalized_search not in discovered_source_pages:
+                                    for publisher_query in build_publisher_queries(search_book, 3):
+                                        if len(publisher_search_book_by_url) >= search_page_budget:
+                                            break
+                                        for search_url in discover_site_search_urls(page, publisher_query, host, limit=1):
+                                            if not robots.can_fetch(USER_AGENT, search_url):
+                                                continue
+                                            try:
+                                                normalized_search = canonicalize_url(search_url)
+                                            except ValueError:
+                                                continue
+                                            if normalized_search in discovered_source_pages:
+                                                continue
                                             discovered_source_pages.add(normalized_search)
-                                            insert_at = min(1 + added_search_pages, len(pages))
-                                            pages.insert(insert_at, normalized_search)
                                             publisher_search_book_by_url[normalized_search] = search_book
+                                            pages.insert(min(index, len(pages)), normalized_search)
                                             added_search_pages += 1
-                                            if len(pages) > limit:
-                                                pages.pop()
                                 if added_search_pages:
-                                    log(callback, f"  [출판사 자체 검색] 교재별 검색 결과 페이지 {added_search_pages}개 우선 추가")
+                                    log(callback, f"  [출판사 자체 검색] 교재별 검색 결과 페이지 {added_search_pages}개 추가")
                             targets=[]
                             if any(norm(term) in norm(combined) for term in terms):
                                 targets.append((url,title," ".join([description,body])))
                             for link in links:
                                 target=link.get("href","")
-                                if allowed_host(target,host) and robots.can_fetch(USER_AGENT,target):
-                                    link_context = " ".join(x for x in (
-                                        title, description, link.get("context") or "", link.get("text") or ""
-                                    ) if x)
-                                    targets.append((target,link.get("text") or title or "정답과 해설",link_context))
+                                # Publisher-hosted downloads may use a separate public CDN.
+                                if is_safe_public_url(target, resolve_dns=True):
+                                    target_policy = robots_for_target(target)
+                                    if target_policy is not None and target_policy.can_fetch(USER_AGENT, target):
+                                        link_context = " ".join(x for x in (
+                                            title, description, link.get("context") or "", link.get("text") or ""
+                                        ) if x)
+                                        targets.append((target,link.get("text") or title or "정답과 해설",link_context))
                             page_book = publisher_search_book_by_url.get(canonicalize_url(url))
                             page_books = [page_book] if page_book else source_books
                             for book in page_books:
@@ -1064,6 +1110,16 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                 browser.close()
     output_path.parent.mkdir(parents=True,exist_ok=True)
     _write_candidates(output_path, candidates)
+    per_book_counts = {}
+    for row in candidates.values():
+        key = row.get("book_id") or row.get("book_title") or "(교재명 없음)"
+        per_book_counts[key] = per_book_counts.get(key, 0) + 1
+    found_books = len(per_book_counts)
+    log(callback, f"[교재별 검색 결과] {found_books}/{len(books)}권에서 후보 발견 · 후보가 없는 교재 {len(books) - found_books}권")
+    for book in books:
+        key = book.get("id") or book.get("title")
+        if per_book_counts.get(key, 0) == 0:
+            log(callback, f"[검색 결과 없음] {book.get('title', '(교재명 없음)')} · 출처·검색어·접근 정책을 추가 확인해야 합니다.")
     if stop_event is not None and stop_event.is_set():
         log(callback,f"중지됨: 현재까지의 후보 {len(candidates)}개를 저장했습니다 → {output_path}")
     else:
