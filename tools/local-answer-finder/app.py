@@ -16,6 +16,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+APP_VERSION = "2.0.0"
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 if getattr(sys, "frozen", False):
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(ROOT / "ms-playwright")
@@ -123,7 +124,7 @@ class FinderApp:
         heading = ttk.Frame(header)
         heading.pack(side="left", fill="x", expand=True)
         ttk.Label(heading, text="답지모음", style="Hero.TLabel").pack(anchor="w")
-        ttk.Label(heading, text="LOCAL DISCOVERY WORKSPACE  /  교재별 공개 답지 링크 탐색",
+        ttk.Label(heading, text=f"LOCAL DISCOVERY WORKSPACE  /  v{APP_VERSION}  /  교재별 공개 답지 링크 탐색",
                   style="Muted.TLabel").pack(anchor="w", pady=(3, 0))
         self.connection_badge = ttk.Label(header, text="● 로컬 모드", foreground="#26734d",
                                           background="#e8f5ed", padding=(12, 7))
