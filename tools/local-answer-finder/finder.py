@@ -449,6 +449,8 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     candidates={}; robots_cache={}; page_content_cache={}; search_result_cache={}
     checkpoint_every = max(25, min(1000, int(config.get("checkpoint_every_candidates", 50))))
     early_stop_likely = max(1, min(10, int(web_cfg.get("early_stop_likely_candidates_per_book", 3))))
+    max_candidates_per_book = max(1, min(50, int(web_cfg.get("max_candidates_per_book", 5))))
+    candidate_counts = {}
     last_checkpoint = time.monotonic()
     log(callback,f"교재 {len(books)}권 · 공식 출처 {len(sources)}곳 · 공개 검색엔진 {', '.join(engines) if web_enabled else '사용 안 함'}")
     log(callback,f"검색 전략: 교재당 최대 {query_limit}개 검색어 · 엔진별 검색 결과 최대 {search_limit}개")
@@ -509,7 +511,10 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
             if parsed.path.lower().endswith(".pdf") and status == "likely":
                 status = "uncertain"
                 score = min(score, 59)
-            key=(book.get("id") or book["title"],target)
+            book_key = book.get("id") or book["title"]
+            key=(book_key,target)
+            if key not in candidates and candidate_counts.get(book_key, 0) >= max_candidates_per_book:
+                return
             row={"book_id":book.get("id",""),"book_title":book.get("title",""),"publisher":book.get("publisher",""),
                  "subject":book.get("subject",""),"grade":book.get("grade",""),"semester":book.get("semester",""),
                  "series":book.get("series",""),"edition":book.get("edition",""),"curriculum_revision":book.get("curriculum_revision",""),"isbn13":book.get("isbn13",""),"candidate_title":title or host,"url":target,"source_name":host,
@@ -517,6 +522,8 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                  "match_status":status,"matched_answer_terms":matched,
                  "link_type":"PDF" if parsed.path.lower().endswith(".pdf") else "웹페이지","search_query":query}
             if key not in candidates or score>int(candidates[key].get("match_score",0)):
+                if key not in candidates:
+                    candidate_counts[book_key] = candidate_counts.get(book_key, 0) + 1
                 candidates[key]=row
                 nonlocal last_checkpoint
                 now = time.monotonic()
