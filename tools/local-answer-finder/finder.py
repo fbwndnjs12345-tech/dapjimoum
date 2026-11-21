@@ -30,7 +30,7 @@ if getattr(sys, "frozen", False):
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-USER_AGENT = "DapjiMoumLocalFinder/1.0 (+local user-run tool)"
+USER_AGENT = "DapjiMoumLocalFinder/2.0 (+local user-run tool)"
 ALIASES = {
     "id": ["id", "book_id", "교재 ID"],
     "title": ["title", "book_title", "교재명", "도서명", "책이름", "책 제목"],
@@ -64,8 +64,10 @@ def is_safe_public_url(value: str, resolve_dns: bool = False) -> bool:
             return False
         if parsed.username or parsed.password:
             return False
+        if parsed.port is not None and parsed.port not in (80, 443):
+            return False
         host = parsed.hostname.rstrip(".").lower()
-        if host == "localhost" or host.endswith((".localhost", ".local", ".internal")):
+        if host == "localhost" or host.endswith((".localhost", ".local", ".internal", ".test", ".invalid", ".example", ".onion")):
             return False
         try:
             address = ipaddress.ip_address(host)
@@ -468,9 +470,10 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                 return
             navigation = route.request.is_navigation_request()
             host_key = (parsed_request.hostname or "").lower()
-            if host_key not in dns_safety_cache:
-                dns_safety_cache[host_key] = is_safe_public_url(request_url, resolve_dns=True)
-            safe = dns_safety_cache[host_key] and is_safe_public_url(request_url, resolve_dns=False)
+            cached_dns = dns_safety_cache.get(host_key)
+            if cached_dns is None or cached_dns[0] <= time.monotonic():
+                dns_safety_cache[host_key] = (time.monotonic() + 60, is_safe_public_url(request_url, resolve_dns=True))
+            safe = dns_safety_cache[host_key][1] and is_safe_public_url(request_url, resolve_dns=False)
             if not safe:
                 log(callback, f"[비공개/로컬 네트워크 요청 차단] {request_url[:200]}")
                 route.abort("blockedbyclient")
