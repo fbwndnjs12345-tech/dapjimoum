@@ -456,7 +456,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     if not sources and not (web_enabled and kakao_api_key and engines):
         raise ValueError("공식 자료실이 없고 Kakao 검색 API 키도 없습니다. 자료실을 설정하거나 API 키를 입력하세요.")
     query_limit=max(1,min(10,int(web_cfg.get("max_queries_per_book",8))))
-    candidates={}; robots_cache={}; page_content_cache=OrderedDict(); search_result_cache=OrderedDict()
+    candidates={}; robots_cache=OrderedDict(); page_content_cache=OrderedDict(); search_result_cache=OrderedDict()
     checkpoint_every = max(25, min(1000, int(config.get("checkpoint_every_candidates", 50))))
     early_stop_likely = max(1, min(10, int(web_cfg.get("early_stop_likely_candidates_per_book", 3))))
     max_candidates_per_book = max(1, min(50, int(web_cfg.get("max_candidates_per_book", 5))))
@@ -468,7 +468,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
         browser=p.chromium.launch(headless=not headed); context=browser.new_context(locale="ko-KR", service_workers="block", accept_downloads=False)
         page=context.new_page(); page.set_default_navigation_timeout(timeout)
         navigation_host_guard = None
-        dns_safety_cache = {}
+        dns_safety_cache = OrderedDict()
         def guard_browser_request(route):
             request_url = route.request.url
             parsed_request = urlparse(request_url)
@@ -483,6 +483,10 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
             cached_dns = dns_safety_cache.get(host_key)
             if cached_dns is None or cached_dns[0] <= time.monotonic():
                 dns_safety_cache[host_key] = (time.monotonic() + 60, is_safe_public_url(request_url, resolve_dns=True))
+            else:
+                dns_safety_cache.move_to_end(host_key)
+            while len(dns_safety_cache) > 2000:
+                dns_safety_cache.popitem(last=False)
             safe = dns_safety_cache[host_key][1] and is_safe_public_url(request_url, resolve_dns=False)
             if not safe:
                 log(callback, f"[비공개/로컬 네트워크 요청 차단] {request_url[:200]}")
@@ -512,6 +516,10 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                 try: robots_cache[key]=robots_for(target)[0]
                 except Exception as exc:
                     robots_cache[key]=None; log(callback,f"  [robots 확인 불가, 안전상 건너뜀] {parsed.netloc}: {exc}")
+            else:
+                robots_cache.move_to_end(key)
+            while len(robots_cache) > 2000:
+                robots_cache.popitem(last=False)
             return robots_cache[key]
         def add_candidate(book,target,title,snippet,source_label,query=""):
             target=canonicalize_url(target); score,status,matched=assess(book,title,snippet,terms)
