@@ -483,8 +483,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
             cached_dns = dns_safety_cache.get(host_key)
             if cached_dns is None or cached_dns[0] <= time.monotonic():
                 dns_safety_cache[host_key] = (time.monotonic() + 60, is_safe_public_url(request_url, resolve_dns=True))
-            else:
-                dns_safety_cache.move_to_end(host_key)
+            dns_safety_cache.move_to_end(host_key)
             while len(dns_safety_cache) > 2000:
                 dns_safety_cache.popitem(last=False)
             safe = dns_safety_cache[host_key][1] and is_safe_public_url(request_url, resolve_dns=False)
