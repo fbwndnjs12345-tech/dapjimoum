@@ -891,26 +891,30 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                         discovered_source_pages.add(normalized_discovered)
                                         pages.append(normalized_discovered)
                             # Search the publisher's own GET form without any search API key.
-                            # Only same-host forms and robots-allowed URLs are eligible.
-                            if index == 1 and len(pages) < limit:
+                            # Reserve part of the crawl budget for per-book searches before generic sitemap pages.
+                            if index == 1:
                                 added_search_pages = 0
+                                search_page_budget = min(100, max(1, limit // 2))
                                 for search_book in source_books:
-                                    identity = " ".join(x for x in (
-                                        search_book.get("title", ""), search_book.get("series", ""),
-                                        search_book.get("subject", ""), search_book.get("grade", ""),
-                                        search_book.get("semester", ""), "정답과 해설"
-                                    ) if x).strip()
-                                    for search_url in discover_site_search_urls(page, identity, host, limit=2):
-                                        if (len(pages) >= limit or added_search_pages >= 24
+                                    if added_search_pages >= search_page_budget:
+                                        break
+                                    identity = (search_book.get("title") or "").strip()
+                                    if not identity:
+                                        continue
+                                    for search_url in discover_site_search_urls(page, identity, host, limit=1):
+                                        if (added_search_pages >= search_page_budget
                                                 or not robots.can_fetch(USER_AGENT, search_url)):
                                             continue
                                         normalized_search = canonicalize_url(search_url)
                                         if normalized_search not in discovered_source_pages:
                                             discovered_source_pages.add(normalized_search)
-                                            pages.append(normalized_search)
+                                            insert_at = min(1 + added_search_pages, len(pages))
+                                            pages.insert(insert_at, normalized_search)
                                             added_search_pages += 1
+                                            if len(pages) > limit:
+                                                pages.pop()
                                 if added_search_pages:
-                                    log(callback, f"  [출판사 자체 검색] 검색 결과 페이지 {added_search_pages}개 추가")
+                                    log(callback, f"  [출판사 자체 검색] 교재별 검색 결과 페이지 {added_search_pages}개 우선 추가")
                             targets=[]
                             if any(norm(term) in norm(combined) for term in terms):
                                 targets.append((url,title," ".join([description,body])))
