@@ -21,7 +21,7 @@ Windows용 데스크톱 프로그램입니다. Kakao 공식 REST API의 웹문�
 2. Supabase에서 가져오거나 id,title,publisher,subject,grade,semester,series 열이 있는 CSV를 선택합니다.
 3. 출처 설정 JSON에서 `web_search.enabled`를 true로 두고 `engines`에 `kakao_web`, `kakao_blog`, `kakao_cafe`를 지정합니다. Kakao REST API 키는 프로그램의 데이터 및 계정 화면에 입력합니다.
 4. 공식 자료실도 탐색하려면 `sources` 배열에 출판사명과 자료실 주소를 추가합니다. 출처별 사이트맵 탐색 기본 한도는 80페이지(최대 100페이지)입니다. 공개 웹 검색만 사용할 경우 `sources`를 빈 배열로 둘 수 있습니다.
-5. 탐색 시작을 누르면 `answer-link-candidates.csv`에 결과가 저장됩니다.
+5. 탐색 시작을 누르면 `%LOCALAPPDATA%\\DapjiMoumFinder\\answer-link-candidates.csv`에 결과가 저장됩니다.
 6. Supabase 로그인 상태에서 검색 후보를 사이트에 등록하면 관리자 검수 대기 목록에 등록됩니다. 후보는 자동 승인되지 않습니다.
 
 후보 등록을 위해 저장소 루트에서 최초 1회 다음 Edge Function을 올바른 Supabase 프로젝트에 배포해야 합니다:
@@ -41,6 +41,6 @@ supabase functions deploy answer-link-import-candidates
 - 로그인, 유료 페이지, CAPTCHA, 접근 차단을 우회하지 않습니다.
 - 검색 결과는 후보일 뿐 실제 정답 자료인지 자동 확정하지 않습니다. 관리자 검수가 필요합니다.
 - PDF는 다운로드하지 않고 링크 후보로 기록합니다.
-- 결과 수와 검색엔진 가용성을 보장하지 않습니다.
+- Kakao 공식 쿼터는 현재 웹문서·블로그·카페 검색 각각 일 30,000회이며, 월간 전체 API 무료 쿼터는 3,000,000회입니다. 쿼터는 변경될 수 있고 앱별 사용량에 합산됩니다.\n- 결과 수와 검색 API 가용성을 보장하지 않습니다.
 - Google 검색 결과 페이지는 robots.txt에서 `/search`가 Disallow이고, Bing 검색 페이지도 `/search`가 Disallow입니다. Bing Search API는 2025-08-11 종료됐으므로 두 페이지를 직접 수집하지 않습니다. 대신 Kakao 공식 REST API를 사용하며, API 키가 없으면 공식 자료실 탐색만 실행합니다.
 - 같은 실행 안에서만 검색 결과와 페이지 본문을 캐시합니다. 실행 간 캐시는 사용하지 않아 오래된 검색 결과가 장기간 재사용되지 않도록 합니다.
