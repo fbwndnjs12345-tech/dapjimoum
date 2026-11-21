@@ -437,7 +437,7 @@ def upgrade_search_config(config: dict) -> tuple[dict, bool]:
     web_cfg["max_queries_per_book"] = max(8, int(web_cfg.get("max_queries_per_book", 3)))
     web_cfg["results_per_engine"] = max(12, int(web_cfg.get("results_per_engine", 5)))
     web_cfg["max_candidates_per_book"] = max(12, int(web_cfg.get("max_candidates_per_book", 5)))
-    web_cfg["max_search_pages_per_query"] = max(2, int(web_cfg.get("max_search_pages_per_query", 1)))
+    web_cfg["max_search_pages_per_query"] = max(2, min(3, int(web_cfg.get("max_search_pages_per_query", 1))))
     web_cfg["strategy_version"] = 2
     config["max_pages_to_verify_per_book"] = max(40, int(config.get("max_pages_to_verify_per_book", 40)))
     config["api_request_delay_seconds"] = max(0.0, min(0.5, float(config.get("api_request_delay_seconds", 0.1))))
@@ -699,6 +699,10 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                 route.continue_()
                 return
             navigation = route.request.is_navigation_request()
+            try:
+                main_navigation = navigation and route.request.frame == page.main_frame
+            except Exception:
+                main_navigation = navigation
             host_key = (parsed_request.hostname or "").lower()
             cached_dns = dns_safety_cache.get(host_key)
             if cached_dns is None or cached_dns[0] <= time.monotonic():
@@ -719,7 +723,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
             if route.request.resource_type in ("image", "media", "font"):
                 route.abort("blockedbyclient")
                 return
-            if navigation and navigation_host_guard:
+            if main_navigation and navigation_host_guard:
                 host = (urlparse(request_url).hostname or "").lower()
                 if host != navigation_host_guard:
                     log(callback, f"[동일 호스트 외부 리디렉션 차단] {request_url[:200]}")
