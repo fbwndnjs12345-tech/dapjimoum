@@ -244,6 +244,7 @@ Deno.serve(async request => {
     let isDownload = false;
     let matchStatus: 'unknown' | 'matched' | 'mismatch' | 'uncertain' | 'not_applicable' = 'unknown';
     let matchNote: string | null = null;
+    let redirectCount = 0;
     try {
       if (!await safeExternalUrl(link.url)) throw new Error('안전하지 않은 공개 URL이어서 검사하지 않았습니다.');
       const controller = new AbortController();
@@ -252,7 +253,7 @@ Deno.serve(async request => {
         const head = await fetchFollowingSafeRedirects(link.url, { method: 'HEAD' }, reserveSlot, controller.signal);
         let response = head.response;
         finalUrl = head.finalUrl;
-        let redirectCount = head.redirects;
+        redirectCount = head.redirects;
         let usedGet = false;
         const headType = response.headers.get('content-type') ?? '';
         const pdfExpectedFromUrl = /\.pdf(?:$|[?#])/i.test(finalUrl);
