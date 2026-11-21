@@ -18,10 +18,8 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.2.0"
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
-if getattr(sys, "frozen", False):
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(ROOT / "ms-playwright")
 APP_DATA_DIR = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")) / "DapjiMoumFinder"
 APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
 DEFAULT_CONFIG = APP_DATA_DIR / "sources.json"
@@ -841,7 +839,7 @@ class FinderApp:
 def self_test():
     """Run dependency, configuration, Tk, and bundled Chromium smoke checks."""
     try:
-        from finder import read_books, assess
+        from finder import read_books, assess, launch_browser
         from playwright.sync_api import sync_playwright
         example = ROOT / "sources.example.json"
         config = json.loads(example.read_text(encoding="utf-8"))
@@ -861,13 +859,13 @@ def self_test():
         root.update_idletasks()
         root.destroy()
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True)
+            browser = launch_browser(playwright, headless=True)
             page = browser.new_page()
             page.set_content("<html><head><title>DapjiMoum smoke test</title></head><body>OK</body></html>")
             if page.title() != "DapjiMoum smoke test":
-                raise RuntimeError("Chromium 페이지 테스트 실패")
+                raise RuntimeError("브라우저 페이지 테스트 실패")
             browser.close()
-        (APP_DATA_DIR / "self-test.log").write_text("SELF-TEST PASSED: config, matching, Tk, Playwright Chromium\\n", encoding="utf-8")
+        (APP_DATA_DIR / "self-test.log").write_text("SELF-TEST PASSED: config, matching, Tk, installed browser\\n", encoding="utf-8")
         return 0
     except Exception as exc:
         print(f"SELF-TEST FAILED: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
