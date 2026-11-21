@@ -339,13 +339,14 @@ def build_queries(book: dict[str, str], max_queries: int = 8) -> list[str]:
     variants = [
         f'"{title}" "답지"',
         f'"{publisher_identity}" "정답과 해설"' if publisher else f'"{full_identity}" "정답과 해설"',
+        f'"{title}" "정답과 해설"',
         f'"{title}" {publisher_identity} {platform_clause} 답지',
         f'"{full_identity}" "정답" "해설"',
-        f'"{title}" "정답과 해설"',
-        f'"{full_identity}" site:tistory.com 답지',
         f'"{full_identity}" site:blog.naver.com 답지',
-        f'"{full_identity}" site:blogspot.com 답지',
+        f'"{full_identity}" site:tistory.com 답지',
         f'"{full_identity}" site:cafe.naver.com 답지',
+        f'"{full_identity}" site:blogspot.com 답지',
+        f'"{isbn}" "정답" OR "해설"' if isbn else f'"{title}" "정답" "해설" PDF',
     ]
     result = []
     for query in variants:
