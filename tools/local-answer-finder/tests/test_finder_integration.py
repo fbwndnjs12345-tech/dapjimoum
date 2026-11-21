@@ -68,7 +68,7 @@ class FinderEndToEndTests(unittest.TestCase):
                 root = Path(tmp)
                 books = root / "books.csv"
                 books.write_text(
-                    "id,title,publisher\\nfixture-book,오투 중등 과학 2-1,비상교육\\n",
+                    "id,title,publisher\nfixture-book,오투 중등 과학 2-1,비상교육\n",
                     encoding="utf-8"
                 )
                 config = root / "sources.json"
@@ -87,7 +87,7 @@ class FinderEndToEndTests(unittest.TestCase):
                 messages = []
                 with patch("finder.is_safe_public_url", side_effect=lambda url, resolve_dns=False: url.startswith(base)), patch("finder.time.sleep"), patch("finder.search_kakao_api", side_effect=AssertionError("API must not be called")):
                     count = run_search(books, output, config, False, 10, messages.append)
-                self.assertGreaterEqual(count, 1, "\\n".join(messages))
+                self.assertGreaterEqual(count, 1, "\n".join(messages))
                 with output.open("r", encoding="utf-8-sig", newline="") as handle:
                     rows = list(csv.DictReader(handle))
                 self.assertTrue(any(
@@ -95,7 +95,7 @@ class FinderEndToEndTests(unittest.TestCase):
                     and row["url"].endswith("/files/answer-key.pdf")
                     and row["match_status"] == "uncertain"
                     for row in rows
-                ), "\\n".join(messages))
+                ), "\n".join(messages))
                 self.assertTrue(any("[출판사 자체 검색]" in line for line in messages))
                 self.assertTrue(any("API 없음" in line for line in messages))
         finally:
