@@ -1,5 +1,5 @@
 {
-  "source_catalog_version": 3,
+  "source_catalog_version": 4,
   "sources": [
     {
       "publisher": "비상교육",
@@ -28,6 +28,14 @@
       "start_urls": [
         "https://www.nebooks.co.kr/pages/",
         "https://www.nebooks.co.kr/pages/service/"
+      ]
+    },
+    {
+      "publisher": "동아출판",
+      "start_urls": [
+        "https://www.bookdonga.com/element/extradata_list.donga",
+        "https://www.bookdonga.com/middle/extradata_list.donga",
+        "https://www.bookdonga.com/high/extradata_list.donga"
       ]
     },
     {
