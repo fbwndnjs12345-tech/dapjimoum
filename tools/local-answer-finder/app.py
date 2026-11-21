@@ -4,6 +4,7 @@ import csv
 import json
 import math
 import os
+import re
 import sys
 import queue
 import threading
@@ -18,8 +19,19 @@ from tkinter import filedialog, messagebox, ttk
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 if getattr(sys, "frozen", False):
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(ROOT / "ms-playwright")
-DEFAULT_CONFIG = ROOT / "sources.json"
-OUTPUT = ROOT / "answer-link-candidates.csv"
+APP_DATA_DIR = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")) / "DapjiMoumFinder"
+APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
+DEFAULT_CONFIG = APP_DATA_DIR / "sources.json"
+OUTPUT = APP_DATA_DIR / "answer-link-candidates.csv"
+# Preserve settings/results from older portable builds when moving to the writable app-data location.
+for legacy_name, destination in (("sources.json", DEFAULT_CONFIG), ("answer-link-candidates.csv", OUTPUT), ("books.csv", APP_DATA_DIR / "books.csv")):
+    legacy_path = ROOT / legacy_name
+    if not destination.exists() and legacy_path.is_file():
+        try:
+            import shutil
+            shutil.copy2(legacy_path, destination)
+        except OSError:
+            pass
 
 
 def request_json(url: str, headers: dict[str, str], data: dict | None = None):
@@ -59,77 +71,152 @@ class FinderApp:
         self.root.after(150, self._poll)
 
     def _build(self):
-        self.root.configure(bg="#f5f7fa")
+        """Build a compact, enterprise-style workspace with clear task separation."""
+        self.root.configure(bg="#f3f5f9")
+        self.root.title("답지모음 | 로컬 탐색기")
+        self.root.geometry("1320x880")
+        self.root.minsize(1080, 740)
+
         style = ttk.Style()
         try:
             style.theme_use("vista")
         except tk.TclError:
             style.theme_use("clam")
-        style.configure("TFrame", background="#f5f7fa")
-        style.configure("Card.TLabelframe", background="#ffffff", bordercolor="#e2e8f0", relief="solid")
-        style.configure("Card.TLabelframe.Label", background="#ffffff", foreground="#1f2937", font=("Malgun Gothic", 10, "bold"))
-        style.configure("TLabel", background="#f5f7fa", foreground="#334155", font=("Malgun Gothic", 9))
-        style.configure("Title.TLabel", background="#f5f7fa", foreground="#111827", font=("Malgun Gothic", 19, "bold"))
-        style.configure("Sub.TLabel", background="#f5f7fa", foreground="#64748b", font=("Malgun Gothic", 9))
-        style.configure("TButton", font=("Malgun Gothic", 9), padding=(12, 7))
-        style.configure("Accent.TButton", font=("Malgun Gothic", 10, "bold"), padding=(16, 10))
-        style.configure("Status.TLabel", background="#eef2ff", foreground="#3730a3", font=("Malgun Gothic", 9, "bold"), padding=(10, 8))
-        style.configure("TNotebook", background="#f5f7fa", borderwidth=0)
-        style.configure("TNotebook.Tab", padding=(18, 10), font=("Malgun Gothic", 9, "bold"))
-        style.configure("Treeview", rowheight=27, font=("Malgun Gothic", 9))
-        style.configure("Treeview.Heading", font=("Malgun Gothic", 9, "bold"))
 
-        outer = ttk.Frame(self.root, padding=(22, 18))
+        bg = "#f3f5f9"
+        surface = "#ffffff"
+        ink = "#172033"
+        muted = "#68758b"
+        line = "#e2e7ef"
+        accent = "#2457d6"
+        style.configure(".", font=("Malgun Gothic", 9))
+        style.configure("TFrame", background=bg)
+        style.configure("Surface.TFrame", background=surface)
+        style.configure("TLabel", background=bg, foreground=ink)
+        style.configure("Muted.TLabel", background=bg, foreground=muted)
+        style.configure("Hero.TLabel", background=bg, foreground=ink, font=("Malgun Gothic", 21, "bold"))
+        style.configure("Section.TLabel", background=surface, foreground=ink, font=("Malgun Gothic", 11, "bold"))
+        style.configure("Metric.TLabel", background=surface, foreground=ink, font=("Malgun Gothic", 18, "bold"))
+        style.configure("MetricCaption.TLabel", background=surface, foreground=muted, font=("Malgun Gothic", 8))
+        style.configure("TButton", padding=(12, 8), font=("Malgun Gothic", 9))
+        style.configure("Accent.TButton", padding=(16, 9), font=("Malgun Gothic", 9, "bold"),
+                        background=accent, foreground="#ffffff")
+        style.map("Accent.TButton", background=[("active", "#1d49b5"), ("disabled", "#aab6cf")])
+        style.configure("TNotebook", background=bg, borderwidth=0, tabmargins=(0, 0, 0, 0))
+        style.configure("TNotebook.Tab", padding=(22, 12), font=("Malgun Gothic", 9, "bold"))
+        style.map("TNotebook.Tab", background=[("selected", surface), ("!selected", "#e9edf4")],
+                  foreground=[("selected", accent), ("!selected", muted)])
+        style.configure("Treeview", rowheight=31, font=("Malgun Gothic", 9),
+                        background=surface, fieldbackground=surface, foreground=ink)
+        style.configure("Treeview.Heading", font=("Malgun Gothic", 9, "bold"),
+                        background="#f0f3f8", foreground="#344054", padding=(8, 9))
+        style.map("Treeview", background=[("selected", "#e6edff")],
+                  foreground=[("selected", ink)])
+        style.configure("Horizontal.TProgressbar", troughcolor="#e7ebf2", background=accent,
+                        bordercolor="#e7ebf2", lightcolor=accent, darkcolor=accent)
+
+        outer = ttk.Frame(self.root, padding=(24, 20))
         outer.pack(fill="both", expand=True)
+
         header = ttk.Frame(outer)
-        header.pack(fill="x", pady=(0, 15))
-        ttk.Label(header, text="답지모음 링크 탐색기", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(header, text="교재별 공개 웹·블로그·출판사 자료실을 검색하고, 찾은 링크를 Supabase 검수 대기 목록으로 전달합니다.", style="Sub.TLabel").pack(anchor="w", pady=(4, 0))
+        header.pack(fill="x", pady=(0, 17))
+        heading = ttk.Frame(header)
+        heading.pack(side="left", fill="x", expand=True)
+        ttk.Label(heading, text="답지모음", style="Hero.TLabel").pack(anchor="w")
+        ttk.Label(heading, text="LOCAL DISCOVERY WORKSPACE  /  교재별 공개 답지 링크 탐색",
+                  style="Muted.TLabel").pack(anchor="w", pady=(3, 0))
+        self.connection_badge = ttk.Label(header, text="● 로컬 모드", foreground="#26734d",
+                                          background="#e8f5ed", padding=(12, 7))
+        self.connection_badge.pack(side="right", anchor="n")
+
+        metrics = ttk.Frame(outer)
+        metrics.pack(fill="x", pady=(0, 15))
+        for i in range(3):
+            metrics.columnconfigure(i, weight=1, uniform="metric")
+        self.metric_books = tk.StringVar(value="—")
+        self.metric_candidates = tk.StringVar(value="—")
+        self.metric_output = tk.StringVar(value="대기 중")
+        for col, (caption, variable) in enumerate((
+            ("불러온 교재", self.metric_books),
+            ("수집 후보", self.metric_candidates),
+            ("최근 작업", self.metric_output),
+        )):
+            card = ttk.Frame(metrics, style="Surface.TFrame", padding=(16, 12))
+            card.grid(row=0, column=col, sticky="nsew", padx=(0 if col == 0 else 8, 0))
+            ttk.Label(card, text=caption, style="MetricCaption.TLabel").pack(anchor="w")
+            ttk.Label(card, textvariable=variable, style="Metric.TLabel").pack(anchor="w", pady=(4, 0))
 
         self.tabs = ttk.Notebook(outer)
         self.tabs.pack(fill="both", expand=True)
-        account = ttk.Frame(self.tabs, padding=16)
-        sources = ttk.Frame(self.tabs, padding=16)
-        search = ttk.Frame(self.tabs, padding=16)
-        self.tabs.add(account, text="① 교재 및 연결")
-        self.tabs.add(sources, text="② 출처 설정")
-        self.tabs.add(search, text="③ 탐색 및 결과")
 
-        supa = ttk.LabelFrame(account, text="Supabase 관리자 연결 (선택)", style="Card.TLabelframe", padding=14)
-        supa.pack(fill="x", pady=(0, 12))
-        self._entry(supa, "프로젝트 URL", self.supabase_url, 0)
-        self._entry(supa, "Anon / Publishable Key", self.anon_key, 1)
-        self._entry(supa, "관리자 이메일", self.email, 2)
-        self._entry(supa, "관리자 비밀번호", self.password, 3, show="•")
-        row = ttk.Frame(supa)
-        row.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(10, 0))
-        ttk.Button(row, text="로그인 및 교재 가져오기", command=self.fetch_books, style="Accent.TButton").pack(side="left")
-        ttk.Button(row, text="검색 후보 사이트 등록", command=self.upload_candidates).pack(side="left", padx=8)
-        ttk.Label(supa, text="Supabase Authentication 사용자이면서 admin_users에 등록된 관리자 계정이 필요합니다. 비밀번호와 토큰은 설정 파일에 저장하지 않습니다.", style="Sub.TLabel", wraplength=850).grid(row=5, column=0, columnspan=4, sticky="w", pady=(8, 0))
-        ttk.Label(account, text="권장 순서: ① 관리자 로그인 ② 서버 교재 가져오기 ③ 출처 설정 확인 ④ 탐색 시작 ⑤ 후보 검수", style="Sub.TLabel", wraplength=900).pack(anchor="w", pady=(12, 0))
+        account = ttk.Frame(self.tabs, padding=18)
+        sources = ttk.Frame(self.tabs, padding=18)
+        search = ttk.Frame(self.tabs, padding=18)
+        self.tabs.add(account, text="  01  데이터 및 계정  ")
+        self.tabs.add(sources, text="  02  검색 설정  ")
+        self.tabs.add(search, text="  03  탐색 결과  ")
 
-        csvbox = ttk.LabelFrame(account, text="교재 CSV 직접 선택", style="Card.TLabelframe", padding=14)
-        csvbox.pack(fill="x")
-        ttk.Label(csvbox, text="필수 열: title 또는 교재명. 사이트 등록 시에는 각 행의 id도 필요합니다.").pack(anchor="w", pady=(0, 8))
-        csvrow = ttk.Frame(csvbox)
-        csvrow.pack(fill="x")
-        ttk.Entry(csvrow, textvariable=self.books_path).pack(side="left", fill="x", expand=True, padx=(0, 8))
-        ttk.Button(csvrow, text="CSV 찾아보기", command=self.choose_csv).pack(side="left")
+        account.columnconfigure(0, weight=3)
+        account.columnconfigure(1, weight=2)
+        account.rowconfigure(0, weight=1)
 
-        sourcecard = ttk.LabelFrame(sources, text="공식 자료실 및 공개 웹 검색", style="Card.TLabelframe", padding=14)
+        supa = ttk.Frame(account, style="Surface.TFrame", padding=18)
+        supa.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        ttk.Label(supa, text="Supabase 연결", style="Section.TLabel").grid(
+            row=0, column=0, columnspan=3, sticky="w", pady=(0, 5))
+        ttk.Label(supa, text="관리자 계정으로 교재 목록을 가져오고, 탐색 결과를 검수 대기 후보로 전달합니다.",
+                  style="MetricCaption.TLabel", wraplength=620).grid(
+            row=1, column=0, columnspan=3, sticky="w", pady=(0, 16))
+        self._entry(supa, "프로젝트 URL", self.supabase_url, 2)
+        self._entry(supa, "Anon / Publishable Key", self.anon_key, 3)
+        self._entry(supa, "관리자 이메일", self.email, 4)
+        self._entry(supa, "관리자 비밀번호", self.password, 5, show="•")
+        buttons = ttk.Frame(supa, style="Surface.TFrame")
+        buttons.grid(row=6, column=0, columnspan=3, sticky="w", pady=(16, 0))
+        ttk.Button(buttons, text="로그인 및 교재 가져오기", command=self.fetch_books,
+                   style="Accent.TButton").pack(side="left")
+        ttk.Button(buttons, text="후보 업로드", command=self.upload_candidates).pack(side="left", padx=(8, 0))
+        ttk.Label(supa, text="보안 안내  ·  비밀번호와 세션 토큰은 설정 파일에 저장하지 않습니다. "
+                  "업로드된 후보는 자동 승인되거나 공개되지 않습니다.",
+                  style="MetricCaption.TLabel", wraplength=620).grid(
+            row=7, column=0, columnspan=3, sticky="w", pady=(16, 0))
+
+        csvbox = ttk.Frame(account, style="Surface.TFrame", padding=18)
+        csvbox.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+        ttk.Label(csvbox, text="교재 데이터", style="Section.TLabel").pack(anchor="w")
+        ttk.Label(csvbox, text="CSV 파일을 선택해 Supabase 연결 없이도 로컬 탐색을 실행할 수 있습니다.",
+                  style="MetricCaption.TLabel", wraplength=360).pack(anchor="w", pady=(5, 16))
+        ttk.Label(csvbox, text="선택된 파일", style="MetricCaption.TLabel").pack(anchor="w")
+        path_entry = ttk.Entry(csvbox, textvariable=self.books_path)
+        path_entry.pack(fill="x", pady=(5, 10))
+        ttk.Button(csvbox, text="CSV 파일 선택", command=self.choose_csv).pack(anchor="w")
+        ttk.Separator(csvbox).pack(fill="x", pady=18)
+        ttk.Label(csvbox, text="필수 데이터", style="Section.TLabel").pack(anchor="w")
+        ttk.Label(csvbox, text="교재명(title)\n후보를 사이트에 등록하려면 교재 ID(id)가 필요합니다.\n\n"
+                  "선택 항목\n출판사 · 시리즈 · 과목 · 학년 · 학기 · 판본 · 교육과정 · ISBN",
+                  style="MetricCaption.TLabel", justify="left").pack(anchor="w", pady=(8, 0))
+
+        sourcecard = ttk.Frame(sources, style="Surface.TFrame", padding=18)
         sourcecard.pack(fill="both", expand=True)
-        ttk.Label(sourcecard, text="Google·Bing 공개 검색과 출판사 자료실을 함께 탐색합니다. 공개 웹 검색은 robots.txt 및 대상 사이트 정책을 준수합니다.", style="Sub.TLabel").pack(anchor="w")
-        editor = ttk.Frame(sourcecard)
-        editor.pack(fill="both", expand=True, pady=(10, 8))
-        self.config_text = tk.Text(editor, height=16, wrap="none", font=("Consolas", 10), undo=True,
-                                   bg="#ffffff", fg="#1f2937", insertbackground="#111827",
-                                   relief="solid", bd=1, padx=10, pady=10)
+        sourcehead = ttk.Frame(sourcecard, style="Surface.TFrame")
+        sourcehead.pack(fill="x")
+        ttk.Label(sourcehead, text="검색 및 출처 정책", style="Section.TLabel").pack(side="left")
+        ttk.Label(sourcehead, text="JSON  ·  저장 전 형식과 필수값을 검사합니다.",
+                  style="MetricCaption.TLabel").pack(side="right")
+        ttk.Label(sourcecard, text="Google·Bing 공개 검색과 출판사 공식 자료실을 설정합니다. robots.txt 및 대상 사이트 접근 정책을 준수합니다.",
+                  style="MetricCaption.TLabel", wraplength=1100).pack(anchor="w", pady=(6, 12))
+        editor = ttk.Frame(sourcecard, style="Surface.TFrame")
+        editor.pack(fill="both", expand=True)
+        self.config_text = tk.Text(editor, height=18, wrap="none", font=("Cascadia Code", 10), undo=True,
+                                   bg="#fbfcfe", fg="#253047", insertbackground=ink,
+                                   relief="solid", bd=1, padx=14, pady=12,
+                                   highlightthickness=1, highlightbackground=line)
         yscroll = ttk.Scrollbar(editor, orient="vertical", command=self.config_text.yview)
         xscroll = ttk.Scrollbar(sourcecard, orient="horizontal", command=self.config_text.xview)
         self.config_text.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
         self.config_text.pack(side="left", fill="both", expand=True)
         yscroll.pack(side="right", fill="y")
-        xscroll.pack(fill="x")
+        xscroll.pack(fill="x", pady=(0, 10))
         if DEFAULT_CONFIG.exists():
             self.config_text.insert("1.0", DEFAULT_CONFIG.read_text(encoding="utf-8"))
         else:
@@ -137,53 +224,115 @@ class FinderApp:
             if example.exists():
                 self.config_text.insert("1.0", example.read_text(encoding="utf-8"))
             else:
-                self.config_text.insert("1.0", json.dumps({"sources": [], "max_sitemap_urls_per_source": 500, "request_delay_seconds": 1.5, "page_timeout_ms": 20000, "answer_keywords": ["정답과 해설", "정답 해설", "답지"]}, ensure_ascii=False, indent=2))
-        cfgbuttons = ttk.Frame(sourcecard)
-        cfgbuttons.pack(fill="x")
-        ttk.Button(cfgbuttons, text="설정 저장 및 검사", command=self.save_config, style="Accent.TButton").pack(side="left")
-        ttk.Button(cfgbuttons, text="설정 예시 보기", command=lambda: webbrowser.open(str(ROOT / "README.md"))).pack(side="left", padx=8)
+                self.config_text.insert("1.0", json.dumps({
+                    "sources": [], "max_sitemap_urls_per_source": 500,
+                    "request_delay_seconds": 1.5, "page_timeout_ms": 20000,
+                    "answer_keywords": ["정답과 해설", "정답 해설", "답지"],
+                    "web_search": {"enabled": True, "engines": ["google", "bing"],
+                                   "results_per_engine": 8, "max_queries_per_book": 8}
+                }, ensure_ascii=False, indent=2))
+        config_actions = ttk.Frame(sourcecard, style="Surface.TFrame")
+        config_actions.pack(fill="x", pady=(12, 0))
+        ttk.Button(config_actions, text="설정 저장 및 유효성 검사",
+                   command=self.save_config, style="Accent.TButton").pack(side="left")
+        ttk.Button(config_actions, text="사용 설명서 열기",
+                   command=lambda: webbrowser.open(str(ROOT / "README.md"))).pack(side="left", padx=8)
 
-        runbox = ttk.LabelFrame(search, text="탐색 실행", style="Card.TLabelframe", padding=14)
-        runbox.pack(fill="x", pady=(0, 12))
-        ttk.Label(runbox, text="교재 목록과 출처 설정을 확인한 뒤 실행하세요. 로그인 상태에서는 완료된 후보가 자동으로 Supabase에 등록됩니다.", wraplength=900).pack(anchor="w", pady=(0, 10))
-        options = ttk.Frame(runbox)
-        options.pack(fill="x")
-        ttk.Label(options, text="출처별 최대 페이지").pack(side="left")
-        ttk.Entry(options, textvariable=self.max_pages, width=8).pack(side="left", padx=(8, 16))
-        ttk.Checkbutton(options, text="브라우저 창 표시 (Google 직접 인증)", variable=self.headed).pack(side="left")
-        ttk.Checkbutton(runbox, text="검색 종료 후 Supabase 자동 업로드 (관리자 로그인 필요 · 사이트 자동 공개 안 함)", variable=self.auto_upload).pack(anchor="w", pady=(8, 0))
-        ttk.Label(runbox, text="자동 업로드를 끄면 CSV만 저장됩니다. 업로드된 링크는 관리자 승인 전까지 사이트에 공개되지 않습니다.", style="Sub.TLabel", wraplength=900).pack(anchor="w", pady=(4, 0))
-        self.run_button = ttk.Button(options, text="탐색 시작", command=self.run_finder, style="Accent.TButton")
-        self.run_button.pack(side="right")
-        self.stop_button = ttk.Button(options, text="중지 및 결과 저장", command=self.stop_finder, state="disabled")
+        search.rowconfigure(1, weight=1)
+        search.columnconfigure(0, weight=1)
+        runbox = ttk.Frame(search, style="Surface.TFrame", padding=16)
+        runbox.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        runbox.columnconfigure(0, weight=1)
+        runhead = ttk.Frame(runbox, style="Surface.TFrame")
+        runhead.grid(row=0, column=0, sticky="ew")
+        ttk.Label(runhead, text="탐색 작업", style="Section.TLabel").pack(side="left")
+        ttk.Label(runhead, text="실행 전 데이터와 검색 설정을 확인하세요.",
+                  style="MetricCaption.TLabel").pack(side="right")
+        controls = ttk.Frame(runbox, style="Surface.TFrame")
+        controls.grid(row=1, column=0, sticky="ew", pady=(12, 0))
+        ttk.Label(controls, text="출처별 페이지 한도").pack(side="left")
+        ttk.Entry(controls, textvariable=self.max_pages, width=8).pack(side="left", padx=(8, 18))
+        ttk.Checkbutton(controls, text="브라우저 창 표시 (Google 수동 인증)",
+                        variable=self.headed).pack(side="left")
+        ttk.Button(controls, text="결과 CSV 열기", command=self.open_output).pack(side="right")
+        self.stop_button = ttk.Button(controls, text="중지 및 저장",
+                                      command=self.stop_finder, state="disabled")
         self.stop_button.pack(side="right", padx=8)
-        ttk.Button(options, text="결과 CSV 열기", command=self.open_output).pack(side="right", padx=8)
+        self.run_button = ttk.Button(controls, text="탐색 시작",
+                                     command=self.run_finder, style="Accent.TButton")
+        self.run_button.pack(side="right")
+        ttk.Checkbutton(runbox, text="완료 후 Supabase 검수 대기 후보로 업로드 (로그인 필요)",
+                        variable=self.auto_upload).grid(row=2, column=0, sticky="w", pady=(10, 0))
+        self.progress = ttk.Progressbar(runbox, mode="determinate", maximum=100, value=0)
+        self.progress.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+        self.progress_caption = ttk.Label(runbox, text="대기 중", style="MetricCaption.TLabel")
+        self.progress_caption.grid(row=4, column=0, sticky="w", pady=(5, 0))
 
-        self.progress = ttk.Progressbar(search, mode="indeterminate")
-        self.progress.pack(fill="x", pady=(0, 10))
-        preview = ttk.LabelFrame(search, text="후보 미리보기", style="Card.TLabelframe", padding=10)
-        preview.pack(fill="both", expand=True, pady=(0, 10))
+        workspace = ttk.Panedwindow(search, orient="vertical")
+        workspace.grid(row=1, column=0, sticky="nsew")
+        results_card = ttk.Frame(workspace, style="Surface.TFrame", padding=12)
+        activity_card = ttk.Frame(workspace, style="Surface.TFrame", padding=12)
+        workspace.add(results_card, weight=3)
+        workspace.add(activity_card, weight=1)
+
+        result_head = ttk.Frame(results_card, style="Surface.TFrame")
+        result_head.pack(fill="x", pady=(0, 10))
+        ttk.Label(result_head, text="후보 목록", style="Section.TLabel").pack(side="left")
+        self.result_count = tk.StringVar(value="0개")
+        ttk.Label(result_head, textvariable=self.result_count,
+                  style="MetricCaption.TLabel").pack(side="left", padx=(8, 0))
+        self.filter_text = tk.StringVar()
+        filter_entry = ttk.Entry(result_head, textvariable=self.filter_text, width=34)
+        filter_entry.pack(side="right")
+        ttk.Label(result_head, text="목록 필터", style="MetricCaption.TLabel").pack(side="right", padx=(0, 8))
+        self.filter_text.trace_add("write", lambda *_: self.load_results())
+
+        table_wrap = ttk.Frame(results_card, style="Surface.TFrame")
+        table_wrap.pack(fill="both", expand=True)
         columns = ("book", "candidate", "status", "score", "url")
-        self.results = ttk.Treeview(preview, columns=columns, show="headings", height=6)
-        for column, label, width in (("book", "교재", 210), ("candidate", "후보 페이지", 250), ("status", "판정", 90), ("score", "점수", 70), ("url", "후보 주소 (더블클릭해 열기)", 360)):
+        self.results = ttk.Treeview(table_wrap, columns=columns, show="headings", height=10)
+        for column, label, width in (
+            ("book", "교재", 220), ("candidate", "후보 페이지", 260),
+            ("status", "매칭 상태", 100), ("score", "점수", 70), ("url", "후보 주소", 420)
+        ):
             self.results.heading(column, text=label)
-            self.results.column(column, width=width, minwidth=90, stretch=(column in ("book", "candidate", "url")), anchor="w" if column in ("book", "candidate", "url") else "center")
-        result_scroll = ttk.Scrollbar(preview, orient="vertical", command=self.results.yview)
-        self.results.configure(yscrollcommand=result_scroll.set)
+            self.results.column(column, width=width, minwidth=90,
+                                stretch=(column in ("book", "candidate", "url")),
+                                anchor="w" if column in ("book", "candidate", "url") else "center")
+        yresult = ttk.Scrollbar(table_wrap, orient="vertical", command=self.results.yview)
+        xresult = ttk.Scrollbar(results_card, orient="horizontal", command=self.results.xview)
+        self.results.configure(yscrollcommand=yresult.set, xscrollcommand=xresult.set)
         self.results.pack(side="left", fill="both", expand=True)
+        yresult.pack(side="right", fill="y")
+        xresult.pack(fill="x")
+        self.results.tag_configure("likely", foreground="#176b43")
+        self.results.tag_configure("uncertain", foreground="#9a6700")
         self.results.bind("<Double-1>", self.open_selected_result)
-        result_scroll.pack(side="right", fill="y")
 
-        logcard = ttk.LabelFrame(search, text="진행 상황 및 로그", style="Card.TLabelframe", padding=10)
-        logcard.pack(fill="both", expand=True)
-        self.log = tk.Text(logcard, height=7, state="disabled", wrap="word", font=("Malgun Gothic", 9),
-                           bg="#ffffff", fg="#334155", relief="solid", bd=1, padx=10, pady=8)
-        self.log.pack(fill="both", expand=True)
+        activity_head = ttk.Frame(activity_card, style="Surface.TFrame")
+        activity_head.pack(fill="x", pady=(0, 8))
+        ttk.Label(activity_head, text="실행 로그", style="Section.TLabel").pack(side="left")
+        ttk.Label(activity_head, text="최근 이벤트가 아래에 표시됩니다.",
+                  style="MetricCaption.TLabel").pack(side="right")
+        logwrap = ttk.Frame(activity_card, style="Surface.TFrame")
+        logwrap.pack(fill="both", expand=True)
+        self.log = tk.Text(logwrap, height=7, state="disabled", wrap="word",
+                           font=("Cascadia Mono", 9), bg="#fbfcfe", fg="#3b465b",
+                           relief="solid", bd=1, padx=12, pady=9,
+                           highlightthickness=1, highlightbackground=line)
+        logscroll = ttk.Scrollbar(logwrap, orient="vertical", command=self.log.yview)
+        self.log.configure(yscrollcommand=logscroll.set)
+        self.log.pack(side="left", fill="both", expand=True)
+        logscroll.pack(side="right", fill="y")
 
         footer = ttk.Frame(outer)
         footer.pack(fill="x", pady=(12, 0))
-        self.status_label = ttk.Label(footer, textvariable=self.status, style="Status.TLabel", wraplength=1050)
+        self.status_label = ttk.Label(footer, textvariable=self.status,
+                                      style="Muted.TLabel", wraplength=1200)
         self.status_label.pack(anchor="w")
+        self.all_result_rows = []
+        self._last_progress = 0
+        self.load_results()
 
     def _entry(self, parent, label, variable, row, show=None):
         ttk.Label(parent, text=label, width=22).grid(row=row, column=0, sticky="w", pady=3)
@@ -198,52 +347,79 @@ class FinderApp:
     def log_line(self, text):
         self.log.configure(state="normal")
         self.log.insert("end", text + "\n")
+        # Bound the text widget so long-running searches do not consume unbounded UI memory.
+        line_count = int(self.log.index("end-1c").split(".")[0])
+        if line_count > 5000:
+            self.log.delete("1.0", f"{line_count - 5000}.0")
         self.log.see("end")
         self.log.configure(state="disabled")
+        match = re.search(r"\[진행\]\s*(\d+)\s*/\s*(\d+)", text)
+        if match and hasattr(self, "progress"):
+            current, total = int(match.group(1)), max(1, int(match.group(2)))
+            percent = min(99, round(current * 100 / total))
+            self.progress.configure(value=percent)
+            self.progress_caption.configure(text=f"교재 처리 중 · {current:,}/{total:,} ({percent}%)")
 
     def _poll(self):
-        try:
-            while True:
+        # Drain a bounded number of events per tick so a burst of logs cannot freeze the UI.
+        for _ in range(250):
+            try:
                 kind, value = self.events.get_nowait()
-                if kind == "log":
-                    self.log_line(value)
-                elif kind == "status":
-                    self.status.set(value)
-                elif kind == "clear_password":
-                    self.password.set("")
-                elif kind == "books_path":
-                    self.books_path.set(value)
-                elif kind == "paused":
-                    self.run_button.configure(state="normal")
-                    self.stop_button.configure(state="disabled")
-                    self.progress.stop()
-                    self.status.set(value)
-                    self.load_results()
-                    messagebox.showwarning("검색 중지", value)
-                elif kind == "done":
-                    self.stop_button.configure(state="disabled")
-                    self.run_button.configure(state="normal")
-                    if hasattr(self, "progress"):
-                        self.progress.stop()
-                    self.status.set(value)
-                    self.load_results()
-                    messagebox.showinfo("완료", value)
-                elif kind == "error":
-                    self.stop_button.configure(state="disabled")
-                    self.run_button.configure(state="normal")
-                    if hasattr(self, "progress"):
-                        self.progress.stop()
-                    self.status.set("오류가 발생했습니다. 로그와 입력 설정을 확인하세요.")
-                    self.log_line("[오류] " + value)
-                    messagebox.showerror("오류", value)
-        except queue.Empty:
-            pass
-        self.root.after(150, self._poll)
+            except queue.Empty:
+                break
+            if kind == "log":
+                self.log_line(value)
+            elif kind == "status":
+                self.status.set(value)
+            elif kind == "clear_password":
+                self.password.set("")
+            elif kind == "books_path":
+                self.books_path.set(value)
+            elif kind == "books_count":
+                self.metric_books.set(f"{int(value):,}권")
+            elif kind == "connected":
+                self.connection_badge.configure(text="● Supabase 연결됨", foreground="#176b43", background="#e8f5ed")
+            elif kind == "paused":
+                self.run_button.configure(state="normal")
+                self.stop_button.configure(state="disabled")
+                self.progress.configure(value=100)
+                self.progress_caption.configure(text="중지됨 · 현재까지의 결과를 저장했습니다.")
+                self.metric_output.set("중지 저장")
+                self.status.set(value)
+                self.load_results()
+                messagebox.showwarning("검색 중지", value)
+            elif kind == "done":
+                self.stop_button.configure(state="disabled")
+                self.run_button.configure(state="normal")
+                self.progress.configure(value=100)
+                self.progress_caption.configure(text="완료 · 결과 CSV 저장됨")
+                self.metric_output.set("완료")
+                self.status.set(value)
+                self.load_results()
+                messagebox.showinfo("완료", value)
+            elif kind == "error":
+                self.stop_button.configure(state="disabled")
+                self.run_button.configure(state="normal")
+                self.progress.stop()
+                self.progress_caption.configure(text="오류 · 로그를 확인하세요.")
+                self.metric_output.set("오류")
+                self.status.set("오류가 발생했습니다. 로그와 입력 설정을 확인하세요.")
+                self.log_line("[오류] " + value)
+                messagebox.showerror("오류", value)
+        self.root.after(60 if not self.events.empty() else 150, self._poll)
 
     def choose_csv(self):
         path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
         if path:
             self.books_path.set(path)
+            try:
+                from finder import read_books
+                count = len(read_books(Path(path)))
+                self.metric_books.set(f"{count:,}권")
+                self.status.set(f"교재 CSV 확인 완료 · {count:,}권")
+            except Exception as exc:
+                self.metric_books.set("확인 필요")
+                self.status.set(f"CSV 확인 실패: {exc}")
 
     def save_config(self):
         try:
@@ -264,6 +440,10 @@ class FinderApp:
             max_queries = int(web_cfg.get("max_queries_per_book", 8))
             if max_queries < 1 or max_queries > 10:
                 raise ValueError("교재별 검색어 수는 1~10 사이여야 합니다.")
+            max_candidates = int(web_cfg.get("max_candidates_per_book", 5))
+            early_stop = int(web_cfg.get("early_stop_likely_candidates_per_book", 3))
+            if max_candidates < 1 or max_candidates > 50 or early_stop < 1 or early_stop > 10:
+                raise ValueError("교재별 후보 한도는 1~50, 조기 종료 기준은 1~10 사이여야 합니다.")
             seen = set()
             for index, source in enumerate(sources, 1):
                 if not isinstance(source, dict):
@@ -300,6 +480,13 @@ class FinderApp:
         key = self.anon_key.get().strip()
         email = self.email.get().strip()
         password = self.password.get()
+        if base:
+            parsed_base = urllib.parse.urlparse(base)
+            if (parsed_base.scheme != "https" or not parsed_base.hostname or parsed_base.username
+                    or parsed_base.password or parsed_base.query or parsed_base.fragment
+                    or parsed_base.path not in ("", "/")):
+                messagebox.showerror("프로젝트 URL 확인", "Supabase 프로젝트 URL은 경로·인증정보가 없는 HTTPS 주소여야 합니다.")
+                return
         def worker():
             try:
                 if not all([base, key, email, password]):
@@ -329,13 +516,15 @@ class FinderApp:
                     offset += limit
                 if not rows:
                     raise RuntimeError("교재가 0권 조회됐습니다. 관리자 계정의 books 읽기 권한과 Supabase URL을 확인하세요.")
-                path = ROOT / "books.csv"
+                path = APP_DATA_DIR / "books.csv"
                 fields = ["id", "title", "publisher", "subject", "grade", "semester", "series", "edition", "curriculum_revision", "isbn13"]
                 with path.open("w", encoding="utf-8-sig", newline="") as f:
                     writer = csv.DictWriter(f, fieldnames=fields)
                     writer.writeheader()
                     writer.writerows(rows)
                 self.events.put(("books_path", str(path)))
+                self.events.put(("books_count", len(rows)))
+                self.events.put(("connected", True))
                 self.events.put(("clear_password", ""))
                 self.events.put(("status", f"교재 {len(rows)}권 저장 완료: {path}"))
             except Exception as exc:
@@ -365,7 +554,9 @@ class FinderApp:
         self.stop_button.configure(state="normal")
         self.status.set("탐색 중입니다. 검색엔진과 대상 사이트의 접근 정책을 확인하며 진행합니다.")
         self.tabs.select(2)
-        self.progress.start(12)
+        self.progress.configure(value=0)
+        self.progress_caption.configure(text="작업 준비 중")
+        self.metric_output.set("실행 중")
         self.log_line("[시작] 탐색 작업을 준비합니다.")
         auto_upload = self.auto_upload.get()
         def worker():
@@ -419,6 +610,7 @@ class FinderApp:
             rows = list(csv.DictReader(handle))
         if not rows:
             return 0, 0
+        from finder import canonicalize_url, is_safe_public_url
         invalid = [index + 2 for index, row in enumerate(rows) if not row.get("book_id") or not row.get("url")]
         if invalid:
             preview = ", ".join(map(str, invalid[:10]))
@@ -429,13 +621,22 @@ class FinderApp:
         for start in range(0, len(rows), 100):
             batch = []
             for row in rows[start:start + 100]:
+                candidate_url = (row.get("url") or "").strip()
+                if not is_safe_public_url(candidate_url, resolve_dns=True):
+                    raise RuntimeError(f"공개 HTTP(S) URL이 아니거나 안전한 공개 호스트가 아닙니다: {candidate_url[:180]}")
+                candidate_url = canonicalize_url(candidate_url)
+                try:
+                    raw_score = float(row.get("match_score") or 0)
+                except (TypeError, ValueError):
+                    raw_score = 0
+                score = int(max(0, min(100, raw_score))) if math.isfinite(raw_score) else 0
                 batch.append({
                     "book_id": row["book_id"],
                     "title": row.get("candidate_title") or row.get("source_name") or "답지 후보",
-                    "url": row["url"],
+                    "url": candidate_url,
                     "snippet": row.get("snippet", ""),
                     "match_status": row.get("match_status", "uncertain"),
-                    "match_score": max(0, min(100, int(float(row.get("match_score") or 0)))),
+                    "match_score": score,
                     "match_evidence": {
                         "matched_answer_terms": row.get("matched_answer_terms", ""),
                         "book_title": row.get("book_title", ""),
@@ -488,23 +689,44 @@ class FinderApp:
         threading.Thread(target=worker, daemon=True).start()
 
     def load_results(self):
-        if not hasattr(self, "results") or not OUTPUT.is_file():
+        if not hasattr(self, "results"):
             return
         for item in self.results.get_children():
             self.results.delete(item)
+        if not OUTPUT.is_file():
+            self.result_count.set("0개")
+            self.metric_candidates.set("0개")
+            return
         try:
+            needle = self.filter_text.get().strip().casefold() if hasattr(self, "filter_text") else ""
+            total = 0
+            matched = 0
+            shown = 0
             with OUTPUT.open("r", encoding="utf-8-sig", newline="") as handle:
-                rows = list(csv.DictReader(handle))
-            for row in rows[:500]:
-                self.results.insert("", "end", values=(
-                    row.get("book_title", ""),
-                    row.get("candidate_title", ""),
-                    row.get("match_status", ""),
-                    row.get("match_score", ""),
-                    row.get("url", ""),
-                ))
-            if len(rows) > 500:
-                self.log_line(f"[안내] 후보 {len(rows)}개 중 처음 500개만 미리 표시합니다.")
+                for row in csv.DictReader(handle):
+                    total += 1
+                    searchable = " ".join(str(row.get(key, "")) for key in (
+                        "book_title", "candidate_title", "url", "source_name"
+                    )).casefold()
+                    if needle and needle not in searchable:
+                        continue
+                    matched += 1
+                    if shown >= 1000:
+                        continue
+                    status = row.get("match_status", "")
+                    tag = status if status in ("likely", "uncertain") else ""
+                    self.results.insert("", "end", values=(
+                        row.get("book_title", ""),
+                        row.get("candidate_title", ""),
+                        status,
+                        row.get("match_score", ""),
+                        row.get("url", ""),
+                    ), tags=(tag,) if tag else ())
+                    shown += 1
+            self.result_count.set(f"{matched:,}개 일치 · {shown:,}개 표시")
+            self.metric_candidates.set(f"{total:,}개")
+            if matched > 1000:
+                self.progress_caption.configure(text="화면 표시 1,000개 제한 · 전체 결과는 CSV에 보존됩니다.")
         except Exception as exc:
             self.log_line(f"[결과 미리보기 오류] {exc}")
 
@@ -552,12 +774,12 @@ def self_test():
             if page.title() != "DapjiMoum smoke test":
                 raise RuntimeError("Chromium 페이지 테스트 실패")
             browser.close()
-        (ROOT / "self-test.log").write_text("SELF-TEST PASSED: config, matching, Tk, Playwright Chromium\\n", encoding="utf-8")
+        (APP_DATA_DIR / "self-test.log").write_text("SELF-TEST PASSED: config, matching, Tk, Playwright Chromium\\n", encoding="utf-8")
         return 0
     except Exception as exc:
         print(f"SELF-TEST FAILED: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
         try:
-            (ROOT / "self-test.log").write_text(f"SELF-TEST FAILED: {type(exc).__name__}: {exc}\\n", encoding="utf-8")
+            (APP_DATA_DIR / "self-test.log").write_text(f"SELF-TEST FAILED: {type(exc).__name__}: {exc}\\n", encoding="utf-8")
         except Exception:
             pass
         return 1
