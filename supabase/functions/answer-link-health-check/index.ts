@@ -76,15 +76,22 @@ async function safeExternalUrl(value: string): Promise<boolean> {
         || host.endsWith('.internal') || host.endsWith('.test') || host.endsWith('.invalid')
         || host.endsWith('.example') || host.endsWith('.onion')) return false;
     if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':')) return false;
+    const cached = dnsSafetyCache.get(host);
+    if (cached && cached.expiresAt > Date.now()) return cached.isPublic;
     const [ipv4, ipv6] = await Promise.all([
       Deno.resolveDns(host, 'A').catch(() => [] as string[]),
       Deno.resolveDns(host, 'AAAA').catch(() => [] as string[]),
     ]);
     const addresses = [...ipv4, ...ipv6];
-    return addresses.length > 0 && ipv4.every(isPublicIPv4) && ipv6.every(isPublicIPv6);
+    const isPublic = addresses.length > 0 && ipv4.every(isPublicIPv4) && ipv6.every(isPublicIPv6);
+    dnsSafetyCache.set(host, { expiresAt: Date.now() + 60_000, isPublic });
+    if (dnsSafetyCache.size > 2000) {
+      const oldest = dnsSafetyCache.keys().next().value;
+      if (oldest) dnsSafetyCache.delete(oldest);
+    }
+    return isPublic;
   } catch { return false; }
 }
-
 type SafeFetchResult = { response: Response; finalUrl: string; redirects: number };
 async function fetchFollowingSafeRedirects(
   initialUrl: string,
