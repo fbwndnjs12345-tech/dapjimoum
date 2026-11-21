@@ -638,11 +638,16 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                max_pages_override: int, callback: Callable[[str], None] = print, stop_event=None,
                provider_credentials: dict | None = None) -> int:
     books=read_books(input_path); config=json.loads(config_path.read_text(encoding="utf-8"))
+    config, migrated = upgrade_search_config(config)
+    if migrated:
+        log(callback, "[검색 전략 개선] 기존 보수적 설정을 고회수 프로필로 자동 조정했습니다.")
     sources=config.get("sources",[]); web_cfg=config.get("web_search",{})
     web_enabled=bool(web_cfg.get("enabled",True)); engines=web_cfg.get("engines",["kakao_web","kakao_blog","kakao_cafe"])
     if not sources and not web_enabled: raise ValueError("공식 자료실 또는 공식 검색 API 중 하나 이상을 활성화하세요.")
     terms=config.get("answer_keywords") or ["정답과 해설","정답 해설","정답 및 해설","답지"]
-    delay=max(1.0,float(config.get("request_delay_seconds",2.0))); timeout=int(config.get("page_timeout_ms",20000))
+    delay=max(1.0,float(config.get("request_delay_seconds",1.0)))
+    api_delay=max(0.0,min(1.0,float(config.get("api_request_delay_seconds",0.1))))
+    timeout=int(config.get("page_timeout_ms",20000))
     limit=max_pages_override or int(config.get("max_sitemap_urls_per_source",500))
     allowed_engines = {"kakao_web", "kakao_blog", "kakao_cafe"}
     legacy_engines = [engine for engine in engines if engine in ("google", "bing")]
@@ -660,14 +665,15 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     if not sources and not (web_enabled and kakao_api_key and engines):
         raise ValueError("공식 자료실이 없고 Kakao 검색 API 키도 없습니다. 자료실을 설정하거나 API 키를 입력하세요.")
     query_limit=max(1,min(10,int(web_cfg.get("max_queries_per_book",8))))
+    search_pages=max(1,min(3,int(web_cfg.get("max_search_pages_per_query",2))))
+    max_pages_to_verify=max(10,min(200,int(config.get("max_pages_to_verify_per_book",40))))
     candidates={}; robots_cache=OrderedDict(); page_content_cache=OrderedDict(); search_result_cache=OrderedDict()
     checkpoint_every = max(25, min(1000, int(config.get("checkpoint_every_candidates", 50))))
     early_stop_likely = max(1, min(10, int(web_cfg.get("early_stop_likely_candidates_per_book", 3))))
     max_candidates_per_book = max(1, min(50, int(web_cfg.get("max_candidates_per_book", 5))))
-    candidate_counts = {}
     last_checkpoint = time.monotonic()
     log(callback,f"교재 {len(books)}권 · 공식 출처 {len(sources)}곳 · 공개 검색엔진 {', '.join(engines) if web_enabled else '사용 안 함'}")
-    log(callback,f"검색 전략: 교재당 최대 {query_limit}개 검색어 · 엔진별 검색 결과 최대 {search_limit}개")
+    log(callback,f"검색 전략: 교재당 최대 {query_limit}개 검색어 · 엔진별 {search_limit}개 결과 · 검색어별 최대 {search_pages}페이지 · 실제 페이지 검증 최대 {max_pages_to_verify}개")
     with sync_playwright() as p:
         browser=launch_browser(p, headless=not headed)
         context_options = {"locale": "ko-KR", "service_workers": "block", "accept_downloads": False}
@@ -717,11 +723,15 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                     log(callback, f"[동일 호스트 외부 리디렉션 차단] {request_url[:200]}")
                     route.abort("blockedbyclient")
                     return
-            policy = robots_for_target(request_url)
-            if policy is None or not policy.can_fetch(USER_AGENT, request_url):
-                log(callback, f"[robots 정책으로 탐색 차단] {request_url[:200]}")
-                route.abort("blockedbyclient")
-                return
+            if navigation:
+                policy = robots_for_target(request_url)
+                if policy is None or not policy.can_fetch(USER_AGENT, request_url):
+                    log(callback, f"[robots 정책으로 페이지 탐색 차단] {request_url[:200]}")
+                    route.abort("blockedbyclient")
+                    return
+            # Embedded scripts, stylesheets and same-page API calls are browser resources,
+            # not new pages being crawled. Keep public-IP/port checks, but do not fetch a
+            # separate robots.txt for every CDN/API host; that previously broke hydration.
             route.continue_()
         page.route("**/*", guard_browser_request)
         def remember_cache(cache, key, value, max_items):
@@ -752,19 +762,14 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                 status = "uncertain"
                 score = min(score, 59)
             book_key = book.get("id") or book["title"]
-            key=(book_key,target)
-            if key not in candidates and candidate_counts.get(book_key, 0) >= max_candidates_per_book:
-                return
             row={"book_id":book.get("id",""),"book_title":book.get("title",""),"publisher":book.get("publisher",""),
                  "subject":book.get("subject",""),"grade":book.get("grade",""),"semester":book.get("semester",""),
                  "series":book.get("series",""),"edition":book.get("edition",""),"curriculum_revision":book.get("curriculum_revision",""),"isbn13":book.get("isbn13",""),"candidate_title":title or host,"url":target,"source_name":host,
                  "source_type":source_label,"snippet":str(snippet or "")[:1200],"match_score":score,
                  "match_status":status,"matched_answer_terms":matched,
                  "link_type":"PDF" if parsed.path.lower().endswith(".pdf") else "웹페이지","search_query":query}
-            if key not in candidates or score>int(candidates[key].get("match_score",0)):
-                if key not in candidates:
-                    candidate_counts[book_key] = candidate_counts.get(book_key, 0) + 1
-                candidates[key]=row
+            action = _upsert_top_candidate(candidates, book_key, target, row, max_candidates_per_book)
+            if action in ("added", "updated", "replaced"):
                 nonlocal last_checkpoint
                 now = time.monotonic()
                 if len(candidates) % checkpoint_every == 0 or now - last_checkpoint >= 30:
