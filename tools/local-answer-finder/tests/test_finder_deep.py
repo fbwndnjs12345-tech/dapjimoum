@@ -46,16 +46,16 @@ class FinderDeepSafetyTests(unittest.TestCase):
         public = (None, None, None, None, ("93.184.216.34", 443))
         private = (None, None, None, None, ("192.168.1.20", 443))
         with patch("finder.socket.getaddrinfo", return_value=[public, private]):
-            self.assertFalse(is_safe_public_url("https://mixed.example/", resolve_dns=True))
+            self.assertFalse(is_safe_public_url("https://mixed.testdomain.com/", resolve_dns=True))
 
     def test_dns_resolution_accepts_only_public_addresses(self):
         public = (None, None, None, None, ("93.184.216.34", 443))
         with patch("finder.socket.getaddrinfo", return_value=[public]):
-            self.assertTrue(is_safe_public_url("https://public.example/", resolve_dns=True))
+            self.assertTrue(is_safe_public_url("https://public.testdomain.com/", resolve_dns=True))
 
     def test_dns_resolution_failure_fails_closed(self):
         with patch("finder.socket.getaddrinfo", side_effect=OSError("DNS unavailable")):
-            self.assertFalse(is_safe_public_url("https://unresolvable.example/", resolve_dns=True))
+            self.assertFalse(is_safe_public_url("https://unresolvable.testdomain.com/", resolve_dns=True))
 
     def test_canonical_url_preserves_query_and_removes_trackers(self):
         result = canonicalize_url(
