@@ -122,16 +122,28 @@ class FinderDeepSafetyTests(unittest.TestCase):
         self.assertFalse(changed_again)
         self.assertEqual(again, upgraded)
 
-    def test_catalog_v1_migrates_to_latest_catalog_and_adds_mirae(self):
+    def test_catalog_v1_migrates_to_v3_and_adds_mirae(self):
         config = {"source_catalog_version": 1,
                   "sources": [{"publisher": "사용자 출처",
                                "start_urls": ["https://custom.example/"]}],
                   "web_search": {"strategy_version": 3}}
         upgraded, changed = upgrade_search_config(config)
         self.assertTrue(changed)
-        self.assertEqual(upgraded["source_catalog_version"], 2)
+        self.assertEqual(upgraded["source_catalog_version"], 3)
         self.assertIn("미래엔", {item["publisher"] for item in upgraded["sources"]})
         self.assertIn("사용자 출처", {item["publisher"] for item in upgraded["sources"]})
+
+    def test_catalog_v2_migrates_to_v3_official_portal_urls(self):
+        config = {"source_catalog_version": 2,
+                  "sources": [{"publisher": "천재교육", "start_urls": ["https://book.chunjae.co.kr/"]}],
+                  "web_search": {"strategy_version": 3}}
+        upgraded, changed = upgrade_search_config(config)
+        self.assertTrue(changed)
+        self.assertEqual(upgraded["source_catalog_version"], 3)
+        chunjae = next(item for item in upgraded["sources"] if item["publisher"] == "천재교육")
+        self.assertIn("https://brand_check.chunjae.co.kr/", chunjae["start_urls"])
+        ne = next(item for item in upgraded["sources"] if item["publisher"] == "NE능률")
+        self.assertIn("https://www.nebooks.co.kr/pages/service/", ne["start_urls"])
 
     def test_v2_search_config_is_upgraded_to_v3_once(self):
         config = {"web_search": {"strategy_version": 2,
