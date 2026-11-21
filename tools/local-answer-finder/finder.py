@@ -530,6 +530,7 @@ def upgrade_search_config(config: dict) -> tuple[dict, bool]:
         try:
             catalog_path = Path(__file__).with_name("sources.example.json")
             catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+            target_catalog_version = int(catalog.get("source_catalog_version", 1))
             configured = config.setdefault("sources", [])
             if not isinstance(configured, list):
                 raise ValueError("sources 설정은 배열이어야 합니다.")
@@ -550,7 +551,7 @@ def upgrade_search_config(config: dict) -> tuple[dict, bool]:
                     for url in default_source.get("start_urls", []):
                         if url not in urls:
                             urls.append(url)
-            config["source_catalog_version"] = 1
+            config["source_catalog_version"] = target_catalog_version
             changed = True
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
             raise ValueError(f"기본 출판사 출처 목록을 불러오지 못했습니다: {exc}") from exc
@@ -765,7 +766,10 @@ def _write_candidates(output_path: Path, candidates: dict):
 def run_search(input_path: Path, output_path: Path, config_path: Path, headed: bool,
                max_pages_override: int, callback: Callable[[str], None] = print, stop_event=None,
                provider_credentials: dict | None = None) -> int:
-    books=read_books(input_path); config=json.loads(config_path.read_text(encoding="utf-8"))
+    books = read_books(input_path)
+    if not books:
+        raise ValueError("CSV에 검색할 교재가 없습니다. 교재명 열과 실제 데이터 행을 확인하세요.")
+    config = json.loads(config_path.read_text(encoding="utf-8"))
     config, migrated = upgrade_search_config(config)
     if migrated:
         log(callback, "[검색 전략 개선] 기존 보수적 설정을 고회수 프로필로 자동 조정했습니다.")
