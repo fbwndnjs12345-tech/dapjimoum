@@ -87,6 +87,21 @@ class FinderUnitTests(unittest.TestCase):
         self.assertEqual(rows[0]["title"], "오투 과학")
         self.assertEqual(rows[0]["publisher"], "비상교육")
 
+    def test_read_books_supports_extended_korean_metadata_headers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "books.csv"
+            path.write_text(
+                "교재명,출판사명,과목명,학교급,학기구분,ISBN-13\\n"
+                "체크체크 수학 2-1,천재교과서,수학,중2,1학기,9781234567890\\n",
+                encoding="utf-8"
+            )
+            row = read_books(path)[0]
+        self.assertEqual(row["publisher"], "천재교과서")
+        self.assertEqual(row["subject"], "수학")
+        self.assertEqual(row["grade"], "중2")
+        self.assertEqual(row["semester"], "1학기")
+        self.assertEqual(row["isbn13"], "9781234567890")
+
     def test_read_books_cp949(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "books.csv"
