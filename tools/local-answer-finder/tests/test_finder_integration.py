@@ -50,7 +50,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
 
 
 class FinderEndToEndTests(unittest.TestCase):
-    def test_source_crawl_google_bing_and_candidate_csv_pipeline(self):
+    def test_source_crawl_kakao_api_and_candidate_csv_pipeline(self):
         server = ThreadingHTTPServer(("127.0.0.1", 0), FixtureHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
