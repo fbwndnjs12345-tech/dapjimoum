@@ -88,11 +88,12 @@ class FinderApp:
         self.email = tk.StringVar()
         self.password = tk.StringVar()
         self.kakao_api_key = tk.StringVar()
+        self.kakao_key_visible = tk.BooleanVar(value=False)
         self.password_visible = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value="Supabase에서 교재를 불러오거나 CSV 파일을 선택하세요.")
         self.headed = tk.BooleanVar(value=True)
         self.max_pages = tk.StringVar(value="500")
-        self.auto_upload = tk.BooleanVar(value=True)
+        self.auto_upload = tk.BooleanVar(value=False)
         self._build()
         self.root.after(150, self._poll)
 
@@ -196,7 +197,7 @@ class FinderApp:
         self._entry(supa, "프로젝트 URL", self.supabase_url, 2)
         self._entry(supa, "Anon / Publishable Key", self.anon_key, 3)
         self._entry(supa, "관리자 이메일", self.email, 4)
-        self._entry(supa, "관리자 비밀번호", self.password, 5, show="•")
+        self._entry(supa, "관리자 비밀번호", self.password, 5, show="•", reveal_var=self.password_visible, reveal_label="비밀번호 표시")
         buttons = ttk.Frame(supa, style="Surface.TFrame")
         buttons.grid(row=6, column=0, columnspan=3, sticky="w", pady=(16, 0))
         ttk.Button(buttons, text="로그인 및 교재 가져오기", command=self.fetch_books,
@@ -204,7 +205,7 @@ class FinderApp:
         ttk.Button(buttons, text="후보 업로드", command=self.upload_candidates).pack(side="left", padx=(8, 0))
         ttk.Separator(supa).grid(row=7, column=0, columnspan=3, sticky="ew", pady=(16, 10))
         ttk.Label(supa, text="공식 검색 API", style="Section.TLabel").grid(row=8, column=0, sticky="w", pady=(0, 6))
-        self._entry(supa, "Kakao REST API Key", self.kakao_api_key, 9, show="•")
+        self._entry(supa, "Kakao REST API Key", self.kakao_api_key, 9, show="•", reveal_var=self.kakao_key_visible, reveal_label="API 키 표시")
         ttk.Label(supa, text="검색 키는 실행 중 메모리에서만 사용합니다. 설정 파일에는 저장하지 않습니다. "
                   "Google/Bing 검색 결과 페이지 직접 수집은 robots.txt 및 서비스 정책 때문에 비활성화했습니다.",
                   style="MetricCaption.TLabel", wraplength=620).grid(
@@ -232,7 +233,7 @@ class FinderApp:
         ttk.Label(sourcehead, text="검색 및 출처 정책", style="Section.TLabel").pack(side="left")
         ttk.Label(sourcehead, text="JSON  ·  저장 전 형식과 필수값을 검사합니다.",
                   style="MetricCaption.TLabel").pack(side="right")
-        ttk.Label(sourcecard, text="Google·Bing 공개 검색과 출판사 공식 자료실을 설정합니다. robots.txt 및 대상 사이트 접근 정책을 준수합니다.",
+        ttk.Label(sourcecard, text="Kakao 공식 검색 API와 출판사 공식 자료실을 설정합니다. robots.txt 및 대상 사이트 접근 정책을 준수합니다.",
                   style="MetricCaption.TLabel", wraplength=1100).pack(anchor="w", pady=(6, 12))
         editor = ttk.Frame(sourcecard, style="Surface.TFrame")
         editor.pack(fill="both", expand=True)
@@ -314,7 +315,8 @@ class FinderApp:
         filter_entry = ttk.Entry(result_head, textvariable=self.filter_text, width=34)
         filter_entry.pack(side="right")
         ttk.Label(result_head, text="목록 필터", style="MetricCaption.TLabel").pack(side="right", padx=(0, 8))
-        self.filter_text.trace_add("write", lambda *_: self.load_results())
+        self._filter_after_id = None
+        self.filter_text.trace_add("write", lambda *_: self.schedule_load_results())
 
         table_wrap = ttk.Frame(results_card, style="Surface.TFrame")
         table_wrap.pack(fill="both", expand=True)
@@ -363,13 +365,14 @@ class FinderApp:
         self._last_progress = 0
         self.load_results()
 
-    def _entry(self, parent, label, variable, row, show=None):
+    def _entry(self, parent, label, variable, row, show=None, reveal_var=None, reveal_label="표시"):
         ttk.Label(parent, text=label, width=22).grid(row=row, column=0, sticky="w", pady=3)
         entry = ttk.Entry(parent, textvariable=variable, show=("•" if show and not self.password_visible.get() else ""))
         entry.grid(row=row, column=1, sticky="ew", pady=3)
         if show:
-            ttk.Checkbutton(parent, text="비밀번호 표시", variable=self.password_visible,
-                            command=lambda: entry.configure(show="" if self.password_visible.get() else "•")).grid(
+            reveal_var = reveal_var or self.password_visible
+            ttk.Checkbutton(parent, text=reveal_label, variable=reveal_var,
+                            command=lambda: entry.configure(show="" if reveal_var.get() else "•")).grid(
                                 row=row, column=2, sticky="w", padx=(8, 0))
         parent.columnconfigure(1, weight=1)
 
@@ -600,12 +603,13 @@ class FinderApp:
         self.metric_output.set("실행 중")
         self.log_line("[시작] 탐색 작업을 준비합니다.")
         auto_upload = self.auto_upload.get()
+        kakao_api_key = self.kakao_api_key.get().strip()
         def worker():
             try:
                 from finder import run_search
                 count = run_search(csv_path, OUTPUT, DEFAULT_CONFIG, headed, max_pages,
                                    lambda line: self.events.put(("log", line)), self.stop_event,
-                                   {"kakao_rest_api_key": self.kakao_api_key.get().strip()})
+                                   {"kakao_rest_api_key": kakao_api_key})
                 stopped = self.stop_event.is_set()
                 upload_summary = ""
                 if auto_upload and self.access_token and self.project_url and self.anon_key_value:
@@ -730,7 +734,16 @@ class FinderApp:
                 self.events.put(("error", str(exc)))
         threading.Thread(target=worker, daemon=True).start()
 
+    def schedule_load_results(self):
+        if self._filter_after_id is not None:
+            try:
+                self.root.after_cancel(self._filter_after_id)
+            except tk.TclError:
+                pass
+        self._filter_after_id = self.root.after(220, self.load_results)
+
     def load_results(self):
+        self._filter_after_id = None
         if not hasattr(self, "results"):
             return
         for item in self.results.get_children():
