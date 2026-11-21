@@ -3,6 +3,7 @@ import tempfile
 import unittest
 import urllib.parse
 from pathlib import Path
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from unittest.mock import patch
 from urllib.error import HTTPError
 
@@ -142,7 +143,7 @@ class FinderDeepSafetyTests(unittest.TestCase):
                 self.pause = None
             def wait_for_function(self, _script, timeout):
                 self.wait_timeout = timeout
-                raise TimeoutError("wait timeout")
+                raise PlaywrightTimeoutError("wait timeout")
             def wait_for_timeout(self, value):
                 self.pause = value
         page = FakePage()
