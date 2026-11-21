@@ -346,7 +346,7 @@ def build_queries(book: dict[str, str], max_queries: int = 8) -> list[str]:
         f'"{full_identity}" site:tistory.com 답지',
         f'"{full_identity}" site:cafe.naver.com 답지',
         f'"{full_identity}" site:blogspot.com 답지',
-        f'"{isbn}" "정답" OR "해설"' if isbn else f'"{title}" "정답" "해설" PDF',
+        f'"{isbn}" 답지' if isbn else f'"{title}" "정답" "해설" PDF',
     ]
     result = []
     for query in variants:
@@ -844,10 +844,13 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                     for qi,query in enumerate(queries,1):
                         if stop_event is not None and stop_event.is_set(): break
                         results=[]
+                        # Search deeper only for the three highest-intent queries.
+                        # This adds recall without doubling every API request.
+                        query_page_limit = search_pages if qi <= 3 else 1
                         for engine in engines:
                             if engine in blocked_engines:
                                 continue
-                            for search_page in range(1, search_pages + 1):
+                            for search_page in range(1, query_page_limit + 1):
                                 cache_key = (engine, query, search_limit, search_page)
                                 try:
                                     if cache_key in search_result_cache:
