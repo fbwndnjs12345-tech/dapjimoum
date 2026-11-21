@@ -446,7 +446,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     limit=max_pages_override or int(config.get("max_sitemap_urls_per_source",500))
     search_limit=max(1,min(20,int(web_cfg.get("results_per_engine",8))))
     query_limit=max(1,min(10,int(web_cfg.get("max_queries_per_book",8))))
-    candidates={}; robots_cache={}; page_content_cache={}
+    candidates={}; robots_cache={}; page_content_cache={}; search_result_cache={}
     checkpoint_every = max(25, min(1000, int(config.get("checkpoint_every_candidates", 50))))
     early_stop_likely = max(1, min(10, int(web_cfg.get("early_stop_likely_candidates_per_book", 3))))
     last_checkpoint = time.monotonic()
@@ -589,7 +589,14 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                         results=[]
                         if "bing" in engines and not bing_blocked:
                             try:
-                                got=search_bing_rss(query,search_limit); results.extend(got)
+                                cache_key = ("bing", query, search_limit)
+                                if cache_key in search_result_cache:
+                                    got = search_result_cache[cache_key]
+                                    log(callback, f"[Bing 캐시] {len(got)}개 재사용")
+                                else:
+                                    got=search_bing_rss(query,search_limit)
+                                    search_result_cache[cache_key] = got
+                                results.extend(got)
                                 log(callback,f"[Bing {qi}/{len(queries)}] {len(got)}개 · {query}")
                             except Exception as exc:
                                 message = str(exc)
@@ -599,7 +606,13 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                     log(callback, "[Bing 일시 중지] 접근 제한 응답을 받아 현재 교재의 추가 Bing 요청을 중단합니다.")
                         if "google" in engines and not google_blocked:
                             try:
-                                got=search_google_page(page,query,search_limit,allow_manual=headed,callback=callback)
+                                cache_key = ("google", query, search_limit)
+                                if cache_key in search_result_cache:
+                                    got = search_result_cache[cache_key]
+                                    log(callback, f"[Google 캐시] {len(got)}개 재사용")
+                                else:
+                                    got=search_google_page(page,query,search_limit,allow_manual=headed,callback=callback)
+                                    search_result_cache[cache_key] = got
                                 results.extend(got); log(callback,f"[Google {qi}/{len(queries)}] {len(got)}개")
                             except Exception as exc:
                                 log(callback,f"[Google 검색 건너뜀] {book['title']}: {exc}")
@@ -649,7 +662,13 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                     time.sleep(delay)
                             except PlaywrightTimeoutError: log(callback,f"  [시간 초과, 검증 제외] {target}")
                             except Exception as exc: log(callback,f"  [페이지 확인 실패] {target}: {exc}")
-                        # Keep the configured polite interval between query batches, not between cached hits.
+                        likely_for_book = sum(1 for row in candidates.values()
+                            if (row.get("book_id") or row.get("book_title")) == (book.get("id") or book.get("title"))
+                            and row.get("match_status") == "likely")
+                        if likely_for_book >= early_stop_likely:
+                            log(callback, f"[조기 종료] {book['title']}: likely 후보 {likely_for_book}개 확보")
+                            break
+                        # Keep the configured polite interval between query batches.
                         time.sleep(delay)
                     likely_for_book = sum(1 for row in candidates.values()
                         if (row.get("book_id") or row.get("book_title")) == (book.get("id") or book.get("title"))
