@@ -70,7 +70,8 @@ const dnsSafetyCache = new Map<string, { expiresAt: number; isPublic: boolean }>
 async function safeExternalUrl(value: string): Promise<boolean> {
   try {
     const url = new URL(value);
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return false;
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password
+        || (url.port && url.port !== '80' && url.port !== '443')) return false;
     const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
     if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')
         || host.endsWith('.internal') || host.endsWith('.test') || host.endsWith('.invalid')
