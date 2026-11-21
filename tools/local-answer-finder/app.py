@@ -92,6 +92,7 @@ class FinderApp:
         self.headed = tk.BooleanVar(value=True)
         self.max_pages = tk.StringVar(value="80")
         self.auto_upload = tk.BooleanVar(value=False)
+        self.font_size_var = tk.StringVar(value="10")
         self._build()
         self.root.after(150, self._poll)
 
@@ -175,6 +176,16 @@ class FinderApp:
         self.connection_badge = ttk.Label(header, text="● 로컬 모드", foreground="#26734d",
                                           background="#e8f5ed", padding=(12, 7))
         self.connection_badge.pack(side="right", anchor="n")
+        font_controls = ttk.Frame(header)
+        font_controls.pack(side="right", padx=(0, 14), anchor="n")
+        ttk.Label(font_controls, text="글자 크기", style="Muted.TLabel").pack(side="left", padx=(0, 6))
+        self.font_size_box = ttk.Combobox(
+            font_controls, textvariable=self.font_size_var,
+            values=("9", "10", "11", "12", "13", "14", "15", "16"),
+            width=4, state="readonly"
+        )
+        self.font_size_box.pack(side="left")
+        self.font_size_box.bind("<<ComboboxSelected>>", lambda _event: self.apply_font_size())
 
         metrics = ttk.Frame(outer)
         metrics.pack(fill="x", pady=(0, 15))
@@ -202,6 +213,49 @@ class FinderApp:
         self.tabs.add(account, text="  01  데이터 및 계정  ")
         self.tabs.add(sources, text="  02  검색 설정  ")
         self.tabs.add(search, text="  03  탐색 결과  ")
+        guide = ttk.Frame(self.tabs, padding=18)
+        self.tabs.add(guide, text="  04  사용 방법  ")
+        guide_card = ttk.Frame(guide, style="Surface.TFrame", padding=20)
+        guide_card.pack(fill="both", expand=True)
+        ttk.Label(guide_card, text="처음 사용하는 경우", style="Section.TLabel").pack(anchor="w")
+        guide_text_frame = ttk.Frame(guide_card, style="Surface.TFrame")
+        guide_text_frame.pack(fill="both", expand=True, pady=(10, 12))
+        self.guide_text = tk.Text(
+            guide_text_frame, wrap="word", height=18, state="normal",
+            font=("맑은 고딕", 11), bg="#ffffff", fg="#253047",
+            relief="flat", padx=12, pady=10, spacing1=3, spacing3=5
+        )
+        guide_scroll = ttk.Scrollbar(guide_text_frame, orient="vertical", command=self.guide_text.yview)
+        self.guide_text.configure(yscrollcommand=guide_scroll.set)
+        self.guide_text.pack(side="left", fill="both", expand=True)
+        guide_scroll.pack(side="right", fill="y")
+        self.guide_text.insert("1.0",
+            "1. 교재 목록 준비\n"
+            "오른쪽의 ‘CSV 파일 선택’을 눌러 교재 CSV를 선택합니다. 필수 열은 교재명(title)입니다. "
+            "출판사·과목·학년·학기·시리즈·판본·ISBN이 있으면 같은 이름의 다른 교재를 구분하는 데 도움이 됩니다. "
+            "Supabase 로그인은 로컬 CSV 검색에 필요하지 않습니다.\n\n"
+            "2. 검색 출처 확인\n"
+            "‘검색 설정’ 탭에서 sources에 공식 출판사 자료실 주소가 들어 있는지 확인합니다. "
+            "API 키 없이 실행할 때는 이 주소들이 검색 범위를 결정합니다. 출처를 추가할수록 더 많은 출판사 자료를 확인할 수 있습니다.\n\n"
+            "3. 탐색 실행\n"
+            "‘탐색 결과’ 탭에서 브라우저 표시를 켠 상태로 ‘탐색 시작’을 누릅니다. "
+            "사람 확인 화면이 나오면 브라우저에서 직접 인증합니다. 인증이나 로그인이 필요한 자료는 자동으로 우회하지 않습니다.\n\n"
+            "4. 결과 검수\n"
+            "후보 목록에서 교재명·후보 제목·매칭 상태·점수·주소를 확인합니다. 항목을 두 번 클릭하면 링크를 엽니다. "
+            "‘likely’도 확정 답지가 아니므로 표지, 학년·학기, 개정 교육과정, ISBN을 확인한 뒤 사용합니다.\n\n"
+            "5. 결과 파일 위치\n"
+            "%LOCALAPPDATA%\\DapjiMoumFinder\\answer-link-candidates.csv 에 전체 후보가 저장됩니다. "
+            "중간에 ‘중지 및 저장’을 눌러도 현재까지의 결과를 보존합니다.\n\n"
+            "중요한 제한\n"
+            "API 키 없이 모든 인터넷 사이트를 검색하거나 결과를 100% 보장할 수는 없습니다. 현재 API 없는 모드는 설정된 출판사 공식 자료실과 공개된 출판사 자체 검색 기능을 탐색합니다. "
+            "자료가 비공개·로그인 전용이거나 사이트 구조가 바뀌었거나 robots 정책상 접근할 수 없으면 후보를 찾지 못할 수 있습니다. "
+            "검색 결과가 0개인 교재는 로그의 ‘검색 결과 없음’ 항목에서 확인하고, 출처를 추가하거나 교재 정보를 보완하세요."
+        )
+        self.guide_text.configure(state="disabled")
+        guide_actions = ttk.Frame(guide_card, style="Surface.TFrame")
+        guide_actions.pack(fill="x")
+        ttk.Button(guide_actions, text="결과 폴더 열기", command=self.open_data_folder).pack(side="left")
+        ttk.Button(guide_actions, text="설정 파일 열기", command=self.open_config_file).pack(side="left", padx=8)
 
         account.columnconfigure(0, weight=3)
         account.columnconfigure(1, weight=2)
@@ -386,17 +440,61 @@ class FinderApp:
         self.all_result_rows = []
         self._last_progress = 0
         self.load_results()
+        self.apply_font_size()
 
     def _entry(self, parent, label, variable, row, show=None, reveal_var=None, reveal_label="표시"):
         ttk.Label(parent, text=label, width=22).grid(row=row, column=0, sticky="w", pady=3)
-        entry = ttk.Entry(parent, textvariable=variable, show=("•" if show and not self.password_visible.get() else ""))
+        reveal_var = reveal_var or self.password_visible
+        entry = ttk.Entry(parent, textvariable=variable, show=("•" if show and not reveal_var.get() else ""))
         entry.grid(row=row, column=1, sticky="ew", pady=3)
         if show:
-            reveal_var = reveal_var or self.password_visible
             ttk.Checkbutton(parent, text=reveal_label, variable=reveal_var,
                             command=lambda: entry.configure(show="" if reveal_var.get() else "•")).grid(
                                 row=row, column=2, sticky="w", padx=(8, 0))
         parent.columnconfigure(1, weight=1)
+
+    def apply_font_size(self):
+        try:
+            size = max(9, min(16, int(self.font_size_var.get())))
+        except (TypeError, ValueError):
+            size = 10
+            self.font_size_var.set("10")
+        style = ttk.Style(self.root)
+        family = "맑은 고딕"
+        style.configure(".", font=(family, size))
+        style.configure("TLabel", font=(family, size))
+        style.configure("Muted.TLabel", font=(family, size))
+        style.configure("Hero.TLabel", font=(family, max(22, size + 15), "bold"))
+        style.configure("Section.TLabel", font=(family, size + 3, "bold"))
+        style.configure("Metric.TLabel", font=(family, size + 12, "bold"))
+        style.configure("MetricCaption.TLabel", font=(family, max(9, size - 1)))
+        style.configure("TButton", font=(family, size), padding=(13, max(8, size - 1)))
+        style.configure("Accent.TButton", font=(family, size, "bold"), padding=(17, max(9, size)))
+        style.configure("TCheckbutton", font=(family, size))
+        style.configure("TNotebook.Tab", font=(family, size, "bold"))
+        style.configure("Treeview", font=(family, size), rowheight=max(36, size * 4))
+        style.configure("Treeview.Heading", font=(family, size, "bold"))
+        if hasattr(self, "config_text"):
+            self.config_text.configure(font=("Consolas", size))
+        if hasattr(self, "log"):
+            self.log.configure(font=("Consolas", size))
+        if hasattr(self, "guide_text"):
+            self.guide_text.configure(font=(family, size + 1))
+
+    def open_data_folder(self):
+        try:
+            os.startfile(str(APP_DATA_DIR))
+        except Exception as exc:
+            messagebox.showerror("폴더 열기 실패", str(exc))
+
+    def open_config_file(self):
+        try:
+            if not DEFAULT_CONFIG.exists():
+                messagebox.showinfo("설정 파일", "설정 파일이 아직 없습니다. ‘검색 설정’ 탭에서 저장하세요.")
+                return
+            os.startfile(str(DEFAULT_CONFIG))
+        except Exception as exc:
+            messagebox.showerror("설정 파일 열기 실패", str(exc))
 
     def log_line(self, text):
         self.log.configure(state="normal")
