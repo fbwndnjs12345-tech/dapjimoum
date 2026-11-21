@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
 
-from finder import ALIASES, allowed_host, assess, build_queries, canonicalize_url, norm, parse_sitemap, read_books, robots_for, search_bing_rss, SafeRedirectHandler, USER_AGENT
+from finder import ALIASES, allowed_host, assess, build_queries, canonicalize_url, norm, parse_sitemap, read_books, robots_for, search_kakao_api, SafeRedirectHandler, USER_AGENT
 
 
 class FinderUnitTests(unittest.TestCase):
@@ -96,7 +96,7 @@ class FinderUnitTests(unittest.TestCase):
         queries = build_queries(book, 8)
         self.assertLessEqual(len(queries), 8)
         self.assertGreaterEqual(len(queries), 3)
-        self.assertTrue(any("tistory.com" in q and "blog.naver.com" in q for q in queries))
+        self.assertTrue(any("블로그" in q and "카페" in q for q in queries))
 
     def test_build_queries_combines_textbook_metadata_and_answer_intent(self):
         book = {"title": "체크체크 중학 수학 2-1", "publisher": "천재교육",
@@ -128,6 +128,20 @@ class FinderUnitTests(unittest.TestCase):
         request = __import__("urllib.request", fromlist=["Request"]).Request("https://example.com/start")
         with self.assertRaises(HTTPError):
             handler.redirect_request(request, None, 302, "Found", {}, "https://other.example/target")
+
+    def test_kakao_api_uses_official_endpoint_and_strips_result_markup(self):
+        payload = {"documents": [{
+            "url": "https://example.com/answer",
+            "title": "<b>오투</b> 과학 정답과 해설",
+            "contents": "<b>중2</b> 1학기 답지"
+        }]}
+        with patch("finder.fetch_json", return_value=payload) as fetch_json:
+            results = search_kakao_api("오투 과학 답지", "kakao_blog", "test-key", 8)
+        self.assertEqual(results[0]["title"], "오투 과학 정답과 해설")
+        self.assertEqual(results[0]["snippet"], "중2 1학기 답지")
+        self.assertIn("dapi.kakao.com/v2/search/blog", fetch_json.call_args.args[0])
+        self.assertIn("query=", fetch_json.call_args.args[0])
+        self.assertEqual(fetch_json.call_args.args[1]["Authorization"], "KakaoAK test-key")
 
     def test_canonicalize_url_removes_tracking_and_sorts_query(self):
         actual = canonicalize_url("https://Example.com/path?utm_source=x&z=2&a=1#section")
