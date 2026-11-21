@@ -19,7 +19,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-APP_VERSION = "2.3.0"
+APP_VERSION = "2.4.0"
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 APP_DATA_DIR = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")) / "DapjiMoumFinder"
 APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -89,7 +89,7 @@ class FinderApp:
         self.kakao_key_visible = tk.BooleanVar(value=False)
         self.password_visible = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value="Supabase에서 교재를 불러오거나 CSV 파일을 선택하세요.")
-        self.headed = tk.BooleanVar(value=False)
+        self.headed = tk.BooleanVar(value=True)
         self.max_pages = tk.StringVar(value="80")
         self.auto_upload = tk.BooleanVar(value=False)
         self._build()
@@ -111,40 +111,53 @@ class FinderApp:
         except tk.TclError:
             pass
 
+        # Use the same deterministic theme on every Windows installation. The Vista theme
+        # ignored several background settings and produced mismatched gray panels.
         style = ttk.Style()
-        try:
-            style.theme_use("vista")
-        except tk.TclError:
-            style.theme_use("clam")
+        style.theme_use("clam")
 
-        bg = "#f3f5f9"
+        bg = "#f4f6fa"
         surface = "#ffffff"
-        ink = "#172033"
-        muted = "#68758b"
-        line = "#e2e7ef"
-        accent = "#2457d6"
-        style.configure(".", font=("맑은 고딕", 10))
+        ink = "#182230"
+        muted = "#667085"
+        line = "#d9e0ea"
+        accent = "#3157c8"
+        accent_hover = "#2446aa"
+        self.root.configure(bg=bg)
+        style.configure(".", font=("맑은 고딕", 10), background=bg, foreground=ink)
         style.configure("TFrame", background=bg)
         style.configure("Surface.TFrame", background=surface)
-        style.configure("TLabel", background=bg, foreground=ink)
-        style.configure("Muted.TLabel", background=bg, foreground=muted)
-        style.configure("Hero.TLabel", background=bg, foreground=ink, font=("맑은 고딕", 26, "bold"))
+        style.configure("TLabel", background=bg, foreground=ink, font=("맑은 고딕", 10))
+        style.configure("Muted.TLabel", background=bg, foreground=muted, font=("맑은 고딕", 10))
+        style.configure("Hero.TLabel", background=bg, foreground=ink, font=("맑은 고딕", 27, "bold"))
         style.configure("Section.TLabel", background=surface, foreground=ink, font=("맑은 고딕", 13, "bold"))
         style.configure("Metric.TLabel", background=surface, foreground=ink, font=("맑은 고딕", 22, "bold"))
         style.configure("MetricCaption.TLabel", background=surface, foreground=muted, font=("맑은 고딕", 9))
-        style.configure("TButton", padding=(12, 8), font=("맑은 고딕", 9))
-        style.configure("Accent.TButton", padding=(16, 9), font=("맑은 고딕", 10, "bold"),
-                        background=accent, foreground="#ffffff")
-        style.map("Accent.TButton", background=[("active", "#1d49b5"), ("disabled", "#aab6cf")])
+        style.configure("TButton", padding=(13, 9), font=("맑은 고딕", 10),
+                        background="#edf1f7", foreground=ink, bordercolor=line, focusthickness=0)
+        style.map("TButton", background=[("active", "#e1e8f4"), ("disabled", "#f1f3f6")],
+                  foreground=[("disabled", "#98a2b3")])
+        style.configure("Accent.TButton", padding=(17, 10), font=("맑은 고딕", 10, "bold"),
+                        background=accent, foreground="#ffffff", bordercolor=accent)
+        style.map("Accent.TButton", background=[("active", accent_hover), ("disabled", "#aab6cf")],
+                  foreground=[("disabled", "#ffffff")])
+        style.configure("TEntry", padding=(9, 8), fieldbackground="#ffffff", foreground=ink,
+                        bordercolor=line, lightcolor=line, darkcolor=line, insertcolor=ink)
+        style.map("TEntry", fieldbackground=[("focus", "#ffffff")],
+                  bordercolor=[("focus", accent)])
+        style.configure("TCheckbutton", background=surface, foreground=ink, font=("맑은 고딕", 10), padding=4)
+        style.map("TCheckbutton", background=[("active", surface)], foreground=[("disabled", muted)])
         style.configure("TNotebook", background=bg, borderwidth=0, tabmargins=(0, 0, 0, 0))
-        style.configure("TNotebook.Tab", padding=(22, 12), font=("맑은 고딕", 9, "bold"))
-        style.map("TNotebook.Tab", background=[("selected", surface), ("!selected", "#e9edf4")],
+        style.configure("TNotebook.Tab", background="#e9edf4", foreground=muted,
+                        padding=(22, 13), font=("맑은 고딕", 10, "bold"), borderwidth=0)
+        style.map("TNotebook.Tab", background=[("selected", surface), ("active", "#e1e8f4")],
                   foreground=[("selected", accent), ("!selected", muted)])
-        style.configure("Treeview", rowheight=38, font=("맑은 고딕", 10),
-                        background=surface, fieldbackground=surface, foreground=ink)
+        style.configure("Treeview", rowheight=40, font=("맑은 고딕", 10),
+                        background=surface, fieldbackground=surface, foreground=ink,
+                        bordercolor=line, lightcolor=line, darkcolor=line)
         style.configure("Treeview.Heading", font=("맑은 고딕", 10, "bold"),
-                        background="#f0f3f8", foreground="#344054", padding=(8, 9))
-        style.map("Treeview", background=[("selected", "#e6edff")],
+                        background="#eef2f7", foreground="#344054", padding=(10, 11), relief="flat")
+        style.map("Treeview", background=[("selected", "#e7edff")],
                   foreground=[("selected", ink)])
         style.configure("Horizontal.TProgressbar", troughcolor="#e7ebf2", background=accent,
                         bordercolor="#e7ebf2", lightcolor=accent, darkcolor=accent)
@@ -289,7 +302,7 @@ class FinderApp:
         controls.grid(row=1, column=0, sticky="ew", pady=(12, 0))
         ttk.Label(controls, text="출처별 페이지 한도").pack(side="left")
         ttk.Entry(controls, textvariable=self.max_pages, width=8).pack(side="left", padx=(8, 18))
-        ttk.Checkbutton(controls, text="브라우저 창 표시 (출처 사이트 확인)",
+        ttk.Checkbutton(controls, text="브라우저 표시 · CAPTCHA 직접 인증 가능",
                         variable=self.headed).pack(side="left")
         ttk.Button(controls, text="결과 CSV 열기", command=self.open_output).pack(side="right")
         self.stop_button = ttk.Button(controls, text="중지 및 저장",
@@ -298,12 +311,14 @@ class FinderApp:
         self.run_button = ttk.Button(controls, text="탐색 시작",
                                      command=self.run_finder, style="Accent.TButton")
         self.run_button.pack(side="right")
+        ttk.Label(runbox, text="사이트에서 ‘로봇이 아닙니다’ 확인이 나타나면 브라우저에서 직접 체크하세요. 인증이 끝나면 탐색이 자동으로 이어집니다.",
+                  style="MetricCaption.TLabel", wraplength=1100).grid(row=2, column=0, sticky="w", pady=(10, 0))
         ttk.Checkbutton(runbox, text="완료 후 Supabase 검수 대기 후보로 업로드 (로그인 필요)",
-                        variable=self.auto_upload).grid(row=2, column=0, sticky="w", pady=(10, 0))
+                        variable=self.auto_upload).grid(row=3, column=0, sticky="w", pady=(7, 0))
         self.progress = ttk.Progressbar(runbox, mode="determinate", maximum=100, value=0)
-        self.progress.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+        self.progress.grid(row=4, column=0, sticky="ew", pady=(12, 0))
         self.progress_caption = ttk.Label(runbox, text="대기 중", style="MetricCaption.TLabel")
-        self.progress_caption.grid(row=4, column=0, sticky="w", pady=(5, 0))
+        self.progress_caption.grid(row=5, column=0, sticky="w", pady=(5, 0))
 
         workspace = ttk.Panedwindow(search, orient="vertical")
         workspace.grid(row=1, column=0, sticky="nsew")
@@ -393,6 +408,11 @@ class FinderApp:
         self.log.see("end")
         self.log.configure(state="disabled")
         match = re.search(r"\[진행\]\s*(\d+)\s*/\s*(\d+)", text)
+        if "[수동 인증 필요]" in text:
+            self.status.set("브라우저에서 사람 인증을 완료하세요. 인증이 끝나면 자동으로 이어집니다.")
+            self.progress_caption.configure(text="사용자 확인 대기 · 브라우저에서 직접 체크")
+        elif "[수동 인증 완료]" in text:
+            self.status.set("사람 인증 완료 · 탐색을 이어갑니다.")
         if match and hasattr(self, "progress"):
             current, total = int(match.group(1)), max(1, int(match.group(2)))
             percent = min(99, round(current * 100 / total))
