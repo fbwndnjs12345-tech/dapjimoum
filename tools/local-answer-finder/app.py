@@ -11,7 +11,6 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
-from urllib.error import HTTPError
 from urllib.request import HTTPRedirectHandler, build_opener
 import webbrowser
 from pathlib import Path
@@ -46,7 +45,7 @@ class SameHostRedirectHandler(HTTPRedirectHandler):
         target = urllib.parse.urlparse(newurl)
         if (target.scheme != "https" or not target.hostname
                 or target.hostname.lower().rstrip(".") != self.allowed_host
-                or target.username or target.password):
+                or target.username or target.password or target.port not in (None, 443)):
             raise urllib.error.HTTPError(req.full_url, code, "Supabase cross-host redirect blocked", headers, fp)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
