@@ -9,6 +9,8 @@
     }
   ],
   "max_sitemap_urls_per_source": 80,
+  "max_pages_to_verify_per_book": 40,
+  "api_request_delay_seconds": 0.1,
   "request_delay_seconds": 1,
   "page_timeout_ms": 20000,
   "answer_keywords": [
@@ -25,9 +27,11 @@
       "kakao_blog",
       "kakao_cafe"
     ],
-    "results_per_engine": 5,
-    "max_queries_per_book": 3,
-    "max_candidates_per_book": 5,
+    "results_per_engine": 12,
+    "max_queries_per_book": 8,
+    "max_candidates_per_book": 12,
+    "max_search_pages_per_query": 2,
+    "strategy_version": 2,
     "early_stop_likely_candidates_per_book": 3
   }
 }
