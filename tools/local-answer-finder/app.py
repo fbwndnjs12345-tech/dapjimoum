@@ -927,11 +927,11 @@ def self_test():
             class SmokeHandler(BaseHTTPRequestHandler):
                 def do_GET(self):
                     body = (
-                        b"<!doctype html><html><head><title>DapjiMoum browser navigation OK</title></head>"
-                        b"<body><main><p>오투 중등 과학 2-1 정답과 해설 자료를 확인할 수 있습니다. "
-                        b"실제 브라우저 페이지 본문과 첨부 링크 추출 기능을 검사합니다.</p>"
-                        b"<a href='/answer.pdf'>정답 PDF 다운로드</a></main></body></html>"
-                    )
+                        "<!doctype html><html><head><title>DapjiMoum browser navigation OK</title></head>"
+                        "<body><main><p>오투 중등 과학 2-1 정답과 해설 자료를 확인할 수 있습니다. "
+                        "실제 브라우저 페이지 본문과 첨부 링크 추출 기능을 검사합니다.</p>"
+                        "<a href='/answer.pdf'>정답 PDF 다운로드</a></main></body></html>"
+                    ).encode("utf-8")
                     self.send_response(200)
                     self.send_header("Content-Type", "text/html; charset=utf-8")
                     self.send_header("Content-Length", str(len(body)))
