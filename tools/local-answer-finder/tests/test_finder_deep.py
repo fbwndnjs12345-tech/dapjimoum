@@ -129,7 +129,7 @@ class FinderDeepSafetyTests(unittest.TestCase):
                   "web_search": {"strategy_version": 3}}
         upgraded, changed = upgrade_search_config(config)
         self.assertTrue(changed)
-        self.assertEqual(upgraded["source_catalog_version"], 3)
+        self.assertEqual(upgraded["source_catalog_version"], 4)
         self.assertIn("미래엔", {item["publisher"] for item in upgraded["sources"]})
         self.assertIn("사용자 출처", {item["publisher"] for item in upgraded["sources"]})
 
@@ -139,11 +139,23 @@ class FinderDeepSafetyTests(unittest.TestCase):
                   "web_search": {"strategy_version": 3}}
         upgraded, changed = upgrade_search_config(config)
         self.assertTrue(changed)
-        self.assertEqual(upgraded["source_catalog_version"], 3)
+        self.assertEqual(upgraded["source_catalog_version"], 4)
         chunjae = next(item for item in upgraded["sources"] if item["publisher"] == "천재교육")
         self.assertIn("https://brand_check.chunjae.co.kr/", chunjae["start_urls"])
         ne = next(item for item in upgraded["sources"] if item["publisher"] == "NE능률")
         self.assertIn("https://www.nebooks.co.kr/pages/service/", ne["start_urls"])
+
+    def test_catalog_v3_migrates_to_v4_and_adds_donga_resources(self):
+        config = {"source_catalog_version": 3,
+                  "sources": [{"publisher": "사용자 출처",
+                               "start_urls": ["https://custom.example/"]}],
+                  "web_search": {"strategy_version": 3}}
+        upgraded, changed = upgrade_search_config(config)
+        self.assertTrue(changed)
+        self.assertEqual(upgraded["source_catalog_version"], 4)
+        donga = next(item for item in upgraded["sources"] if item["publisher"] == "동아출판")
+        self.assertIn("https://www.bookdonga.com/middle/extradata_list.donga", donga["start_urls"])
+        self.assertIn("https://www.bookdonga.com/high/extradata_list.donga", donga["start_urls"])
 
     def test_v2_search_config_is_upgraded_to_v3_once(self):
         config = {"web_search": {"strategy_version": 2,
