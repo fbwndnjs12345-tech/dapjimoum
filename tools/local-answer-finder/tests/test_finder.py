@@ -172,7 +172,7 @@ class FinderUnitTests(unittest.TestCase):
         book = {"title": "오투 중등 과학 2-1"}
         _, status, _ = assess(
             book, "오투 과학",
-            "https://publisher.example/files/오투_과학_정답_solution.pdf",
+            "https://publisher.example/files/오투_중등_과학_2-1_정답_solution.pdf",
             ["정답과 해설", "답지"])
         self.assertEqual(status, "uncertain")
 
