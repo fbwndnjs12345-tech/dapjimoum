@@ -63,6 +63,7 @@ class FinderApp:
         self.anon_key = tk.StringVar()
         self.email = tk.StringVar()
         self.password = tk.StringVar()
+        self.kakao_api_key = tk.StringVar()
         self.password_visible = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value="Supabase에서 교재를 불러오거나 CSV 파일을 선택하세요.")
         self.headed = tk.BooleanVar(value=True)
@@ -177,10 +178,13 @@ class FinderApp:
         ttk.Button(buttons, text="로그인 및 교재 가져오기", command=self.fetch_books,
                    style="Accent.TButton").pack(side="left")
         ttk.Button(buttons, text="후보 업로드", command=self.upload_candidates).pack(side="left", padx=(8, 0))
-        ttk.Label(supa, text="보안 안내  ·  비밀번호와 세션 토큰은 설정 파일에 저장하지 않습니다. "
-                  "업로드된 후보는 자동 승인되거나 공개되지 않습니다.",
+        ttk.Separator(supa).grid(row=7, column=0, columnspan=3, sticky="ew", pady=(16, 10))
+        ttk.Label(supa, text="공식 검색 API", style="Section.TLabel").grid(row=8, column=0, sticky="w", pady=(0, 6))
+        self._entry(supa, "Kakao REST API Key", self.kakao_api_key, 9, show="•")
+        ttk.Label(supa, text="검색 키는 실행 중 메모리에서만 사용합니다. 설정 파일에는 저장하지 않습니다. "
+                  "Google/Bing 검색 결과 페이지 직접 수집은 robots.txt 및 서비스 정책 때문에 비활성화했습니다.",
                   style="MetricCaption.TLabel", wraplength=620).grid(
-            row=7, column=0, columnspan=3, sticky="w", pady=(16, 0))
+            row=10, column=0, columnspan=3, sticky="w", pady=(12, 0))
 
         csvbox = ttk.Frame(account, style="Surface.TFrame", padding=18)
         csvbox.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
@@ -229,8 +233,8 @@ class FinderApp:
                     "sources": [], "max_sitemap_urls_per_source": 500,
                     "request_delay_seconds": 1.5, "page_timeout_ms": 20000,
                     "answer_keywords": ["정답과 해설", "정답 해설", "답지"],
-                    "web_search": {"enabled": True, "engines": ["google", "bing"],
-                                   "results_per_engine": 8, "max_queries_per_book": 8}
+                    "web_search": {"enabled": True, "engines": ["kakao_web", "kakao_blog", "kakao_cafe"],
+                                   "results_per_engine": 8, "max_queries_per_book": 3}
                 }, ensure_ascii=False, indent=2))
         config_actions = ttk.Frame(sourcecard, style="Surface.TFrame")
         config_actions.pack(fill="x", pady=(12, 0))
@@ -431,13 +435,25 @@ class FinderApp:
             if not isinstance(sources, list):
                 raise ValueError("sources는 배열이어야 합니다.")
             if not sources and not web_enabled:
-                raise ValueError("공식 자료실 또는 공개 웹 검색 중 하나 이상 활성화하세요.")
-            engines = web_cfg.get("engines", ["google", "bing"])
-            if web_enabled and (not isinstance(engines, list) or not engines or any(x not in ("google", "bing") for x in engines)):
-                raise ValueError("web_search.engines에는 google 또는 bing을 하나 이상 지정하세요.")
+                raise ValueError("공식 자료실 또는 공식 검색 API 중 하나 이상 활성화하세요.")
+            engines = web_cfg.get("engines", ["kakao_web", "kakao_blog", "kakao_cafe"])
+            if not isinstance(engines, list):
+                raise ValueError("web_search.engines는 배열이어야 합니다.")
+            legacy = [engine for engine in engines if engine in ("google", "bing")]
+            if legacy:
+                engines = [engine for engine in engines if engine not in ("google", "bing")]
+                if not engines:
+                    engines = ["kakao_web", "kakao_blog", "kakao_cafe"]
+                web_cfg["engines"] = engines
+                self.config_text.delete("1.0", "end")
+                self.config_text.insert("1.0", json.dumps(config, ensure_ascii=False, indent=2))
+                messagebox.showwarning("검색 정책 변경", "Google/Bing HTML 검색은 robots.txt에서 /search가 차단되거나 API가 종료되어 비활성화했습니다. 공식 Kakao 검색 API로 전환했습니다.")
+            allowed_engines = {"kakao_web", "kakao_blog", "kakao_cafe"}
+            if web_enabled and (not engines or any(engine not in allowed_engines for engine in engines)):
+                raise ValueError("web_search.engines에는 kakao_web, kakao_blog, kakao_cafe 중 하나 이상을 지정하세요.")
             results_per_engine = int(web_cfg.get("results_per_engine", 8))
-            if results_per_engine < 1 or results_per_engine > 20:
-                raise ValueError("검색엔진별 결과 수는 1~20 사이여야 합니다.")
+            if results_per_engine < 1 or results_per_engine > 50:
+                raise ValueError("검색 API별 결과 수는 1~50 사이여야 합니다.")
             max_queries = int(web_cfg.get("max_queries_per_book", 8))
             if max_queries < 1 or max_queries > 10:
                 raise ValueError("교재별 검색어 수는 1~10 사이여야 합니다.")
@@ -540,7 +556,7 @@ class FinderApp:
         try:
             config = json.loads(self.config_text.get("1.0", "end"))
             if not config.get("sources") and not config.get("web_search", {}).get("enabled", True):
-                raise ValueError("공식 자료실 또는 공개 웹 검색 중 하나 이상 활성화하세요.")
+                raise ValueError("공식 자료실 또는 공식 검색 API 중 하나 이상 활성화하세요.")
             if not self.save_config():
                 return
             max_pages = int(self.max_pages.get())
@@ -564,7 +580,8 @@ class FinderApp:
             try:
                 from finder import run_search
                 count = run_search(csv_path, OUTPUT, DEFAULT_CONFIG, headed, max_pages,
-                                   lambda line: self.events.put(("log", line)), self.stop_event)
+                                   lambda line: self.events.put(("log", line)), self.stop_event,
+                                   {"kakao_rest_api_key": self.kakao_api_key.get().strip()})
                 stopped = self.stop_event.is_set()
                 upload_summary = ""
                 if auto_upload and self.access_token and self.project_url and self.anon_key_value:
