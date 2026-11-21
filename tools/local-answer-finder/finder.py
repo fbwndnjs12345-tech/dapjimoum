@@ -502,7 +502,7 @@ def extract_answer_links(page, limit: int = 40):
     """Extract answer/download links with nearby row context, not the entire page text."""
     return page.locator("a[href], area[href]").evaluate_all(
         """(els, maxItems) => {
-            const relevant = /(정답|해설|답지|pdf|다운로드|자료실|첨부|정답표|answer|solution|download|\\.pdf|\\.hwp|\\.zip)/i;
+            const relevant = /(정답|해설|답지|pdf|다운로드|자료실|자료|교재|학습|수업|첨부|정답표|resource|book|answer|solution|download|view|page|\\.pdf|\\.hwp|\\.zip)/i;
             return els.map(a => {
                 const row = a.closest('li, tr, article, dd, dt') ||
                     a.parentElement?.parentElement || a.parentElement || a;
@@ -805,6 +805,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                         if not book_publisher or not source_publisher or book_publisher in source_publisher or source_publisher in book_publisher:
                             source_books.append(candidate_book)
                     log(callback,f"[공식 자료실 탐색] {publisher or host}: {len(pages)}개 공개 페이지 · 대상 교재 {len(source_books)}권")
+                    discovered_source_pages = {canonicalize_url(item) for item in pages if is_safe_public_url(item)}
                     for index,url in enumerate(pages,1):
                         if stop_event is not None and stop_event.is_set(): break
                         if not allowed_host(url,host) or not robots.can_fetch(USER_AGENT,url): continue
@@ -823,6 +824,21 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                             title,description,body=extract_page(page); combined=" ".join([title,description,body])
                             remember_cache(page_content_cache, canonicalize_url(page.url), (title, description, body), 1000)
                             links=extract_answer_links(page, 40)
+                            # Supplement incomplete/missing sitemaps with relevant same-host
+                            # resource/detail/pagination links discovered from the live page.
+                            for link in links:
+                                discovered = link.get("href", "")
+                                discovery_text = " ".join((link.get("text", ""), discovered))
+                                if (len(pages) < limit and allowed_host(discovered, host)
+                                        and re.search(r"정답|해설|답지|자료|교재|학습|수업|resource|book|download|answer|solution|view|page", discovery_text, re.I)
+                                        and robots.can_fetch(USER_AGENT, discovered)):
+                                    try:
+                                        normalized_discovered = canonicalize_url(discovered)
+                                    except ValueError:
+                                        continue
+                                    if normalized_discovered not in discovered_source_pages:
+                                        discovered_source_pages.add(normalized_discovered)
+                                        pages.append(normalized_discovered)
                             targets=[]
                             if any(norm(term) in norm(combined) for term in terms):
                                 targets.append((url,title," ".join([description,body])))
