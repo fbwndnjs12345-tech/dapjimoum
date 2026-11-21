@@ -72,7 +72,7 @@ function qualifiesForIndex(book) {
     fields.length >= 4 &&
     (present(book.semester) || present(book.series) || present(book.edition) || present(book.isbn13))
   );
-  const hasSubstantiveDescription = String(book.description || '').trim().length >= 180;
+  const hasSubstantiveDescription = String(book.description || '').trim().length >= 120;
   const containsPlaceholder = /테스트|샘플|seed|example|예시|mock|placeholder/i.test([book.title, book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.description].join(' '));
   return Boolean(hasUsefulCatalogData && hasSubstantiveDescription && !containsPlaceholder);
 }
@@ -240,8 +240,13 @@ for (const book of books) {
 }
 
 if (siteUrl) {
-  const locations = [siteUrl, ...publicInfoPages.map(page => `${siteUrl}/${page.route}`), ...qualifyingBooks.map(book => `${siteUrl}/books/${encodeURIComponent(book.id)}`)];
-  const sitemap = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${locations.map(location => `  <url><loc>${escapeHtml(location)}</loc></url>`).join('\n')}\n</urlset>\n`;
+  const sitemapEntries = [
+    { url: siteUrl, updatedAt: null },
+    ...publicInfoPages.map(page => ({ url: `${siteUrl}/${page.route}`, updatedAt: null })),
+    ...qualifyingBooks.map(book => ({ url: `${siteUrl}/books/${encodeURIComponent(book.id)}`, updatedAt: book.updated_at || book.created_at || null }))
+  ];
+  const locations = sitemapEntries.map(entry => entry.url);
+  const sitemap = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${sitemapEntries.map(entry => `  <url><loc>${escapeHtml(entry.url)}</loc>${entry.updatedAt && !Number.isNaN(new Date(entry.updatedAt).getTime()) ? `<lastmod>${new Date(entry.updatedAt).toISOString().slice(0, 10)}</lastmod>` : ''}</url>`).join('\n')}\n</urlset>\n`;
   await writeFile(path.join(outputRoot, 'sitemap.xml'), sitemap, 'utf8');
   // Plain-text sitemap is an independent fallback for crawlers or CDN rules
   // that mishandle XML content types. Keep exactly the same canonical URLs.
