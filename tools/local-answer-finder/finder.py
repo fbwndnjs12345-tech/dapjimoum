@@ -725,7 +725,8 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     early_stop_likely = max(1, min(10, int(web_cfg.get("early_stop_likely_candidates_per_book", 3))))
     max_candidates_per_book = max(1, min(50, int(web_cfg.get("max_candidates_per_book", 12))))
     last_checkpoint = time.monotonic()
-    log(callback,f"교재 {len(books)}권 · 공식 출처 {len(sources)}곳 · 공개 검색엔진 {', '.join(engines) if web_enabled else '사용 안 함'}")
+api_mode = "Kakao 검색 API 사용" if web_enabled and kakao_api_key and engines else "API 없음 · 출판사 자료실/자체 검색 사용"
+    log(callback,f"교재 {len(books)}권 · 공식 출처 {len(sources)}곳 · {api_mode}")
     log(callback,f"검색 전략: 교재당 최대 {query_limit}개 검색어 · 엔진별 {search_limit}개 결과 · 검색어별 최대 {search_pages}페이지 · 실제 페이지 검증 최대 {max_pages_to_verify}개")
     with sync_playwright() as p:
         browser=launch_browser(p, headless=not headed)
