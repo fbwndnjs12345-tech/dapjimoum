@@ -604,6 +604,7 @@ class FinderApp:
             rows = list(csv.DictReader(handle))
         if not rows:
             return 0, 0
+        from finder import canonicalize_url, is_safe_public_url
         invalid = [index + 2 for index, row in enumerate(rows) if not row.get("book_id") or not row.get("url")]
         if invalid:
             preview = ", ".join(map(str, invalid[:10]))
@@ -614,13 +615,22 @@ class FinderApp:
         for start in range(0, len(rows), 100):
             batch = []
             for row in rows[start:start + 100]:
+                candidate_url = (row.get("url") or "").strip()
+                if not is_safe_public_url(candidate_url, resolve_dns=True):
+                    raise RuntimeError(f"공개 HTTP(S) URL이 아니거나 안전한 공개 호스트가 아닙니다: {candidate_url[:180]}")
+                candidate_url = canonicalize_url(candidate_url)
+                try:
+                    raw_score = float(row.get("match_score") or 0)
+                except (TypeError, ValueError):
+                    raw_score = 0
+                score = int(max(0, min(100, raw_score))) if math.isfinite(raw_score) else 0
                 batch.append({
                     "book_id": row["book_id"],
                     "title": row.get("candidate_title") or row.get("source_name") or "답지 후보",
-                    "url": row["url"],
+                    "url": candidate_url,
                     "snippet": row.get("snippet", ""),
                     "match_status": row.get("match_status", "uncertain"),
-                    "match_score": max(0, min(100, int(float(row.get("match_score") or 0)))),
+                    "match_score": score,
                     "match_evidence": {
                         "matched_answer_terms": row.get("matched_answer_terms", ""),
                         "book_title": row.get("book_title", ""),
