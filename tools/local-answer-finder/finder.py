@@ -632,7 +632,7 @@ def extract_answer_links(page, limit: int = 40):
                 const text = (a.innerText || a.getAttribute('aria-label') ||
                     a.getAttribute('title') || '').trim();
                 const onclick = a.getAttribute('onclick') || '';
-                const clickMatch = onclick.match(/(?:window\\.open|location(?:\\.href)?)\\s*\\(\\s*['"]([^'"]+)['"]/i);
+                const clickMatch = onclick.match(/['"]([^'"]*(?:\\.pdf|\\.hwp|\\.zip)(?:\\?[^'"]*)?)['"]/i);
                 const rawHref = a.getAttribute('href') || a.getAttribute('data-href') ||
                     a.getAttribute('data-url') || (clickMatch && clickMatch[1]) || '';
                 let href = '';
