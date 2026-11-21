@@ -6,7 +6,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 
 from finder import (ALIASES, allowed_host, assess, build_queries, build_publisher_queries, publisher_matches_source, canonicalize_url, norm, parse_sitemap,
-                    read_books, robots_for, search_kakao_api, SafeRedirectHandler, USER_AGENT,
+                    read_books, robots_for, run_search, search_kakao_api, SafeRedirectHandler, USER_AGENT,
                     is_captcha_provider_url, is_human_verification_page, wait_for_manual_verification)
 
 
@@ -100,6 +100,14 @@ class FinderUnitTests(unittest.TestCase):
             path.write_text("id,publisher\n1,비상교육\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "교재명"):
                 read_books(path)
+
+    def test_run_search_rejects_empty_textbook_csv_before_browser_launch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "books.csv"
+            path.write_text("title,publisher\\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "검색할 교재가 없습니다"):
+                run_search(path, Path(directory) / "out.csv",
+                           Path(directory) / "missing-config.json", False, 20)
 
     def test_read_books_skips_blank_titles(self):
         with tempfile.TemporaryDirectory() as tmp:
