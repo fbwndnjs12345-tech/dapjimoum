@@ -5,10 +5,49 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
 
-from finder import ALIASES, allowed_host, assess, build_queries, canonicalize_url, norm, parse_sitemap, read_books, robots_for, search_kakao_api, SafeRedirectHandler, USER_AGENT
+from finder import (ALIASES, allowed_host, assess, build_queries, canonicalize_url, norm, parse_sitemap,
+                    read_books, robots_for, search_kakao_api, SafeRedirectHandler, USER_AGENT,
+                    is_captcha_provider_url, is_human_verification_page, wait_for_manual_verification)
 
 
 class FinderUnitTests(unittest.TestCase):
+    def test_detects_korean_and_english_human_verification(self):
+        class FakeLocator:
+            def __init__(self, text): self.text = text
+            def inner_text(self, timeout=None): return self.text
+        class FakePage:
+            def __init__(self, title, body, frames=()):
+                self._title, self._body = title, body
+                self.frames = [type("Frame", (), {"url": url}) for url in frames]
+            def title(self): return self._title
+            def locator(self, selector): return FakeLocator(self._body)
+        self.assertTrue(is_human_verification_page(FakePage("보안 확인", "로봇이 아닙니다 체크박스를 선택하세요")))
+        self.assertTrue(is_human_verification_page(FakePage("Verify", "Please wait", ["https://www.google.com/recaptcha/api2/anchor"])))
+        self.assertFalse(is_human_verification_page(FakePage("오투 답지", "정답과 해설 자료입니다.")))
+
+    def test_captcha_widget_allowlist_is_narrow(self):
+        self.assertTrue(is_captcha_provider_url("https://www.google.com/recaptcha/api2/anchor"))
+        self.assertTrue(is_captcha_provider_url("https://challenges.cloudflare.com/turnstile/v0/api.js"))
+        self.assertTrue(is_captcha_provider_url("https://js.hcaptcha.com/1/api.js"))
+        self.assertFalse(is_captcha_provider_url("https://www.google.com/search?q=answer"))
+        self.assertFalse(is_captcha_provider_url("https://evil.example/recaptcha/"))
+
+    def test_manual_verification_waits_until_human_clears_challenge(self):
+        class FakeLocator:
+            def __init__(self, page): self.page = page
+            def inner_text(self, timeout=None): return "로봇이 아닙니다" if self.page.challenge else "인증 완료"
+        class FakePage:
+            def __init__(self): self.challenge = True; self.frames = []
+            def title(self): return "Verify"
+            def locator(self, selector): return FakeLocator(self)
+        page = FakePage()
+        messages = []
+        def fake_sleep(_seconds): page.challenge = False
+        with patch("finder.time.sleep", side_effect=fake_sleep):
+            self.assertTrue(wait_for_manual_verification(page, messages.append, True, timeout_seconds=2))
+        self.assertTrue(any("수동 인증 필요" in message for message in messages))
+        self.assertTrue(any("수동 인증 완료" in message for message in messages))
+
     def test_normalization_ignores_spacing_and_punctuation(self):
         self.assertEqual(norm("오투 중등-과학 2·1"), norm("오투중등 과학 2-1"))
 
