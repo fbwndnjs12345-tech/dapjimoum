@@ -85,16 +85,16 @@ class FinderEndToEndTests(unittest.TestCase):
                     "page_timeout_ms": 10000,
                     "answer_keywords": ["정답과 해설", "답지"],
                     "web_search": {
-                        "enabled": True, "engines": ["google", "bing"],
+                        "enabled": True, "engines": ["kakao_web", "kakao_blog", "kakao_cafe"],
                         "results_per_engine": 5, "max_queries_per_book": 3, "early_stop_likely_candidates_per_book": 1
                     }
                 }, ensure_ascii=False), encoding="utf-8")
                 output = root / "answer-link-candidates.csv"
                 # The fixture deliberately uses loopback; production URL guards remain strict.
                 with patch("finder.is_safe_public_url", side_effect=lambda url, resolve_dns=False: url.startswith(base)):
-                    with patch("finder.search_google_page", return_value=[search_result]) as google:
-                        with patch("finder.search_bing_rss", return_value=[search_result]) as bing:
-                            count = run_search(books, output, config, False, 10, lambda _line: None)
+                    with patch("finder.search_kakao_api", return_value=[search_result]) as kakao:
+                        count = run_search(books, output, config, False, 10, lambda _line: None,
+                                           provider_credentials={"kakao_rest_api_key": "test-key"})
                 self.assertGreaterEqual(count, 1)
                 self.assertTrue(output.is_file())
                 with output.open("r", encoding="utf-8-sig", newline="") as handle:
@@ -104,8 +104,7 @@ class FinderEndToEndTests(unittest.TestCase):
                 self.assertTrue(any(row["url"].endswith("/answer") for row in rows))
                 self.assertEqual({row["book_id"] for row in rows}, {"fixture-book-1", "fixture-book-2"})
                 self.assertTrue(all(row["match_status"] in ("likely", "uncertain") for row in rows))
-                google.assert_called_once()
-                bing.assert_called_once()
+                self.assertEqual(kakao.call_count, 3)
         finally:
             server.shutdown()
             server.server_close()
