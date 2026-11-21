@@ -700,7 +700,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
 
 
 def main():
-    parser = argparse.ArgumentParser(description="공식 자료실과 공개 웹 검색 결과에서 답지 링크 후보 탐색")
+    parser = argparse.ArgumentParser(description="공식 자료실과 Kakao 검색 API에서 답지 링크 후보 탐색")
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", default="answer-link-candidates.csv")
     parser.add_argument("--config", default="sources.json")
