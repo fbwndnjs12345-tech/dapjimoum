@@ -1000,13 +1000,13 @@ def self_test():
         from playwright.sync_api import sync_playwright
         example = ROOT / "sources.example.json"
         config = json.loads(example.read_text(encoding="utf-8"))
-        if not isinstance(config.get("sources"), list) or len(config["sources"]) < 6:
-            raise RuntimeError("예시 공식 출처 목록이 비어 있거나 6개 출판사 미만입니다.")
-        expected_publishers = {"비상교육", "지학사", "천재교육", "NE능률", "좋은책신사고", "미래엔"}
+        if not isinstance(config.get("sources"), list) or len(config["sources"]) < 7:
+            raise RuntimeError("예시 공식 출처 목록이 비어 있거나 7개 출판사 미만입니다.")
+        expected_publishers = {"비상교육", "지학사", "천재교육", "NE능률", "좋은책신사고", "미래엔", "동아출판"}
         actual_publishers = {source.get("publisher") for source in config["sources"]}
         if not expected_publishers.issubset(actual_publishers):
             raise RuntimeError("공식 출처 목록의 출판사 구성이 올바르지 않습니다.")
-        if config.get("source_catalog_version", 0) < 3:
+        if config.get("source_catalog_version", 0) < 4:
             raise RuntimeError("공식 출처 카탈로그 버전이 최신이 아닙니다.")
         if config.get("web_search", {}).get("enabled") is not False:
             raise RuntimeError("API 없는 검색이 기본값으로 설정되지 않았습니다.")
