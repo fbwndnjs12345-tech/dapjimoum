@@ -7,7 +7,9 @@ export function AnswerLinkCard({ link, onReport, onOpen }: AnswerLinkCardProps) 
   const parsedCheckedAt = link.last_checked_at ? new Date(link.last_checked_at) : null;
   const checkedAt = parsedCheckedAt && Number.isFinite(parsedCheckedAt.getTime()) ? parsedCheckedAt : null;
   const verificationAge = checkedAt ? Date.now() - checkedAt.getTime() : Number.POSITIVE_INFINITY;
-  const isRecentlyVerified = Boolean(link.verified && checkedAt && verificationAge >= 0 && verificationAge <= 180 * 24 * 60 * 60 * 1000);
+  const healthAllowsVerified = !link.health_status || link.health_status === 'healthy';
+  const isRecentlyVerified = Boolean(link.verified && healthAllowsVerified && checkedAt &&
+    verificationAge >= 0 && verificationAge <= 180 * 24 * 60 * 60 * 1000);
   const openLabel = link.link_type === '다운로드'
     ? '다운로드 페이지 열기'
     : link.link_type === '온라인 PDF 뷰어' || link.link_type === 'PDF'
