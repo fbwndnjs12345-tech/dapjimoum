@@ -20,7 +20,7 @@ Windows용 데스크톱 프로그램입니다. Kakao 공식 REST API의 웹문�
 1. 선택적으로 Supabase URL, anon/publishable key, 관리자 이메일과 비밀번호를 입력하고 로그인 후 교재 CSV를 저장합니다. 비밀번호는 파일에 저장하지 않습니다.
 2. Supabase에서 가져오거나 id,title,publisher,subject,grade,semester,series 열이 있는 CSV를 선택합니다.
 3. 검색 설정에서 `web_search.enabled`를 true로 두고 `engines`에 `kakao_web`, `kakao_blog`, `kakao_cafe`를 지정합니다. Kakao REST API 키는 데이터 및 계정 화면에 입력합니다. API 키는 설정 파일에 저장하지 않습니다.
-4. 공식 자료실도 탐색하려면 `sources` 배열에 출판사명과 자료실 주소를 추가합니다. 출처별 사이트맵 탐색 기본 한도는 80페이지(최대 100페이지)입니다. 공식 검색 API만 사용할 경우 `sources`를 빈 배열로 둘 수 있습니다.
+4. 공식 자료실도 탐색하려면 `sources` 배열에 출판사명과 자료실 주소를 추가합니다. 출처별 페이지 한도 기본값은 80페이지이며, 사용자가 1~500페이지 범위에서 조정할 수 있습니다. 공식 검색 API만 사용할 경우 `sources`를 빈 배열로 둘 수 있습니다.
 5. 탐색 시작을 누르면 `%LOCALAPPDATA%\\DapjiMoumFinder\\answer-link-candidates.csv`에 결과가 저장됩니다.
 6. 탐색이 끝나도 Supabase 업로드는 기본적으로 자동 실행되지 않습니다. 후보를 사이트에 등록하려면 로그인한 뒤 '후보 업로드'를 누르고 확인해야 합니다. 등록된 후보는 관리자 검수 대기 상태이며 자동 승인되지 않습니다.
 
@@ -44,4 +44,4 @@ supabase functions deploy answer-link-import-candidates
 - 결과 수와 검색 API 가용성을 보장하지 않습니다.
 - Google 검색 결과 페이지는 robots.txt에서 `/search`가 Disallow이고, Bing 검색 페이지도 `/search`가 Disallow입니다. Bing Search API는 2025-08-11 종료됐으므로 두 페이지를 직접 수집하지 않습니다. 대신 Kakao 공식 REST API를 사용하며, API 키가 없으면 공식 자료실 탐색만 실행합니다.
 - 같은 실행 안에서만 검색 결과와 페이지 본문을 캐시합니다. 실행 간 캐시는 사용하지 않아 오래된 검색 결과가 장기간 재사용되지 않도록 합니다.
-- 검색 API 키와 Supabase 세션 토큰은 설정 파일에 저장하지 않습니다. 후보 업로드는 기본 비활성화되어 있으며, 사용자가 별도로 실행해야 합니다. CSV 업로드는 100개 단위로 처리해 메모리 사용량을 제한합니다.
+- 검색 API 키와 Supabase 세션 토큰은 설정 파일에 저장하지 않습니다. 후보 업로드는 기본 비활성화되어 있으며, 사용자가 별도로 실행해야 합니다. CSV 업로드는 전체 사전 검증 후 100개 단위로 처리하며, 요청 본문 크기도 제한해 메모리 사용량과 서버 요청 크기를 제어합니다.
