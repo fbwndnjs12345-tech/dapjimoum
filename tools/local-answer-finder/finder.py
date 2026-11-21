@@ -26,7 +26,7 @@ from urllib.error import HTTPError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-USER_AGENT = "DapjiMoumLocalFinder/2.2 (+local user-run tool)"
+USER_AGENT = "DapjiMoumLocalFinder/2.3 (+local user-run tool)"
 ALIASES = {
     "id": ["id", "book_id", "교재 ID"],
     "title": ["title", "book_title", "교재명", "도서명", "책이름", "책 제목"],
@@ -478,7 +478,13 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     log(callback,f"검색 전략: 교재당 최대 {query_limit}개 검색어 · 엔진별 검색 결과 최대 {search_limit}개")
     with sync_playwright() as p:
         browser=launch_browser(p, headless=not headed); context=browser.new_context(locale="ko-KR", service_workers="block", accept_downloads=False)
-        page=context.new_page(); page.set_default_navigation_timeout(timeout)
+        page=context.new_page(); page.set_default_navigation_timeout(timeout); page.set_default_timeout(8000)
+        if headed:
+            page.set_content("""<!doctype html><html lang="ko"><meta charset="utf-8"><title>답지모음 탐색 준비 중</title>
+            <style>body{font-family:'Malgun Gothic','Segoe UI',sans-serif;background:#f4f6fa;color:#172033;margin:0;padding:48px}
+            main{max-width:760px;margin:8vh auto;background:white;border:1px solid #e2e7ef;border-radius:18px;padding:36px;box-shadow:0 12px 36px #17203312}
+            h1{font-size:26px;margin:0 0 12px}p{font-size:16px;line-height:1.7;color:#5d687a}</style>
+            <main><h1>답지모음 로컬 탐색기</h1><p>검색 작업을 준비하고 있습니다. 접근 정책과 공개 검색 결과를 확인한 뒤 대상 페이지로 이동합니다.</p></main></html>""")
         navigation_host_guard = None
         dns_safety_cache = OrderedDict()
         def guard_browser_request(route):
@@ -592,7 +598,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                         try:
                             navigation_host_guard = host
                             try:
-                                response=page.goto(url,wait_until="domcontentloaded")
+                                response=page.goto(url,wait_until="domcontentloaded", timeout=timeout)
                             finally:
                                 navigation_host_guard = None
                             if response and response.status>=400: continue
@@ -669,7 +675,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                 if cached is None:
                                     navigation_host_guard = (urlparse(target).hostname or "").lower()
                                     try:
-                                        response=page.goto(target,wait_until="domcontentloaded")
+                                        response=page.goto(target,wait_until="domcontentloaded", timeout=timeout)
                                     finally:
                                         navigation_host_guard = None
                                     if response and response.status>=400:
