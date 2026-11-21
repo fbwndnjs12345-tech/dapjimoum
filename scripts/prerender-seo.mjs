@@ -19,7 +19,7 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
 })[char]);
 
-const naverVerification = (process.env.VITE_NAVER_SITE_VERIFICATION || env.VITE_NAVER_SITE_VERIFICATION || '').trim();
+const naverVerification = (process.env.VITE_NAVER_SITE_VERIFICATION || env.VITE_NAVER_SITE_VERIFICATION || 'a286b6af97a2acc0838e83e7d154b6d48c1bdab4').trim();
 const naverVerificationMeta = naverVerification ? `<meta name="naver-site-verification" content="${escapeHtml(naverVerification)}" />` : '';
 
 function stripMetaTag(html, attribute, name) {
