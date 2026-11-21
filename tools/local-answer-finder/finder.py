@@ -638,7 +638,7 @@ def assess(book, title, snippet, terms):
                   + (8 if series_hit else 0) + (6 if subject_hit else 0)
                   + (3 if publisher_hit else 0) + (2 if grade_hit else 0)
                   + (1 if semester_hit else 0) + (5 if edition_hit else 0)
-                  + (25 if isbn_hit else 0))
+                  + (50 if isbn_hit else 0))
     if edition_conflict:
         score -= 50
     score = max(0, min(100, score))
