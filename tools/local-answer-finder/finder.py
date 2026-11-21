@@ -280,7 +280,7 @@ def robots_for(start_url: str):
     return parser, sitemaps
 
 
-def search_kakao_api(query: str, engine: str, api_key: str, limit: int = 10):
+def search_kakao_api(query: str, engine: str, api_key: str, limit: int = 10, page: int = 1):
     """Use Kakao's documented REST search APIs; never scrape blocked search result pages."""
     endpoints = {
         "kakao_web": "https://dapi.kakao.com/v2/search/web",
@@ -293,6 +293,7 @@ def search_kakao_api(query: str, engine: str, api_key: str, limit: int = 10):
     url = endpoint + "?" + urlencode({
         "query": query,
         "size": str(max(1, min(50, limit))),
+        "page": str(max(1, min(50, page))),
         "sort": "accuracy",
     })
     payload = fetch_json(url, {"Authorization": "KakaoAK " + api_key},
