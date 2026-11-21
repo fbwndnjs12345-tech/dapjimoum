@@ -483,7 +483,10 @@ def wait_for_page_content(page, timeout_ms: int = 3500):
                 const body = document.body;
                 if (!body) return false;
                 const text = (body.innerText || '').trim();
-                return text.length >= 80 || !!document.querySelector('main, article, a[href], [role="main"]');
+                if (text.length < 80) return false;
+                if (window.__dapjiFinderLastText === text) return true;
+                window.__dapjiFinderLastText = text;
+                return false;
             }""",
             timeout=max(500, min(6000, int(timeout_ms))),
         )
@@ -708,9 +711,8 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                 log(callback, f"[비공개/로컬 네트워크 요청 차단] {request_url[:200]}")
                 route.abort("blockedbyclient")
                 return
-            # CAPTCHA widgets load cross-origin frames/scripts. Permit only their
-            # documented widget hosts in visible mode; all other cross-host requests
-            # remain subject to the existing host and robots restrictions.
+            # CAPTCHA widgets load cross-origin frames/scripts. Permit their known
+            # hosts in visible mode; other resources still pass public-IP safety checks.
             if headed and is_captcha_provider_url(request_url):
                 route.continue_()
                 return
