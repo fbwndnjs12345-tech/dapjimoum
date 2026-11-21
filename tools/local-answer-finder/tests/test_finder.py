@@ -129,6 +129,30 @@ class FinderUnitTests(unittest.TestCase):
         _, status, _ = assess(book, "오투 중등 과학 2-1 정답과 해설", "정답과 해설", ["정답과 해설"])
         self.assertEqual(status, "mismatch")
 
+    def test_assess_uses_exact_isbn_as_strong_book_identity(self):
+        book = {"title": "오투 중등 과학 2-1", "isbn13": "9781234567890"}
+        score, status, _ = assess(
+            book, "정답과 해설 다운로드",
+            "교재 자료 다운로드 https://publisher.example/files/9781234567890_answer.pdf",
+            ["정답과 해설", "답지"])
+        self.assertGreaterEqual(score, 75)
+        self.assertEqual(status, "likely")
+
+    def test_assess_rejects_wrong_isbn_even_when_title_is_similar(self):
+        book = {"title": "오투 중등 과학 2-1", "isbn13": "9781234567890"}
+        _, status, _ = assess(
+            book, "오투 중등 과학 2-1 정답과 해설",
+            "ISBN 9780987654321 정답과 해설", ["정답과 해설"])
+        self.assertEqual(status, "mismatch")
+
+    def test_assess_recognizes_answer_terms_in_file_url_evidence(self):
+        book = {"title": "오투 중등 과학 2-1"}
+        _, status, _ = assess(
+            book, "오투 중등 과학 2-1",
+            "https://publisher.example/files/오투_과학_정답_solution.pdf",
+            ["정답과 해설", "답지"])
+        self.assertEqual(status, "likely")
+
     def test_assess_requires_answer_evidence(self):
         book = {"title": "오투 중등 과학 1-2"}
         _, status, _ = assess(book, "오투 중등 과학 1-2 목차", "교재 소개 및 목차", ["정답과 해설", "답지"])
