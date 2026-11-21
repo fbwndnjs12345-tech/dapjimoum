@@ -214,6 +214,12 @@ Deno.serve(async request => {
     .order('health_checked_at', { ascending: true, nullsFirst: true })
     .limit(limit);
   if (linksError) return json({ error: '검사할 답지 링크를 불러오지 못했습니다: ' + linksError.message }, 500);
+  const bookIds = [...new Set((links ?? []).map(link => link.book_id).filter(Boolean))];
+  const { data: bookRows, error: booksError } = bookIds.length
+    ? await admin.from('books').select('id,title,publisher,subject,grade,semester,series,edition,curriculum_revision,isbn13').in('id', bookIds)
+    : { data: [], error: null };
+  if (booksError) return json({ error: '교재 정보를 불러오지 못했습니다: ' + booksError.message }, 500);
+  const bookById = new Map((bookRows ?? []).map(book => [book.id, book]));
 
   const summary = { checked: 0, healthy: 0, broken: 0, redirected: 0, invalidPdf: 0, rateLimited: 0, temporaryErrors: 0, queued: 0 };
   const errors: string[] = [];
@@ -223,32 +229,44 @@ Deno.serve(async request => {
     let contentType: string | null = null;
     let fileSize: number | null = null;
     let errorMessage: string | null = null;
+    let finalUrl = link.url;
+    let fileName: string | null = null;
+    let isDownload = false;
+    let matchStatus: 'unknown' | 'matched' | 'mismatch' | 'uncertain' | 'not_applicable' = 'unknown';
+    let matchNote: string | null = null;
     try {
-      if (!safeExternalUrl(link.url)) throw new Error('안전하지 않은 외부 URL이어서 검사하지 않았습니다.');
+      if (!await safeExternalUrl(link.url)) throw new Error('안전하지 않은 공개 URL이어서 검사하지 않았습니다.');
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 90000);
+      const timeout = setTimeout(() => controller.abort(), 30000);
       try {
-        await reserveSlot();
-        let response = await fetch(link.url, { method: 'HEAD', redirect: 'manual', signal: controller.signal });
+        const head = await fetchFollowingSafeRedirects(
+          link.url, { method: 'HEAD' }, reserveSlot, controller.signal,
+        );
+        let response = head.response;
+        finalUrl = head.finalUrl;
         let usedGet = false;
         const headType = response.headers.get('content-type') ?? '';
-        const pdfExpectedFromUrl = /\.pdf(?:$|[?#])/i.test(link.url);
-        if (response.status === 405 || response.status === 501 || (response.ok && (pdfExpectedFromUrl || headType.toLowerCase().includes('application/pdf')))) {
+        const pdfExpectedFromUrl = /\\.pdf(?:$|[?#])/i.test(finalUrl);
+        if (response.status === 403 || response.status === 405 || response.status === 501
+            || (response.ok && (pdfExpectedFromUrl || headType.toLowerCase().includes('application/pdf')))) {
           await response.body?.cancel().catch(() => undefined);
-          await reserveSlot();
-          response = await fetch(link.url, { method: 'GET', headers: { Range: 'bytes=0-1023' }, redirect: 'manual', signal: controller.signal });
+          const get = await fetchFollowingSafeRedirects(
+            finalUrl,
+            { method: 'GET', headers: { Range: 'bytes=0-1023' } },
+            reserveSlot,
+            controller.signal,
+          );
+          response = get.response;
+          finalUrl = get.finalUrl;
           usedGet = true;
         }
         httpStatus = response.status;
         contentType = response.headers.get('content-type');
         const lengthHeader = response.headers.get('content-length');
         const contentRange = response.headers.get('content-range');
-        const totalFromRange = contentRange?.match(/\/(\d+)$/)?.[1];
-        fileSize = totalFromRange ? Number(totalFromRange) : lengthHeader && /^\d+$/.test(lengthHeader) ? Number(lengthHeader) : null;
-        if (response.status >= 300 && response.status < 400) {
-          status = 'redirected';
-          errorMessage = '외부 페이지가 리디렉션을 반환했습니다. 새 주소를 관리자에게 확인해야 합니다.';
-        } else if (response.status === 404 || response.status === 410) {
+        const totalFromRange = contentRange?.match(/\\/(\\d+)$/)?.[1];
+        fileSize = totalFromRange ? Number(totalFromRange) : lengthHeader && /^\\d+$/.test(lengthHeader) ? Number(lengthHeader) : null;
+        if (response.status === 404 || response.status === 410) {
           status = 'broken';
           errorMessage = '페이지가 삭제되었거나 찾을 수 없습니다.';
         } else if (response.status === 429) {
@@ -261,9 +279,15 @@ Deno.serve(async request => {
           status = 'temporary_error';
           errorMessage = 'HTTP 응답 오류 (' + response.status + ')';
         } else {
-          const expectsPdf = /\.pdf(?:$|[?#])/i.test(link.url) || (contentType ?? '').toLowerCase().includes('application/pdf');
+          fileName = filenameFromResponse(response, finalUrl);
+          const disposition = response.headers.get('content-disposition') ?? '';
+          isDownload = /attachment/i.test(disposition)
+            || (contentType ?? '').toLowerCase().includes('application/pdf')
+            || /\\.pdf(?:$|[?#])/i.test(finalUrl);
+          const expectsPdf = /\\.pdf(?:$|[?#])/i.test(finalUrl)
+            || (contentType ?? '').toLowerCase().includes('application/pdf');
           if (expectsPdf) {
-            if (!usedGet || response.bodyUsed) {
+            if (!usedGet) {
               status = 'temporary_error';
               errorMessage = 'PDF 응답 본문을 확인하지 못했습니다.';
             } else {
@@ -278,6 +302,14 @@ Deno.serve(async request => {
           } else {
             status = 'healthy';
             await response.body?.cancel().catch(() => undefined);
+          }
+          if (isDownload) {
+            const assessment = assessFileName(bookById.get(link.book_id), fileName);
+            matchStatus = assessment.status;
+            matchNote = assessment.note;
+          } else {
+            matchStatus = 'not_applicable';
+            matchNote = '일반 웹페이지 링크이므로 파일명 대조 대상이 아닙니다.';
           }
         }
       } finally {
@@ -297,6 +329,11 @@ Deno.serve(async request => {
       health_content_type: contentType,
       health_error: errorMessage,
       health_file_size_bytes: fileSize,
+      health_final_url: finalUrl,
+      health_is_download: isDownload,
+      health_file_name: fileName,
+      health_match_status: matchStatus,
+      health_match_note: matchNote,
     }).eq('id', link.id);
     if (updateError) errors.push(link.id + ': ' + updateError.message);
     summary.checked += 1;
