@@ -422,6 +422,99 @@ def extract_page(page):
     return title[:500], description[:1200], re.sub(r"\s+", " ", body)[:8000]
 
 
+def upgrade_search_config(config: dict) -> tuple[dict, bool]:
+    """Raise legacy conservative defaults to the higher-recall search profile once."""
+    web_cfg = config.setdefault("web_search", {})
+    if not isinstance(web_cfg, dict):
+        raise ValueError("web_search 설정은 객체여야 합니다.")
+    try:
+        version = int(web_cfg.get("strategy_version", 0))
+    except (TypeError, ValueError):
+        version = 0
+    if version >= 2:
+        return config, False
+    web_cfg["max_queries_per_book"] = max(8, int(web_cfg.get("max_queries_per_book", 3)))
+    web_cfg["results_per_engine"] = max(12, int(web_cfg.get("results_per_engine", 5)))
+    web_cfg["max_candidates_per_book"] = max(12, int(web_cfg.get("max_candidates_per_book", 5)))
+    web_cfg["max_search_pages_per_query"] = max(2, int(web_cfg.get("max_search_pages_per_query", 1)))
+    web_cfg["strategy_version"] = 2
+    config["max_pages_to_verify_per_book"] = max(40, int(config.get("max_pages_to_verify_per_book", 40)))
+    config["api_request_delay_seconds"] = max(0.0, min(0.5, float(config.get("api_request_delay_seconds", 0.1))))
+    return config, True
+
+
+def _candidate_rank(row: dict) -> tuple[int, int]:
+    status_rank = {"likely": 2, "uncertain": 1}.get(str(row.get("match_status", "")), 0)
+    try:
+        score = int(row.get("match_score", 0))
+    except (TypeError, ValueError):
+        score = 0
+    return status_rank, score
+
+
+def _upsert_top_candidate(candidates: dict, book_key: str, target: str,
+                          row: dict, max_per_book: int) -> str:
+    """Keep the strongest candidates per book; later high-quality matches can replace weak ones."""
+    key = (book_key, target)
+    existing = candidates.get(key)
+    if existing is not None:
+        if _candidate_rank(row) > _candidate_rank(existing):
+            candidates[key] = row
+            return "updated"
+        return "unchanged"
+    same_book = [candidate_key for candidate_key in candidates if candidate_key[0] == book_key]
+    if len(same_book) < max_per_book:
+        candidates[key] = row
+        return "added"
+    weakest_key = min(same_book, key=lambda candidate_key: _candidate_rank(candidates[candidate_key]))
+    if _candidate_rank(row) <= _candidate_rank(candidates[weakest_key]):
+        return "rejected"
+    del candidates[weakest_key]
+    candidates[key] = row
+    return "replaced"
+
+
+def wait_for_page_content(page, timeout_ms: int = 3500):
+    """Give client-rendered answer pages a short bounded window to hydrate."""
+    try:
+        page.wait_for_function(
+            """() => {
+                const body = document.body;
+                if (!body) return false;
+                const text = (body.innerText || '').trim();
+                return text.length >= 80 || !!document.querySelector('main, article, a[href], [role="main"]');
+            }""",
+            timeout=max(500, min(6000, int(timeout_ms))),
+        )
+    except PlaywrightTimeoutError:
+        pass
+    try:
+        page.wait_for_timeout(350)
+    except Exception:
+        pass
+
+
+def extract_answer_links(page, limit: int = 40):
+    """Extract answer/download links with nearby row context, not the entire page text."""
+    return page.locator("a[href], area[href]").evaluate_all(
+        """(els, maxItems) => {
+            const relevant = /(정답|해설|답지|pdf|다운로드|자료실|첨부|정답표|answer|solution|download|\\.pdf|\\.hwp|\\.zip)/i;
+            return els.map(a => {
+                const row = a.closest('li, tr, article, dd, dt') ||
+                    a.parentElement?.parentElement || a.parentElement || a;
+                const text = (a.innerText || a.getAttribute('aria-label') ||
+                    a.getAttribute('title') || '').trim();
+                const context = (row.innerText || row.textContent || '')
+                    .replace(/\\s+/g, ' ').trim().slice(0, 1600);
+                return {href: a.href, text, context};
+            }).filter(x => relevant.test([x.text, x.href, x.context].join(' ')))
+              .filter(x => /^https?:\\/\\//i.test(x.href))
+              .slice(0, maxItems);
+        }""",
+        max(1, min(100, int(limit))),
+    )
+
+
 def assess(book, title, snippet, terms):
     """Require book-specific identity and answer evidence; generic check/icon pages must fail."""
     page_title = str(title or "")
