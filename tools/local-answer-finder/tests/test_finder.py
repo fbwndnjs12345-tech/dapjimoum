@@ -136,7 +136,7 @@ class FinderUnitTests(unittest.TestCase):
             "교재 자료 다운로드 https://publisher.example/files/9781234567890_answer.pdf",
             ["정답과 해설", "답지"])
         self.assertGreaterEqual(score, 75)
-        self.assertEqual(status, "uncertain")
+        self.assertEqual(status, "likely")
 
     def test_assess_rejects_wrong_isbn_even_when_title_is_similar(self):
         book = {"title": "오투 중등 과학 2-1", "isbn13": "9781234567890"}
@@ -151,7 +151,7 @@ class FinderUnitTests(unittest.TestCase):
             book, "오투 중등 과학 2-1",
             "https://publisher.example/files/오투_과학_정답_solution.pdf",
             ["정답과 해설", "답지"])
-        self.assertEqual(status, "likely")
+        self.assertEqual(status, "uncertain")
 
     def test_assess_requires_answer_evidence(self):
         book = {"title": "오투 중등 과학 1-2"}
