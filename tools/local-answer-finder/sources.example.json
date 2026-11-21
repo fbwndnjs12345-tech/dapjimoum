@@ -1,5 +1,5 @@
 {
-  "source_catalog_version": 1,
+  "source_catalog_version": 2,
   "sources": [
     {
       "publisher": "비상교육",
@@ -28,6 +28,12 @@
       "start_urls": [
         "https://www.nebooks.co.kr/pages/",
         "https://www.nebooks.co.kr/pages/customer/faq.asp?p=3&t=2"
+      ]
+    },
+    {
+      "publisher": "미래엔",
+      "start_urls": [
+        "https://www.mirae-n.com/"
       ]
     },
     {
