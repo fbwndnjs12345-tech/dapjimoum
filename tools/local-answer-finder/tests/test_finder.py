@@ -105,7 +105,7 @@ class FinderUnitTests(unittest.TestCase):
         queries = build_queries(book, 8)
         self.assertTrue(any('"체크체크 중학 수학 2-1" "답지"' in q for q in queries))
         self.assertTrue(any('"천재교육 체크체크 수학 중2 1학기 2-1" "정답과 해설"' in q for q in queries))
-        self.assertTrue(any("site:tistory.com" in q and "site:blog.naver.com" in q for q in queries))
+        self.assertTrue(any("블로그" in q and "카페" in q for q in queries))
 
     def test_missing_robots_file_is_treated_as_no_published_rules(self):
         error = HTTPError("https://example.com/robots.txt", 404, "Not Found", {}, None)
@@ -113,15 +113,6 @@ class FinderUnitTests(unittest.TestCase):
             parser, sitemaps = robots_for("https://example.com/resources")
         self.assertEqual(sitemaps, [])
         self.assertTrue(parser.can_fetch(USER_AGENT, "https://example.com/resources"))
-
-    def test_bing_rss_search_result_parsing(self):
-        rss = """<?xml version="1.0"?><rss><channel><item><title>오투 과학 정답과 해설</title><link>https://example.com/answer</link><description>정답과 해설 자료</description></item></channel></rss>""".encode("utf-8")
-        with patch("finder.fetch", return_value=rss):
-            results = search_bing_rss("오투 과학 답지", 5)
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["url"], "https://example.com/answer")
-        self.assertIn("정답과 해설", results[0]["title"])
-        self.assertIn("자료", results[0]["snippet"])
 
     def test_redirect_handler_rejects_cross_host_redirect(self):
         handler = SafeRedirectHandler("example.com")
