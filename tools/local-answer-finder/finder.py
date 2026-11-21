@@ -423,7 +423,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                provider_credentials: dict | None = None) -> int:
     books=read_books(input_path); config=json.loads(config_path.read_text(encoding="utf-8"))
     sources=config.get("sources",[]); web_cfg=config.get("web_search",{})
-    web_enabled=bool(web_cfg.get("enabled",True)); engines=web_cfg.get("engines",["google","bing"])
+    web_enabled=bool(web_cfg.get("enabled",True)); engines=web_cfg.get("engines",["kakao_web","kakao_blog","kakao_cafe"])
     if not sources and not web_enabled: raise ValueError("공식 자료실 또는 공식 검색 API 중 하나 이상을 활성화하세요.")
     terms=config.get("answer_keywords") or ["정답과 해설","정답 해설","정답 및 해설","답지"]
     delay=max(1.0,float(config.get("request_delay_seconds",2.0))); timeout=int(config.get("page_timeout_ms",20000))
@@ -440,7 +440,9 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     credentials = provider_credentials or {}
     kakao_api_key = (credentials.get("kakao_rest_api_key") or os.environ.get("KAKAO_REST_API_KEY", "")).strip()
     if web_enabled and not kakao_api_key:
-        log(callback, "[검색 API 키 없음] Kakao REST API 키를 입력하지 않아 공개 웹 검색은 실행하지 않습니다. 공식 자료실 탐색은 계속합니다.")
+        log(callback, "[검색 API 키 없음] Kakao REST API 키를 입력하지 않아 공식 검색 API는 실행하지 않습니다. 공식 자료실 탐색은 계속합니다.")
+    if not sources and not (web_enabled and kakao_api_key and engines):
+        raise ValueError("공식 자료실이 없고 Kakao 검색 API 키도 없습니다. 자료실을 설정하거나 API 키를 입력하세요.")
     query_limit=max(1,min(10,int(web_cfg.get("max_queries_per_book",8))))
     candidates={}; robots_cache={}; page_content_cache=OrderedDict(); search_result_cache=OrderedDict()
     checkpoint_every = max(25, min(1000, int(config.get("checkpoint_every_candidates", 50))))
@@ -673,8 +675,6 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                     if likely_for_book >= early_stop_likely:
                         log(callback, f"[조기 종료] {book['title']}: likely 후보 {likely_for_book}개 확보")
                     log(callback,f"[웹 검색 완료] {book['title']} · 누적 후보 {len(candidates)}개")
-            elif web_enabled and engines and not kakao_api_key:
-                log(callback, "[검색 생략] Kakao REST API 키가 없어 API 검색을 실행하지 않았습니다.")
         finally:
             # Persist all collected candidates even when navigation or parsing raises.
             try:
