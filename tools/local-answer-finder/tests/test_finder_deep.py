@@ -10,7 +10,7 @@ from urllib.error import HTTPError
 from finder import (
     SafeRedirectHandler, _candidate_rank, _csv_safe, _upsert_top_candidate,
     _write_candidates, build_queries, canonicalize_url, collect_pages,
-    extract_answer_links, is_captcha_provider_url, is_human_verification_page,
+    discover_site_search_urls, extract_answer_links, is_captcha_provider_url, is_human_verification_page,
     is_safe_public_url, parse_sitemap, search_kakao_api, upgrade_search_config,
     wait_for_manual_verification, wait_for_page_content,
 )
@@ -150,6 +150,40 @@ class FinderDeepSafetyTests(unittest.TestCase):
         wait_for_page_content(page, timeout_ms=99999)
         self.assertEqual(page.wait_timeout, 6000)
         self.assertEqual(page.pause, 350)
+
+    def test_publisher_native_search_uses_same_host_get_forms_without_api(self):
+        class Locator:
+            def evaluate_all(self, _script):
+                return [
+                    {"action": "https://publisher.example/search", "name": "keyword",
+                     "hidden": [["category", "answer"]]},
+                    {"action": "https://other.example/search", "name": "q", "hidden": []},
+                    {"action": "https://publisher.example/private", "name": "q", "hidden": []},
+                ]
+        class Page:
+            def locator(self, selector):
+                self.selector = selector
+                return Locator()
+        page = Page()
+        urls = discover_site_search_urls(page, "오투 과학 정답과 해설", "publisher.example")
+        self.assertEqual(len(urls), 1)
+        parsed = urllib.parse.urlparse(urls[0])
+        self.assertEqual(parsed.netloc, "publisher.example")
+        params = urllib.parse.parse_qs(parsed.query)
+        self.assertEqual(params["keyword"], ["오투 과학 정답과 해설"])
+        self.assertEqual(params["category"], ["answer"])
+
+    def test_publisher_native_search_rejects_non_public_or_cross_host_forms(self):
+        class Locator:
+            def evaluate_all(self, _script):
+                return [
+                    {"action": "http://127.0.0.1/search", "name": "q", "hidden": []},
+                    {"action": "https://evil.example/search", "name": "q", "hidden": []},
+                ]
+        class Page:
+            def locator(self, _selector):
+                return Locator()
+        self.assertEqual(discover_site_search_urls(Page(), "답지", "publisher.example"), [])
 
     def test_answer_link_extraction_requests_nearby_context(self):
         class Locator:
