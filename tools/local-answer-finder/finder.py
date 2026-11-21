@@ -956,6 +956,8 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                                 continue
                                             discovered_source_pages.add(normalized_search)
                                             publisher_search_book_by_url[normalized_search] = search_book
+                                            if len(pages) >= limit:
+                                                pages.pop()
                                             pages.insert(min(index, len(pages)), normalized_search)
                                             added_search_pages += 1
                                 if added_search_pages:
@@ -974,6 +976,8 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                         ) if x)
                                         targets.append((target,link.get("text") or title or "정답과 해설",link_context))
                             page_book = publisher_search_book_by_url.get(canonicalize_url(url))
+                            if page_book:
+                                publisher_search_book_by_url[canonicalize_url(page.url)] = page_book
                             page_books = [page_book] if page_book else source_books
                             for book in page_books:
                                 for target,target_title,snippet in targets:
