@@ -357,6 +357,54 @@ def build_queries(book: dict[str, str], max_queries: int = 8) -> list[str]:
             break
     return result
 
+def discover_site_search_urls(page, query: str, expected_host: str, limit: int = 5) -> list[str]:
+    """Build same-host GET search URLs from publisher-provided search forms only.
+
+    This is the API-free discovery path: it uses a publisher's own public search
+    form, never search-engine result pages or undocumented third-party endpoints.
+    """
+    try:
+        forms = page.locator("form").evaluate_all(
+            """forms => forms.map(form => {
+                const input = form.querySelector(
+                    'input[type="search"], input[name*="search" i], input[name*="keyword" i], ' +
+                    'input[name*="query" i], input[name*="sch" i], input[name="q"]'
+                );
+                if (!input || !input.name) return null;
+                const method = (form.method || "get").toLowerCase();
+                if (method !== "get") return null;
+                const action = new URL(form.getAttribute("action") || location.href, location.href).href;
+                const hidden = Array.from(form.querySelectorAll('input[type="hidden"][name]'))
+                    .map(item => [item.name, item.value || ""]);
+                return {action, name: input.name, hidden};
+            }).filter(Boolean)"""
+        )
+    except Exception:
+        return []
+    from urllib.parse import urlencode
+    host = (expected_host or "").lower().rstrip(".")
+    found = []
+    for form in forms or []:
+        action = str(form.get("action") or "")
+        if not is_safe_public_url(action):
+            continue
+        if (urlparse(action).hostname or "").lower().rstrip(".") != host:
+            continue
+        params = list(form.get("hidden") or [])
+        params = [(key, value) for key, value in params if key.casefold() not in {
+            "q", "query", "keyword", "search", "searchword", "searchtext", "sch", "schtxt"
+        }]
+        params.append((str(form.get("name") or "q"), query[:120]))
+        parts = urlsplit(action)
+        merged = parse_qsl(parts.query, keep_blank_values=True) + params
+        target = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(merged), ""))
+        if target not in found:
+            found.append(target)
+        if len(found) >= max(1, min(10, int(limit))):
+            break
+    return found
+
+
 def canonicalize_url(value: str) -> str:
     if not is_safe_public_url(value):
         raise ValueError("안전하지 않은 URL은 후보로 등록할 수 없습니다.")
@@ -839,14 +887,37 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                     if normalized_discovered not in discovered_source_pages:
                                         discovered_source_pages.add(normalized_discovered)
                                         pages.append(normalized_discovered)
+                            # Search the publisher's own GET form without any search API key.
+                            # Only same-host forms and robots-allowed URLs are eligible.
+                            if index == 1 and len(pages) < limit:
+                                added_search_pages = 0
+                                for search_book in source_books:
+                                    identity = " ".join(x for x in (
+                                        search_book.get("title", ""), search_book.get("series", ""),
+                                        search_book.get("subject", ""), search_book.get("grade", ""),
+                                        search_book.get("semester", ""), "정답과 해설"
+                                    ) if x).strip()
+                                    for search_url in discover_site_search_urls(page, identity, host, limit=2):
+                                        if (len(pages) >= limit or added_search_pages >= 24
+                                                or not robots.can_fetch(USER_AGENT, search_url)):
+                                            continue
+                                        normalized_search = canonicalize_url(search_url)
+                                        if normalized_search not in discovered_source_pages:
+                                            discovered_source_pages.add(normalized_search)
+                                            pages.append(normalized_search)
+                                            added_search_pages += 1
+                                if added_search_pages:
+                                    log(callback, f"  [출판사 자체 검색] 검색 결과 페이지 {added_search_pages}개 추가")
                             targets=[]
                             if any(norm(term) in norm(combined) for term in terms):
                                 targets.append((url,title," ".join([description,body])))
                             for link in links:
                                 target=link.get("href","")
                                 if allowed_host(target,host) and robots.can_fetch(USER_AGENT,target):
-                                    link_context = link.get("context") or link.get("text") or ""
-                                    targets.append((target,link.get("text") or "정답과 해설",link_context))
+                                    link_context = " ".join(x for x in (
+                                        title, description, link.get("context") or "", link.get("text") or ""
+                                    ) if x)
+                                    targets.append((target,link.get("text") or title or "정답과 해설",link_context))
                             for book in source_books:
                                 for target,target_title,snippet in targets:
                                     add_candidate(book,target,target_title,snippet,"publisher")
