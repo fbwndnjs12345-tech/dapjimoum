@@ -23,13 +23,10 @@ from urllib.parse import urlparse, urljoin, urlencode, urlsplit, urlunsplit, par
 from urllib.request import Request, HTTPRedirectHandler, build_opener
 from urllib.error import HTTPError
 
-if getattr(sys, "frozen", False):
-    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(Path(sys.executable).resolve().parent / "ms-playwright")
-
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-USER_AGENT = "DapjiMoumLocalFinder/2.0 (+local user-run tool)"
+USER_AGENT = "DapjiMoumLocalFinder/2.2 (+local user-run tool)"
 ALIASES = {
     "id": ["id", "book_id", "교재 ID"],
     "title": ["title", "book_title", "교재명", "도서명", "책이름", "책 제목"],
@@ -49,6 +46,21 @@ FIELDS = ["book_id", "book_title", "publisher", "subject", "grade", "semester", 
 
 def log(callback, message: str):
     callback(message)
+
+
+def launch_browser(playwright, headless: bool):
+    """Use an installed Windows browser instead of shipping a second 400MB browser."""
+    errors = []
+    for channel in ("msedge", "chrome"):
+        try:
+            return playwright.chromium.launch(channel=channel, headless=headless)
+        except Exception as exc:
+            errors.append(f"{channel}: {exc}")
+    raise RuntimeError(
+        "Microsoft Edge 또는 Google Chrome이 설치되어 있어야 합니다. "
+        "Windows에 포함된 Edge를 먼저 실행해 업데이트한 뒤 다시 시도하세요. "
+        + " | ".join(errors[-2:])
+    )
 
 
 def norm(value: str) -> str:
@@ -465,7 +477,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     log(callback,f"교재 {len(books)}권 · 공식 출처 {len(sources)}곳 · 공개 검색엔진 {', '.join(engines) if web_enabled else '사용 안 함'}")
     log(callback,f"검색 전략: 교재당 최대 {query_limit}개 검색어 · 엔진별 검색 결과 최대 {search_limit}개")
     with sync_playwright() as p:
-        browser=p.chromium.launch(headless=not headed); context=browser.new_context(locale="ko-KR", service_workers="block", accept_downloads=False)
+        browser=launch_browser(p, headless=not headed); context=browser.new_context(locale="ko-KR", service_workers="block", accept_downloads=False)
         page=context.new_page(); page.set_default_navigation_timeout(timeout)
         navigation_host_guard = None
         dns_safety_cache = OrderedDict()
