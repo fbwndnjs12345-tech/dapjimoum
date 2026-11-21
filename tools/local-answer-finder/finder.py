@@ -96,7 +96,7 @@ def is_human_verification_page(page) -> bool:
                 if "anchor" in frame_url:
                     try:
                         checked = frame.locator("#recaptcha-anchor").get_attribute("aria-checked", timeout=500)
-                        if checked == "false":
+                        if checked != "true":
                             return True
                         if checked == "true":
                             continue
@@ -105,7 +105,7 @@ def is_human_verification_page(page) -> bool:
             if "hcaptcha" in frame_url and ("challenge" in frame_url or "captcha" in frame_url):
                 try:
                     checked = frame.locator("[aria-checked]").first.get_attribute("aria-checked", timeout=500)
-                    if checked == "false":
+                    if checked != "true":
                         return True
                     if checked == "true":
                         continue
