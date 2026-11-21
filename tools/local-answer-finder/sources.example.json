@@ -1,14 +1,61 @@
 {
+  "source_catalog_version": 4,
   "sources": [
     {
       "publisher": "비상교육",
       "start_urls": [
-        "https://s-book.visang.com/resources",
-        "https://t-book.visang.com/resources"
+        "https://t-book.visang.com/resources",
+        "https://book.visang.com/search",
+        "https://s-book.visang.com/resources"
+      ]
+    },
+    {
+      "publisher": "지학사",
+      "start_urls": [
+        "https://www.jihak.co.kr/reference-book/reference-room",
+        "https://www.jihak.co.kr/reference-book"
+      ]
+    },
+    {
+      "publisher": "천재교육",
+      "start_urls": [
+        "https://book.chunjae.co.kr/#/textbook_pds",
+        "https://brand_check.chunjae.co.kr/"
+      ]
+    },
+    {
+      "publisher": "NE능률",
+      "start_urls": [
+        "https://www.nebooks.co.kr/pages/",
+        "https://www.nebooks.co.kr/pages/service/"
+      ]
+    },
+    {
+      "publisher": "동아출판",
+      "start_urls": [
+        "https://www.bookdonga.com/element/extradata_list.donga",
+        "https://www.bookdonga.com/middle/extradata_list.donga",
+        "https://www.bookdonga.com/high/extradata_list.donga"
+      ]
+    },
+    {
+      "publisher": "미래엔",
+      "start_urls": [
+        "https://www.mirae-n.com/"
+      ]
+    },
+    {
+      "publisher": "좋은책신사고",
+      "start_urls": [
+        "https://truebook.sinsago.co.kr/book/pds.aspx?school_div=M",
+        "https://truebook.sinsago.co.kr/book/pds.aspx?school_div=H",
+        "https://truebook.sinsago.co.kr/study/textbook_pds.aspx"
       ]
     }
   ],
-  "max_sitemap_urls_per_source": 80,
+  "max_sitemap_urls_per_source": 120,
+  "max_pages_to_verify_per_book": 80,
+  "api_request_delay_seconds": 0.1,
   "request_delay_seconds": 1,
   "page_timeout_ms": 20000,
   "answer_keywords": [
@@ -16,16 +63,20 @@
     "정답·해설",
     "정답 및 해설",
     "정답 해설",
+    "정답지",
+    "답안지",
+    "빠른 정답",
+    "해설지",
     "답지"
   ],
   "web_search": {
-    "enabled": true,
-    "engines": [
-      "google",
-      "bing"
-    ],
-    "results_per_engine": 5,
-    "max_queries_per_book": 3,
-    "max_candidates_per_book": 5
+    "enabled": false,
+    "engines": [],
+    "results_per_engine": 12,
+    "max_queries_per_book": 8,
+    "max_candidates_per_book": 20,
+    "max_search_pages_per_query": 2,
+    "strategy_version": 3,
+    "early_stop_likely_candidates_per_book": 3
   }
 }
