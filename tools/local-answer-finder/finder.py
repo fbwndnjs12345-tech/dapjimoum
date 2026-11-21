@@ -558,22 +558,30 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                 for book in books:
                     if stop_event is not None and stop_event.is_set(): break
                     queries=build_queries(book,query_limit); log(callback,f"[검색어 구성] {book['title']}: {len(queries)}개")
-                    seen_urls=set(); google_blocked=False
+                    seen_urls=set(); google_blocked=False; bing_blocked=False
                     for qi,query in enumerate(queries,1):
                         if stop_event is not None and stop_event.is_set(): break
                         results=[]
-                        if "bing" in engines:
+                        if "bing" in engines and not bing_blocked:
                             try:
                                 got=search_bing_rss(query,search_limit); results.extend(got)
                                 log(callback,f"[Bing {qi}/{len(queries)}] {len(got)}개 · {query}")
-                            except Exception as exc: log(callback,f"[Bing 검색 건너뜀] {book['title']}: {exc}")
+                            except Exception as exc:
+                                message = str(exc)
+                                log(callback,f"[Bing 검색 건너뜀] {book['title']}: {message}")
+                                if re.search(r"(?:HTTP\s*Error\s*)?(?:403|429)", message, re.I):
+                                    bing_blocked = True
+                                    log(callback, "[Bing 일시 중지] 접근 제한 응답을 받아 현재 교재의 추가 Bing 요청을 중단합니다.")
                         if "google" in engines and not google_blocked:
                             try:
                                 got=search_google_page(page,query,search_limit,allow_manual=headed,callback=callback)
                                 results.extend(got); log(callback,f"[Google {qi}/{len(queries)}] {len(got)}개")
                             except Exception as exc:
                                 log(callback,f"[Google 검색 건너뜀] {book['title']}: {exc}")
-                                if "대기 시간이 끝났습니다" in str(exc) or "인증을 요구합니다" in str(exc): google_blocked=True
+                                if ("대기 시간이 끝났습니다" in str(exc) or "인증을 요구합니다" in str(exc)
+                                        or re.search(r"HTTP\s*(?:403|429)", str(exc), re.I)):
+                                    google_blocked=True
+                                    log(callback, "[Google 일시 중지] 접근 제한 또는 인증 응답을 받아 현재 교재의 추가 Google 요청을 중단합니다.")
                         for item in results:
                             if stop_event is not None and stop_event.is_set(): break
                             raw=item.get("url","").strip(); parsed=urlparse(raw)
@@ -601,7 +609,17 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                         time.sleep(delay)
                     log(callback,f"[웹 검색 완료] {book['title']} · 누적 후보 {len(candidates)}개")
         finally:
-            context.close(); browser.close()
+            # Persist all collected candidates even when navigation or parsing raises.
+            try:
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                _write_candidates(output_path, candidates)
+                log(callback, f"[최종 체크포인트 저장] 후보 {len(candidates)}개")
+            except Exception as save_error:
+                log(callback, f"[최종 체크포인트 저장 실패] {save_error}")
+            try:
+                context.close()
+            finally:
+                browser.close()
     output_path.parent.mkdir(parents=True,exist_ok=True)
     _write_candidates(output_path, candidates)
     if stop_event is not None and stop_event.is_set():
