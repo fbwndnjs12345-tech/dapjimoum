@@ -265,7 +265,7 @@ class FinderDeepSafetyTests(unittest.TestCase):
                 return self.loc
         page = Page()
         result = extract_answer_links(page, 40)
-        self.assertEqual(page.selector, "a[href], area[href], [data-href], [data-url]")
+        self.assertEqual(page.selector, "a[href], area[href], [data-href], [data-url], [onclick]")
         self.assertEqual(page.loc.args, 40)
         self.assertIn("context", result[0])
 
