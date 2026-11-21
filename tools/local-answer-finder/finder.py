@@ -845,8 +845,8 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                             for link in links:
                                 target=link.get("href","")
                                 if allowed_host(target,host) and robots.can_fetch(USER_AGENT,target):
-                                    context = link.get("context") or link.get("text") or ""
-                                    targets.append((target,link.get("text") or "정답과 해설",context))
+                                    link_context = link.get("context") or link.get("text") or ""
+                                    targets.append((target,link.get("text") or "정답과 해설",link_context))
                             for book in source_books:
                                 for target,target_title,snippet in targets:
                                     add_candidate(book,target,target_title,snippet,"publisher")
