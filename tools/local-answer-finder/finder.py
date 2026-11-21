@@ -840,30 +840,43 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                     log(callback, f"[진행] {book_index}/{len(books)} · {book['title']}")
                     queries=build_queries(book,query_limit); log(callback,f"[검색어 구성] {book['title']}: {len(queries)}개")
                     seen_urls=set()
+                    verified_pages = 0
                     for qi,query in enumerate(queries,1):
                         if stop_event is not None and stop_event.is_set(): break
                         results=[]
                         for engine in engines:
                             if engine in blocked_engines:
                                 continue
-                            cache_key = (engine, query, search_limit)
-                            try:
-                                if cache_key in search_result_cache:
-                                    got = search_result_cache[cache_key]
-                                    search_result_cache.move_to_end(cache_key)
-                                    log(callback, f"[{engine} 캐시] {len(got)}개 재사용")
-                                else:
-                                    got=search_kakao_api(query,engine,kakao_api_key,search_limit)
-                                    remember_cache(search_result_cache, cache_key, got, 2000)
-                                results.extend(got)
-                                log(callback,f"[{engine} {qi}/{len(queries)}] {len(got)}개 · {query}")
-                            except HTTPError as exc:
-                                log(callback,f"[{engine} API 실패] HTTP {exc.code}: {exc.reason}")
-                                if exc.code in (401,403,429):
-                                    blocked_engines.add(engine)
-                                    log(callback,f"[{engine} 중단] 인증·권한·쿼터 응답으로 이번 실행의 해당 검색 경로를 중단합니다.")
-                            except Exception as exc:
-                                log(callback,f"[{engine} API 실패] {type(exc).__name__}: {exc}")
+                            for search_page in range(1, search_pages + 1):
+                                cache_key = (engine, query, search_limit, search_page)
+                                try:
+                                    if cache_key in search_result_cache:
+                                        got = search_result_cache[cache_key]
+                                        search_result_cache.move_to_end(cache_key)
+                                        log(callback, f"[{engine} p{search_page} 캐시] {len(got)}개 재사용")
+                                    else:
+                                        got=search_kakao_api(query,engine,kakao_api_key,search_limit,page=search_page)
+                                        remember_cache(search_result_cache, cache_key, got, 4000)
+                                    results.extend(got)
+                                    log(callback,f"[{engine} p{search_page} {qi}/{len(queries)}] {len(got)}개 · {query}")
+                                    if len(got) < search_limit:
+                                        break
+                                    if api_delay:
+                                        time.sleep(api_delay)
+                                except HTTPError as exc:
+                                    log(callback,f"[{engine} API 실패] HTTP {exc.code}: {exc.reason}")
+                                    if exc.code in (401,403,429):
+                                        blocked_engines.add(engine)
+                                        log(callback,f"[{engine} 중단] 인증·권한·쿼터 응답으로 이번 실행의 해당 검색 경로를 중단합니다.")
+                                    break
+                                except Exception as exc:
+                                    log(callback,f"[{engine} API 실패] {type(exc).__name__}: {exc}")
+                                    break
+                        results.sort(
+                            key=lambda item: assess(book, item.get("title", ""),
+                                                    item.get("snippet", ""), terms)[0],
+                            reverse=True,
+                        )
                         for item in results:
                             if stop_event is not None and stop_event.is_set(): break
                             raw=item.get("url","").strip(); parsed=urlparse(raw)
@@ -882,15 +895,20 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                     page_content_cache.move_to_end(target)
                                 fetched_now = False
                                 if cached is None:
+                                    if verified_pages >= max_pages_to_verify:
+                                        log(callback, f"[페이지 검증 한도] 교재당 {max_pages_to_verify}개 페이지 검증을 마쳤습니다.")
+                                        break
                                     navigation_host_guard = (urlparse(target).hostname or "").lower()
                                     try:
                                         response=page.goto(target,wait_until="domcontentloaded", timeout=timeout)
                                     finally:
                                         navigation_host_guard = None
+                                    verified_pages += 1
                                     if response and response.status>=400:
                                         log(callback,f"  [HTTP {response.status}, 검증 제외] {target}"); continue
                                     if not wait_for_manual_verification(page, callback, headed, stop_event):
                                         continue
+                                    wait_for_page_content(page, timeout_ms=min(timeout, 5000))
                                     final_url = canonicalize_url(page.url)
                                     if (urlparse(final_url).hostname or "").lower()!=parsed.hostname.lower():
                                         log(callback,f"  외부 리디렉션 건너뜀: {target}"); continue
@@ -917,13 +935,14 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                         if likely_for_book >= early_stop_likely:
                             log(callback, f"[조기 종료] {book['title']}: likely 후보 {likely_for_book}개 확보")
                             break
-                        time.sleep(delay)
+                        if verified_pages >= max_pages_to_verify:
+                            break
                     likely_for_book = sum(1 for row in candidates.values()
                         if (row.get("book_id") or row.get("book_title")) == (book.get("id") or book.get("title"))
                         and row.get("match_status") == "likely")
                     if likely_for_book >= early_stop_likely:
                         log(callback, f"[조기 종료] {book['title']}: likely 후보 {likely_for_book}개 확보")
-                    log(callback,f"[웹 검색 완료] {book['title']} · 누적 후보 {len(candidates)}개")
+                    log(callback,f"[웹 검색 완료] {book['title']} · 검증 페이지 {verified_pages}개 · 누적 후보 {len(candidates)}개")
         finally:
             # Persist all collected candidates even when navigation or parsing raises.
             try:
