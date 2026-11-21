@@ -19,7 +19,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-APP_VERSION = "2.4.0"
+APP_VERSION = "2.5.0"
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 APP_DATA_DIR = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")) / "DapjiMoumFinder"
 APP_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -483,6 +483,12 @@ class FinderApp:
     def save_config(self):
         try:
             config = json.loads(self.config_text.get("1.0", "end"))
+            from finder import upgrade_search_config
+            config, migrated = upgrade_search_config(config)
+            if migrated:
+                self.config_text.delete("1.0", "end")
+                self.config_text.insert("1.0", json.dumps(config, ensure_ascii=False, indent=2))
+                self.events.put(("log", "[검색 설정 자동 개선] 검색어·결과 수·후보 한도를 새 고회수 기본값으로 조정했습니다."))
             sources = config.get("sources", [])
             web_cfg = config.get("web_search", {})
             web_enabled = bool(web_cfg.get("enabled", True))
@@ -511,10 +517,17 @@ class FinderApp:
             max_queries = int(web_cfg.get("max_queries_per_book", 8))
             if max_queries < 1 or max_queries > 10:
                 raise ValueError("교재별 검색어 수는 1~10 사이여야 합니다.")
-            max_candidates = int(web_cfg.get("max_candidates_per_book", 5))
+            max_candidates = int(web_cfg.get("max_candidates_per_book", 12))
             early_stop = int(web_cfg.get("early_stop_likely_candidates_per_book", 3))
+            search_pages = int(web_cfg.get("max_search_pages_per_query", 2))
+            verify_pages = int(config.get("max_pages_to_verify_per_book", 40))
+            api_delay = float(config.get("api_request_delay_seconds", 0.1))
             if max_candidates < 1 or max_candidates > 50 or early_stop < 1 or early_stop > 10:
                 raise ValueError("교재별 후보 한도는 1~50, 조기 종료 기준은 1~10 사이여야 합니다.")
+            if search_pages < 1 or search_pages > 3 or verify_pages < 10 or verify_pages > 200:
+                raise ValueError("검색 페이지 수는 1~3, 실제 페이지 검증 한도는 10~200 사이여야 합니다.")
+            if not math.isfinite(api_delay) or api_delay < 0 or api_delay > 1:
+                raise ValueError("검색 API 요청 간격은 0~1초 사이여야 합니다.")
             seen = set()
             for index, source in enumerate(sources, 1):
                 if not isinstance(source, dict):
@@ -883,7 +896,7 @@ def enable_windows_dpi_awareness():
 def self_test():
     """Run dependency, configuration, Tk, and installed-browser navigation smoke checks."""
     try:
-        from finder import read_books, assess, launch_browser
+        from finder import read_books, assess, launch_browser, extract_answer_links, wait_for_page_content, upgrade_search_config
         from playwright.sync_api import sync_playwright
         example = ROOT / "sources.example.json"
         config = json.loads(example.read_text(encoding="utf-8"))
@@ -913,7 +926,12 @@ def self_test():
             from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
             class SmokeHandler(BaseHTTPRequestHandler):
                 def do_GET(self):
-                    body = b"<!doctype html><html><head><title>DapjiMoum browser navigation OK</title></head><body>LOCAL NAVIGATION OK</body></html>"
+                    body = (
+                        "<!doctype html><html><head><title>DapjiMoum browser navigation OK</title></head>"
+                        "<body><main><p>오투 중등 과학 2-1 정답과 해설 자료를 확인할 수 있습니다. "
+                        "실제 브라우저 페이지 본문과 첨부 링크 추출 기능을 검사합니다.</p>"
+                        "<a href='/answer.pdf'>정답 PDF 다운로드</a></main></body></html>"
+                    ).encode("utf-8")
                     self.send_response(200)
                     self.send_header("Content-Type", "text/html; charset=utf-8")
                     self.send_header("Content-Length", str(len(body)))
@@ -928,8 +946,19 @@ def self_test():
                 response = page.goto(f"http://127.0.0.1:{server.server_port}/smoke", wait_until="domcontentloaded", timeout=10000)
                 if not response or response.status != 200 or page.title() != "DapjiMoum browser navigation OK":
                     raise RuntimeError(f"브라우저 실제 페이지 이동 테스트 실패: url={page.url}, status={response.status if response else 'none'}")
-                if "LOCAL NAVIGATION OK" not in page.locator("body").inner_text():
+                if "정답과 해설" not in page.locator("body").inner_text():
                     raise RuntimeError("브라우저 본문 렌더링 테스트 실패")
+                wait_for_page_content(page, timeout_ms=2000)
+                answer_links = extract_answer_links(page, 10)
+                if not any("answer.pdf" in link.get("href", "") and "오투" in link.get("context", "")
+                           for link in answer_links):
+                    raise RuntimeError("실제 브라우저의 정답 링크 및 주변 문맥 추출 테스트 실패")
+                migrated, changed = upgrade_search_config({"web_search": {
+                    "max_queries_per_book": 3, "results_per_engine": 5,
+                    "max_candidates_per_book": 5
+                }})
+                if not changed or migrated["web_search"]["max_queries_per_book"] != 8:
+                    raise RuntimeError("검색 설정 자동 개선 테스트 실패")
             finally:
                 server.shutdown()
                 server.server_close()

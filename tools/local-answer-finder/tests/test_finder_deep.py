@@ -3,14 +3,16 @@ import tempfile
 import unittest
 import urllib.parse
 from pathlib import Path
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from unittest.mock import patch
 from urllib.error import HTTPError
 
 from finder import (
-    SafeRedirectHandler, _csv_safe, _write_candidates, build_queries,
-    canonicalize_url, collect_pages, is_captcha_provider_url,
-    is_human_verification_page, is_safe_public_url, parse_sitemap,
-    search_kakao_api, wait_for_manual_verification,
+    SafeRedirectHandler, _candidate_rank, _csv_safe, _upsert_top_candidate,
+    _write_candidates, build_queries, canonicalize_url, collect_pages,
+    extract_answer_links, is_captcha_provider_url, is_human_verification_page,
+    is_safe_public_url, parse_sitemap, search_kakao_api, upgrade_search_config,
+    wait_for_manual_verification, wait_for_page_content,
 )
 
 
@@ -78,7 +80,98 @@ class FinderDeepSafetyTests(unittest.TestCase):
             results = search_kakao_api("오투 답지", "kakao_web", "key", 999)
         self.assertEqual([item["url"] for item in results], ["https://example.com/good"])
         query = urllib.parse.urlparse(request.call_args.args[0]).query
-        self.assertEqual(urllib.parse.parse_qs(query)["size"], ["50"])
+        params = urllib.parse.parse_qs(query)
+        self.assertEqual(params["size"], ["50"])
+        self.assertEqual(params["page"], ["1"])
+
+
+    def test_kakao_search_page_parameter_is_clamped_and_sent(self):
+        with patch("finder.fetch_json", return_value={"documents": []}) as request:
+            search_kakao_api("오투 답지", "kakao_web", "key", 12, page=999)
+        query = urllib.parse.urlparse(request.call_args.args[0]).query
+        self.assertEqual(urllib.parse.parse_qs(query)["page"], ["50"])
+
+    def test_legacy_search_config_is_upgraded_to_higher_recall_once(self):
+        config = {"web_search": {
+            "max_queries_per_book": 3,
+            "results_per_engine": 5,
+            "max_candidates_per_book": 5,
+        }}
+        upgraded, changed = upgrade_search_config(config)
+        self.assertTrue(changed)
+        self.assertEqual(upgraded["web_search"]["max_queries_per_book"], 8)
+        self.assertEqual(upgraded["web_search"]["results_per_engine"], 12)
+        self.assertEqual(upgraded["web_search"]["max_candidates_per_book"], 12)
+        self.assertEqual(upgraded["web_search"]["max_search_pages_per_query"], 2)
+        self.assertEqual(upgraded["max_pages_to_verify_per_book"], 40)
+        upgraded_again, changed_again = upgrade_search_config(upgraded)
+        self.assertFalse(changed_again)
+        self.assertEqual(upgraded_again, upgraded)
+
+    def test_top_candidate_limit_replaces_weak_early_result(self):
+        candidates = {}
+        weak = {"match_score": 18, "match_status": "uncertain"}
+        strong = {"match_score": 91, "match_status": "likely"}
+        self.assertEqual(_upsert_top_candidate(candidates, "book-1", "https://example.com/weak", weak, 1), "added")
+        self.assertEqual(_upsert_top_candidate(candidates, "book-1", "https://example.com/strong", strong, 1), "replaced")
+        self.assertNotIn(("book-1", "https://example.com/weak"), candidates)
+        self.assertIn(("book-1", "https://example.com/strong"), candidates)
+
+    def test_top_candidate_limit_does_not_replace_likely_with_uncertain(self):
+        candidates = {}
+        likely = {"match_score": 70, "match_status": "likely"}
+        uncertain = {"match_score": 99, "match_status": "uncertain"}
+        _upsert_top_candidate(candidates, "book-1", "https://example.com/likely", likely, 1)
+        result = _upsert_top_candidate(candidates, "book-1", "https://example.com/uncertain", uncertain, 1)
+        self.assertEqual(result, "rejected")
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(_candidate_rank(likely), (2, 70))
+
+    def test_top_candidate_limit_updates_same_url_only_when_better(self):
+        candidates = {}
+        _upsert_top_candidate(candidates, "book-1", "https://example.com/a",
+                              {"match_score": 50, "match_status": "uncertain"}, 2)
+        result = _upsert_top_candidate(candidates, "book-1", "https://example.com/a",
+                                       {"match_score": 80, "match_status": "likely"}, 2)
+        self.assertEqual(result, "updated")
+        self.assertEqual(candidates[("book-1", "https://example.com/a")]["match_score"], 80)
+
+    def test_dynamic_content_wait_is_bounded_and_tolerates_timeout(self):
+        class FakePage:
+            def __init__(self):
+                self.wait_timeout = None
+                self.pause = None
+            def wait_for_function(self, _script, timeout):
+                self.wait_timeout = timeout
+                raise PlaywrightTimeoutError("wait timeout")
+            def wait_for_timeout(self, value):
+                self.pause = value
+        page = FakePage()
+        wait_for_page_content(page, timeout_ms=99999)
+        self.assertEqual(page.wait_timeout, 6000)
+        self.assertEqual(page.pause, 350)
+
+    def test_answer_link_extraction_requests_nearby_context(self):
+        class Locator:
+            def __init__(self):
+                self.selector = None
+                self.args = None
+            def evaluate_all(self, script, limit):
+                self.selector = script
+                self.args = limit
+                return [{"href": "https://example.com/answer.pdf",
+                         "text": "다운로드", "context": "오투 과학 정답과 해설"}]
+        class Page:
+            def __init__(self):
+                self.loc = Locator()
+            def locator(self, selector):
+                self.selector = selector
+                return self.loc
+        page = Page()
+        result = extract_answer_links(page, 40)
+        self.assertEqual(page.selector, "a[href], area[href]")
+        self.assertEqual(page.loc.args, 40)
+        self.assertIn("context", result[0])
 
     def test_kakao_search_rejects_unknown_provider(self):
         with self.assertRaisesRegex(ValueError, "지원하지 않는"):

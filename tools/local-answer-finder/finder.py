@@ -280,7 +280,7 @@ def robots_for(start_url: str):
     return parser, sitemaps
 
 
-def search_kakao_api(query: str, engine: str, api_key: str, limit: int = 10):
+def search_kakao_api(query: str, engine: str, api_key: str, limit: int = 10, page: int = 1):
     """Use Kakao's documented REST search APIs; never scrape blocked search result pages."""
     endpoints = {
         "kakao_web": "https://dapi.kakao.com/v2/search/web",
@@ -293,6 +293,7 @@ def search_kakao_api(query: str, engine: str, api_key: str, limit: int = 10):
     url = endpoint + "?" + urlencode({
         "query": query,
         "size": str(max(1, min(50, limit))),
+        "page": str(max(1, min(50, page))),
         "sort": "accuracy",
     })
     payload = fetch_json(url, {"Authorization": "KakaoAK " + api_key},
@@ -338,13 +339,14 @@ def build_queries(book: dict[str, str], max_queries: int = 8) -> list[str]:
     variants = [
         f'"{title}" "답지"',
         f'"{publisher_identity}" "정답과 해설"' if publisher else f'"{full_identity}" "정답과 해설"',
+        f'"{title}" "정답과 해설"',
         f'"{title}" {publisher_identity} {platform_clause} 답지',
         f'"{full_identity}" "정답" "해설"',
-        f'"{title}" "정답과 해설"',
-        f'"{full_identity}" site:tistory.com 답지',
         f'"{full_identity}" site:blog.naver.com 답지',
-        f'"{full_identity}" site:blogspot.com 답지',
+        f'"{full_identity}" site:tistory.com 답지',
         f'"{full_identity}" site:cafe.naver.com 답지',
+        f'"{full_identity}" site:blogspot.com 답지',
+        f'"{isbn}" 답지' if isbn else f'"{title}" "정답" "해설" PDF',
     ]
     result = []
     for query in variants:
@@ -419,6 +421,102 @@ def extract_page(page):
     except Exception:
         body = ""
     return title[:500], description[:1200], re.sub(r"\s+", " ", body)[:8000]
+
+
+def upgrade_search_config(config: dict) -> tuple[dict, bool]:
+    """Raise legacy conservative defaults to the higher-recall search profile once."""
+    web_cfg = config.setdefault("web_search", {})
+    if not isinstance(web_cfg, dict):
+        raise ValueError("web_search 설정은 객체여야 합니다.")
+    try:
+        version = int(web_cfg.get("strategy_version", 0))
+    except (TypeError, ValueError):
+        version = 0
+    if version >= 2:
+        return config, False
+    web_cfg["max_queries_per_book"] = max(8, int(web_cfg.get("max_queries_per_book", 3)))
+    web_cfg["results_per_engine"] = max(12, int(web_cfg.get("results_per_engine", 5)))
+    web_cfg["max_candidates_per_book"] = max(12, int(web_cfg.get("max_candidates_per_book", 5)))
+    web_cfg["max_search_pages_per_query"] = max(2, min(3, int(web_cfg.get("max_search_pages_per_query", 1))))
+    web_cfg["strategy_version"] = 2
+    config["max_pages_to_verify_per_book"] = max(40, int(config.get("max_pages_to_verify_per_book", 40)))
+    config["api_request_delay_seconds"] = max(0.0, min(0.5, float(config.get("api_request_delay_seconds", 0.1))))
+    return config, True
+
+
+def _candidate_rank(row: dict) -> tuple[int, int]:
+    status_rank = {"likely": 2, "uncertain": 1}.get(str(row.get("match_status", "")), 0)
+    try:
+        score = int(row.get("match_score", 0))
+    except (TypeError, ValueError):
+        score = 0
+    return status_rank, score
+
+
+def _upsert_top_candidate(candidates: dict, book_key: str, target: str,
+                          row: dict, max_per_book: int) -> str:
+    """Keep the strongest candidates per book; later high-quality matches can replace weak ones."""
+    key = (book_key, target)
+    existing = candidates.get(key)
+    if existing is not None:
+        if _candidate_rank(row) > _candidate_rank(existing):
+            candidates[key] = row
+            return "updated"
+        return "unchanged"
+    same_book = [candidate_key for candidate_key in candidates if candidate_key[0] == book_key]
+    if len(same_book) < max_per_book:
+        candidates[key] = row
+        return "added"
+    weakest_key = min(same_book, key=lambda candidate_key: _candidate_rank(candidates[candidate_key]))
+    if _candidate_rank(row) <= _candidate_rank(candidates[weakest_key]):
+        return "rejected"
+    del candidates[weakest_key]
+    candidates[key] = row
+    return "replaced"
+
+
+def wait_for_page_content(page, timeout_ms: int = 3500):
+    """Give client-rendered answer pages a short bounded window to hydrate."""
+    try:
+        page.wait_for_function(
+            """() => {
+                const body = document.body;
+                if (!body) return false;
+                const text = (body.innerText || '').trim();
+                if (text.length < 80) return false;
+                if (window.__dapjiFinderLastText === text) return true;
+                window.__dapjiFinderLastText = text;
+                return false;
+            }""",
+            timeout=max(500, min(6000, int(timeout_ms))),
+        )
+    except PlaywrightTimeoutError:
+        pass
+    try:
+        page.wait_for_timeout(350)
+    except Exception:
+        pass
+
+
+def extract_answer_links(page, limit: int = 40):
+    """Extract answer/download links with nearby row context, not the entire page text."""
+    return page.locator("a[href], area[href]").evaluate_all(
+        """(els, maxItems) => {
+            const relevant = /(정답|해설|답지|pdf|다운로드|자료실|자료|교재|학습|수업|첨부|정답표|resource|book|answer|solution|download|view|page|\\.pdf|\\.hwp|\\.zip)/i;
+            return els.map(a => {
+                const row = a.closest('li, tr, article, dd, dt') ||
+                    a.parentElement?.parentElement || a.parentElement || a;
+                const text = (a.innerText || a.getAttribute('aria-label') ||
+                    a.getAttribute('title') || '').trim();
+                const context = (row.innerText || row.textContent || '')
+                    .replace(/\\s+/g, ' ').trim().slice(0, 1600);
+                return {href: a.href, text, context};
+            }).filter(x => relevant.test([x.text, x.href, x.context].join(' ')))
+              .filter(x => /^https?:\\/\\//i.test(x.href))
+              .slice(0, maxItems);
+        }""",
+        max(1, min(100, int(limit))),
+    )
 
 
 def assess(book, title, snippet, terms):
@@ -543,11 +641,16 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                max_pages_override: int, callback: Callable[[str], None] = print, stop_event=None,
                provider_credentials: dict | None = None) -> int:
     books=read_books(input_path); config=json.loads(config_path.read_text(encoding="utf-8"))
+    config, migrated = upgrade_search_config(config)
+    if migrated:
+        log(callback, "[검색 전략 개선] 기존 보수적 설정을 고회수 프로필로 자동 조정했습니다.")
     sources=config.get("sources",[]); web_cfg=config.get("web_search",{})
     web_enabled=bool(web_cfg.get("enabled",True)); engines=web_cfg.get("engines",["kakao_web","kakao_blog","kakao_cafe"])
     if not sources and not web_enabled: raise ValueError("공식 자료실 또는 공식 검색 API 중 하나 이상을 활성화하세요.")
     terms=config.get("answer_keywords") or ["정답과 해설","정답 해설","정답 및 해설","답지"]
-    delay=max(1.0,float(config.get("request_delay_seconds",2.0))); timeout=int(config.get("page_timeout_ms",20000))
+    delay=max(1.0,float(config.get("request_delay_seconds",1.0)))
+    api_delay=max(0.0,min(1.0,float(config.get("api_request_delay_seconds",0.1))))
+    timeout=int(config.get("page_timeout_ms",20000))
     limit=max_pages_override or int(config.get("max_sitemap_urls_per_source",500))
     allowed_engines = {"kakao_web", "kakao_blog", "kakao_cafe"}
     legacy_engines = [engine for engine in engines if engine in ("google", "bing")]
@@ -557,7 +660,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     unsupported = [engine for engine in web_cfg.get("engines", []) if engine not in allowed_engines and engine not in ("google", "bing")]
     if unsupported:
         log(callback, f"[지원하지 않는 검색 제공자 제외] {', '.join(unsupported)}")
-    search_limit=max(1,min(50,int(web_cfg.get("results_per_engine",8))))
+    search_limit=max(1,min(50,int(web_cfg.get("results_per_engine",12))))
     credentials = provider_credentials or {}
     kakao_api_key = (credentials.get("kakao_rest_api_key") or os.environ.get("KAKAO_REST_API_KEY", "")).strip()
     if web_enabled and not kakao_api_key:
@@ -565,14 +668,15 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     if not sources and not (web_enabled and kakao_api_key and engines):
         raise ValueError("공식 자료실이 없고 Kakao 검색 API 키도 없습니다. 자료실을 설정하거나 API 키를 입력하세요.")
     query_limit=max(1,min(10,int(web_cfg.get("max_queries_per_book",8))))
+    search_pages=max(1,min(3,int(web_cfg.get("max_search_pages_per_query",2))))
+    max_pages_to_verify=max(10,min(200,int(config.get("max_pages_to_verify_per_book",40))))
     candidates={}; robots_cache=OrderedDict(); page_content_cache=OrderedDict(); search_result_cache=OrderedDict()
     checkpoint_every = max(25, min(1000, int(config.get("checkpoint_every_candidates", 50))))
     early_stop_likely = max(1, min(10, int(web_cfg.get("early_stop_likely_candidates_per_book", 3))))
-    max_candidates_per_book = max(1, min(50, int(web_cfg.get("max_candidates_per_book", 5))))
-    candidate_counts = {}
+    max_candidates_per_book = max(1, min(50, int(web_cfg.get("max_candidates_per_book", 12))))
     last_checkpoint = time.monotonic()
     log(callback,f"교재 {len(books)}권 · 공식 출처 {len(sources)}곳 · 공개 검색엔진 {', '.join(engines) if web_enabled else '사용 안 함'}")
-    log(callback,f"검색 전략: 교재당 최대 {query_limit}개 검색어 · 엔진별 검색 결과 최대 {search_limit}개")
+    log(callback,f"검색 전략: 교재당 최대 {query_limit}개 검색어 · 엔진별 {search_limit}개 결과 · 검색어별 최대 {search_pages}페이지 · 실제 페이지 검증 최대 {max_pages_to_verify}개")
     with sync_playwright() as p:
         browser=launch_browser(p, headless=not headed)
         context_options = {"locale": "ko-KR", "service_workers": "block", "accept_downloads": False}
@@ -595,6 +699,10 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                 route.continue_()
                 return
             navigation = route.request.is_navigation_request()
+            try:
+                main_navigation = navigation and route.request.frame == page.main_frame
+            except Exception:
+                main_navigation = navigation
             host_key = (parsed_request.hostname or "").lower()
             cached_dns = dns_safety_cache.get(host_key)
             if cached_dns is None or cached_dns[0] <= time.monotonic():
@@ -607,26 +715,29 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                 log(callback, f"[비공개/로컬 네트워크 요청 차단] {request_url[:200]}")
                 route.abort("blockedbyclient")
                 return
-            # CAPTCHA widgets load cross-origin frames/scripts. Permit only their
-            # documented widget hosts in visible mode; all other cross-host requests
-            # remain subject to the existing host and robots restrictions.
+            # CAPTCHA widgets load cross-origin frames/scripts. Permit their known
+            # hosts in visible mode; other resources still pass public-IP safety checks.
             if headed and is_captcha_provider_url(request_url):
                 route.continue_()
                 return
             if route.request.resource_type in ("image", "media", "font"):
                 route.abort("blockedbyclient")
                 return
-            if navigation and navigation_host_guard:
+            if main_navigation and navigation_host_guard:
                 host = (urlparse(request_url).hostname or "").lower()
                 if host != navigation_host_guard:
                     log(callback, f"[동일 호스트 외부 리디렉션 차단] {request_url[:200]}")
                     route.abort("blockedbyclient")
                     return
-            policy = robots_for_target(request_url)
-            if policy is None or not policy.can_fetch(USER_AGENT, request_url):
-                log(callback, f"[robots 정책으로 탐색 차단] {request_url[:200]}")
-                route.abort("blockedbyclient")
-                return
+            if navigation:
+                policy = robots_for_target(request_url)
+                if policy is None or not policy.can_fetch(USER_AGENT, request_url):
+                    log(callback, f"[robots 정책으로 페이지 탐색 차단] {request_url[:200]}")
+                    route.abort("blockedbyclient")
+                    return
+            # Embedded scripts, stylesheets and same-page API calls are browser resources,
+            # not new pages being crawled. Keep public-IP/port checks, but do not fetch a
+            # separate robots.txt for every CDN/API host; that previously broke hydration.
             route.continue_()
         page.route("**/*", guard_browser_request)
         def remember_cache(cache, key, value, max_items):
@@ -657,19 +768,14 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                 status = "uncertain"
                 score = min(score, 59)
             book_key = book.get("id") or book["title"]
-            key=(book_key,target)
-            if key not in candidates and candidate_counts.get(book_key, 0) >= max_candidates_per_book:
-                return
             row={"book_id":book.get("id",""),"book_title":book.get("title",""),"publisher":book.get("publisher",""),
                  "subject":book.get("subject",""),"grade":book.get("grade",""),"semester":book.get("semester",""),
                  "series":book.get("series",""),"edition":book.get("edition",""),"curriculum_revision":book.get("curriculum_revision",""),"isbn13":book.get("isbn13",""),"candidate_title":title or host,"url":target,"source_name":host,
                  "source_type":source_label,"snippet":str(snippet or "")[:1200],"match_score":score,
                  "match_status":status,"matched_answer_terms":matched,
                  "link_type":"PDF" if parsed.path.lower().endswith(".pdf") else "웹페이지","search_query":query}
-            if key not in candidates or score>int(candidates[key].get("match_score",0)):
-                if key not in candidates:
-                    candidate_counts[book_key] = candidate_counts.get(book_key, 0) + 1
-                candidates[key]=row
+            action = _upsert_top_candidate(candidates, book_key, target, row, max_candidates_per_book)
+            if action in ("added", "updated", "replaced"):
                 nonlocal last_checkpoint
                 now = time.monotonic()
                 if len(candidates) % checkpoint_every == 0 or now - last_checkpoint >= 30:
@@ -699,6 +805,7 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                         if not book_publisher or not source_publisher or book_publisher in source_publisher or source_publisher in book_publisher:
                             source_books.append(candidate_book)
                     log(callback,f"[공식 자료실 탐색] {publisher or host}: {len(pages)}개 공개 페이지 · 대상 교재 {len(source_books)}권")
+                    discovered_source_pages = {canonicalize_url(item) for item in pages if is_safe_public_url(item)}
                     for index,url in enumerate(pages,1):
                         if stop_event is not None and stop_event.is_set(): break
                         if not allowed_host(url,host) or not robots.can_fetch(USER_AGENT,url): continue
@@ -710,20 +817,36 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                 navigation_host_guard = None
                             if response and response.status>=400: continue
                             if not wait_for_manual_verification(page, callback, headed, stop_event): continue
+                            wait_for_page_content(page, timeout_ms=min(timeout, 5000))
                             if not allowed_host(page.url,host) or not is_safe_public_url(page.url, resolve_dns=True): continue
                             final_robots = robots_for_target(page.url)
                             if final_robots is None or not final_robots.can_fetch(USER_AGENT, page.url): continue
                             title,description,body=extract_page(page); combined=" ".join([title,description,body])
                             remember_cache(page_content_cache, canonicalize_url(page.url), (title, description, body), 1000)
-                            links=page.locator("a[href]").evaluate_all("""els => els.map(a => ({
-                              href:a.href,text:(a.innerText||a.getAttribute('aria-label')||'').trim()
-                            })).filter(x => /정답|해설|답지|pdf/i.test(x.text+' '+x.href)).slice(0,20)""")
+                            links=extract_answer_links(page, 40)
+                            # Supplement incomplete/missing sitemaps with relevant same-host
+                            # resource/detail/pagination links discovered from the live page.
+                            for link in links:
+                                discovered = link.get("href", "")
+                                discovery_text = " ".join((link.get("text", ""), discovered))
+                                if (len(pages) < limit and allowed_host(discovered, host)
+                                        and re.search(r"정답|해설|답지|자료|교재|학습|수업|resource|book|download|answer|solution|view|page", discovery_text, re.I)
+                                        and robots.can_fetch(USER_AGENT, discovered)):
+                                    try:
+                                        normalized_discovered = canonicalize_url(discovered)
+                                    except ValueError:
+                                        continue
+                                    if normalized_discovered not in discovered_source_pages:
+                                        discovered_source_pages.add(normalized_discovered)
+                                        pages.append(normalized_discovered)
                             targets=[]
-                            if any(norm(term) in norm(combined) for term in terms): targets.append((url,title," ".join([description,body])))
+                            if any(norm(term) in norm(combined) for term in terms):
+                                targets.append((url,title," ".join([description,body])))
                             for link in links:
                                 target=link.get("href","")
                                 if allowed_host(target,host) and robots.can_fetch(USER_AGENT,target):
-                                    targets.append((target,link.get("text") or "정답과 해설"," ".join([description,body])))
+                                    link_context = link.get("context") or link.get("text") or ""
+                                    targets.append((target,link.get("text") or "정답과 해설",link_context))
                             for book in source_books:
                                 for target,target_title,snippet in targets:
                                     add_candidate(book,target,target_title,snippet,"publisher")
@@ -739,30 +862,46 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                     log(callback, f"[진행] {book_index}/{len(books)} · {book['title']}")
                     queries=build_queries(book,query_limit); log(callback,f"[검색어 구성] {book['title']}: {len(queries)}개")
                     seen_urls=set()
+                    verified_pages = 0
                     for qi,query in enumerate(queries,1):
                         if stop_event is not None and stop_event.is_set(): break
                         results=[]
+                        # Search deeper only for the three highest-intent queries.
+                        # This adds recall without doubling every API request.
+                        query_page_limit = search_pages if qi <= 3 else 1
                         for engine in engines:
                             if engine in blocked_engines:
                                 continue
-                            cache_key = (engine, query, search_limit)
-                            try:
-                                if cache_key in search_result_cache:
-                                    got = search_result_cache[cache_key]
-                                    search_result_cache.move_to_end(cache_key)
-                                    log(callback, f"[{engine} 캐시] {len(got)}개 재사용")
-                                else:
-                                    got=search_kakao_api(query,engine,kakao_api_key,search_limit)
-                                    remember_cache(search_result_cache, cache_key, got, 2000)
-                                results.extend(got)
-                                log(callback,f"[{engine} {qi}/{len(queries)}] {len(got)}개 · {query}")
-                            except HTTPError as exc:
-                                log(callback,f"[{engine} API 실패] HTTP {exc.code}: {exc.reason}")
-                                if exc.code in (401,403,429):
-                                    blocked_engines.add(engine)
-                                    log(callback,f"[{engine} 중단] 인증·권한·쿼터 응답으로 이번 실행의 해당 검색 경로를 중단합니다.")
-                            except Exception as exc:
-                                log(callback,f"[{engine} API 실패] {type(exc).__name__}: {exc}")
+                            for search_page in range(1, query_page_limit + 1):
+                                cache_key = (engine, query, search_limit, search_page)
+                                try:
+                                    if cache_key in search_result_cache:
+                                        got = search_result_cache[cache_key]
+                                        search_result_cache.move_to_end(cache_key)
+                                        log(callback, f"[{engine} p{search_page} 캐시] {len(got)}개 재사용")
+                                    else:
+                                        got=search_kakao_api(query,engine,kakao_api_key,search_limit,page=search_page)
+                                        remember_cache(search_result_cache, cache_key, got, 4000)
+                                    results.extend(got)
+                                    log(callback,f"[{engine} p{search_page} {qi}/{len(queries)}] {len(got)}개 · {query}")
+                                    if len(got) < search_limit:
+                                        break
+                                    if api_delay:
+                                        time.sleep(api_delay)
+                                except HTTPError as exc:
+                                    log(callback,f"[{engine} API 실패] HTTP {exc.code}: {exc.reason}")
+                                    if exc.code in (401,403,429):
+                                        blocked_engines.add(engine)
+                                        log(callback,f"[{engine} 중단] 인증·권한·쿼터 응답으로 이번 실행의 해당 검색 경로를 중단합니다.")
+                                    break
+                                except Exception as exc:
+                                    log(callback,f"[{engine} API 실패] {type(exc).__name__}: {exc}")
+                                    break
+                        results.sort(
+                            key=lambda item: assess(book, item.get("title", ""),
+                                                    item.get("snippet", ""), terms)[0],
+                            reverse=True,
+                        )
                         for item in results:
                             if stop_event is not None and stop_event.is_set(): break
                             raw=item.get("url","").strip(); parsed=urlparse(raw)
@@ -781,15 +920,20 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                                     page_content_cache.move_to_end(target)
                                 fetched_now = False
                                 if cached is None:
+                                    if verified_pages >= max_pages_to_verify:
+                                        log(callback, f"[페이지 검증 한도] 교재당 {max_pages_to_verify}개 페이지 검증을 마쳤습니다.")
+                                        break
                                     navigation_host_guard = (urlparse(target).hostname or "").lower()
                                     try:
                                         response=page.goto(target,wait_until="domcontentloaded", timeout=timeout)
                                     finally:
                                         navigation_host_guard = None
+                                    verified_pages += 1
                                     if response and response.status>=400:
                                         log(callback,f"  [HTTP {response.status}, 검증 제외] {target}"); continue
                                     if not wait_for_manual_verification(page, callback, headed, stop_event):
                                         continue
+                                    wait_for_page_content(page, timeout_ms=min(timeout, 5000))
                                     final_url = canonicalize_url(page.url)
                                     if (urlparse(final_url).hostname or "").lower()!=parsed.hostname.lower():
                                         log(callback,f"  외부 리디렉션 건너뜀: {target}"); continue
@@ -816,13 +960,14 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
                         if likely_for_book >= early_stop_likely:
                             log(callback, f"[조기 종료] {book['title']}: likely 후보 {likely_for_book}개 확보")
                             break
-                        time.sleep(delay)
+                        if verified_pages >= max_pages_to_verify:
+                            break
                     likely_for_book = sum(1 for row in candidates.values()
                         if (row.get("book_id") or row.get("book_title")) == (book.get("id") or book.get("title"))
                         and row.get("match_status") == "likely")
                     if likely_for_book >= early_stop_likely:
                         log(callback, f"[조기 종료] {book['title']}: likely 후보 {likely_for_book}개 확보")
-                    log(callback,f"[웹 검색 완료] {book['title']} · 누적 후보 {len(candidates)}개")
+                    log(callback,f"[웹 검색 완료] {book['title']} · 검증 페이지 {verified_pages}개 · 누적 후보 {len(candidates)}개")
         finally:
             # Persist all collected candidates even when navigation or parsing raises.
             try:
