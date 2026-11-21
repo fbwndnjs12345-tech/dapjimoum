@@ -8,6 +8,8 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import ipaddress
+import socket
 import os
 import re
 import sys
@@ -17,7 +19,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse, urljoin, urlencode, urlsplit, urlunsplit, parse_qsl
-from urllib.request import Request, urlopen
+from urllib.request import Request, HTTPRedirectHandler, build_opener
 from urllib.error import HTTPError
 
 if getattr(sys, "frozen", False):
@@ -35,8 +37,11 @@ ALIASES = {
     "grade": ["grade", "학년"],
     "semester": ["semester", "학기"],
     "series": ["series", "시리즈", "교재 시리즈"],
+    "edition": ["edition", "판본", "개정판", "쇄"],
+    "curriculum_revision": ["curriculum_revision", "교육과정", "개정 교육과정"],
+    "isbn13": ["isbn13", "isbn", "ISBN", "ISBN13"],
 }
-FIELDS = ["book_id", "book_title", "publisher", "subject", "grade", "semester", "series",
+FIELDS = ["book_id", "book_title", "publisher", "subject", "grade", "semester", "series", "edition", "curriculum_revision", "isbn13",
           "candidate_title", "url", "source_name", "source_type", "snippet",
           "match_score", "match_status", "matched_answer_terms", "link_type", "search_query"]
 
@@ -49,9 +54,46 @@ def norm(value: str) -> str:
     return re.sub(r"[\s·ㆍ_\-–—()[\]{}:：,.]+", "", value or "").casefold()
 
 
+def is_safe_public_url(value: str, resolve_dns: bool = False) -> bool:
+    """Reject non-web schemes, credentials, local names and non-public DNS/IP targets."""
+    try:
+        parsed = urlsplit(value.strip())
+        if parsed.scheme.lower() not in ("http", "https") or not parsed.hostname:
+            return False
+        if parsed.username or parsed.password:
+            return False
+        host = parsed.hostname.rstrip(".").lower()
+        if host == "localhost" or host.endswith((".localhost", ".local", ".internal")):
+            return False
+        try:
+            address = ipaddress.ip_address(host)
+            return address.is_global
+        except ValueError:
+            if not resolve_dns:
+                return True
+        if resolve_dns:
+            port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+            records = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+            addresses = {ipaddress.ip_address(record[4][0].split("%", 1)[0]) for record in records}
+            return bool(addresses) and all(address.is_global for address in addresses)
+        return True
+    except (ValueError, TypeError, OSError):
+        return False
+
+
+class SafeRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not is_safe_public_url(newurl, resolve_dns=True):
+            raise HTTPError(req.full_url, code, "Unsafe redirect target blocked", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def fetch(url: str, timeout: int = 15) -> bytes:
+    if not is_safe_public_url(url, resolve_dns=True):
+        raise ValueError("공개 HTTP(S) 주소만 요청할 수 있습니다.")
     req = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xml,text/xml,*/*"})
-    with urlopen(req, timeout=timeout) as response:
+    opener = build_opener(SafeRedirectHandler())
+    with opener.open(req, timeout=timeout) as response:
         return response.read()
 
 
@@ -120,7 +162,15 @@ def search_google_page(page, query: str, limit: int = 10, allow_manual: bool = F
                       callback: Callable[[str], None] = print, challenge_timeout: int = 180):
     """Read Google results. If visible, let the user solve a challenge manually."""
     url = "https://www.google.com/search?" + urlencode({"q": query, "num": str(limit), "hl": "ko"})
-    response = page.goto(url, wait_until="domcontentloaded")
+    log(callback, f"[Google 접속] {url}")
+    try:
+        response = page.goto(url, wait_until="domcontentloaded", timeout=45000)
+    except PlaywrightTimeoutError as exc:
+        raise RuntimeError(f"Google 페이지 이동 시간 초과: {page.url or 'about:blank'} ({exc})") from exc
+    except Exception as exc:
+        raise RuntimeError(f"Google 페이지 이동 실패: {type(exc).__name__}: {exc}; 현재 주소={page.url or 'about:blank'}") from exc
+    if page.url == "about:blank":
+        raise RuntimeError("Google 페이지 이동 후에도 about:blank입니다. Chromium 네트워크/프록시 설정을 확인하세요.")
     if response and response.status >= 400:
         raise RuntimeError(f"Google 검색 응답 HTTP {response.status}")
     def page_text():
@@ -163,42 +213,66 @@ def search_google_page(page, query: str, limit: int = 10, allow_manual: bool = F
     return results
 
 
-def build_queries(book: dict[str, str], max_queries: int = 3) -> list[str]:
-    """Build a small set of high-intent queries while retaining blog coverage."""
+def build_queries(book: dict[str, str], max_queries: int = 8) -> list[str]:
+    """Build combined, book-specific queries rather than searching generic fragments."""
     title = (book.get("title") or "").strip()
     if not title:
         return []
+
     series = (book.get("series") or "").strip()
     publisher = (book.get("publisher") or "").strip()
     subject = (book.get("subject") or "").strip()
     grade = (book.get("grade") or "").strip()
     semester = (book.get("semester") or "").strip()
+
+    # Keep the edition in the query even when the CSV metadata is incomplete.
     edition_match = re.search(r"(?<![0-9])([1-3])\s*[-–]\s*([12])(?![0-9])", title)
     edition = f"{edition_match.group(1)}-{edition_match.group(2)}" if edition_match else ""
-    identity = [x for x in (series, subject, grade, semester, edition) if x]
+    edition = (book.get("edition") or edition).strip()
+    curriculum = (book.get("curriculum_revision") or "").strip()
+    isbn = re.sub(r"[^0-9Xx]", "", book.get("isbn13") or "")
+    identity = [x for x in (series, subject, grade, semester, edition, curriculum, isbn) if x]
     identity = list(dict.fromkeys(identity))
     full_identity = " ".join(identity) if identity else title
-    publisher_identity = " ".join(x for x in (publisher, *identity) if x) or full_identity
-    blog_clause = "(site:tistory.com OR site:blog.naver.com)"
+    publisher_identity = " ".join(x for x in (publisher, *identity) if x)
+    platform_clause = "(site:tistory.com OR site:blog.naver.com OR site:blogspot.com OR site:brunch.co.kr OR site:velog.io OR site:wordpress.com OR site:cafe.naver.com)"
+
+    # Each query combines the distinctive book identity with answer intent.
+    # Platform-restricted searches are separate so one large OR expression
+    # cannot cause the search engine to silently ignore individual platforms.
     variants = [
         f'"{title}" "답지"',
-        f'"{publisher_identity}" "정답과 해설"',
-        f'"{full_identity}" {blog_clause} 답지',
+        f'"{title}" "정답과 해설"',
+        f'"{full_identity}" "답지"',
+        f'"{full_identity}" "정답" "해설"',
+        f'"{publisher_identity}" "답지"' if publisher else f'"{full_identity}" "해설"',
+        f'"{title}" {platform_clause} 답지',
+        f'"{full_identity}" site:tistory.com 답지',
+        f'"{full_identity}" site:blog.naver.com 답지',
+        f'"{full_identity}" site:blogspot.com 답지',
+        f'"{full_identity}" site:cafe.naver.com 답지',
     ]
     result = []
     for query in variants:
         query = " ".join(query.split())
         if query and query not in result:
             result.append(query)
-        if len(result) >= max(1, min(3, max_queries)):
+        if len(result) >= max(1, min(10, max_queries)):
             break
     return result
 
 def canonicalize_url(value: str) -> str:
+    if not is_safe_public_url(value):
+        raise ValueError("안전하지 않은 URL은 후보로 등록할 수 없습니다.")
     parts=urlsplit(value.strip())
     query=[(k,v) for k,v in parse_qsl(parts.query,keep_blank_values=True)
            if not k.lower().startswith("utm_") and k.lower() not in {"fbclid","gclid","ref","ref_src"}]
-    return urlunsplit((parts.scheme.lower(),parts.netloc.lower(),parts.path or "/",urlencode(query),""))
+    query.sort(key=lambda pair: (pair[0].casefold(), pair[1]))
+    scheme = parts.scheme.lower()
+    host = (parts.hostname or "").lower()
+    port = parts.port
+    netloc = host if port is None or (scheme == "https" and port == 443) or (scheme == "http" and port == 80) else f"{host}:{port}"
+    return urlunsplit((scheme,netloc,parts.path or "/",urlencode(query),""))
 
 
 def parse_sitemap(data: bytes):
@@ -288,6 +362,15 @@ def assess(book, title, snippet, terms):
     if expected_semester and actual_semesters and expected_semester.group(1) not in actual_semesters:
         edition_conflict = True
 
+    expected_years = set(re.findall(r"20(?:15|22)", " ".join((book.get("edition", ""), book.get("curriculum_revision", "")))))
+    actual_years = set(re.findall(r"20(?:15|22)", raw))
+    if expected_years and actual_years and not (expected_years & actual_years):
+        edition_conflict = True
+    expected_isbn = re.sub(r"[^0-9Xx]", "", book.get("isbn13", ""))
+    actual_isbns = set(re.findall(r"(?<![0-9])[0-9]{13}(?![0-9])", raw))
+    if expected_isbn and actual_isbns and expected_isbn not in actual_isbns:
+        edition_conflict = True
+
     answer_signal = any(word in combined for word in ("정답", "해설", "답지"))
     matched = [term for term in terms if norm(term) and norm(term) in combined]
     tokens = [norm(token) for token in re.findall(r"[가-힣A-Za-z]+|[0-9]+", book.get("title", ""))
@@ -320,7 +403,9 @@ def assess(book, title, snippet, terms):
 
     if edition_conflict or not identity_ok or not answer_signal:
         status = "mismatch"
-    elif score >= 75 and (exact_title or (series_hit and subject_hit and edition_hit)):
+    elif (score >= 75 and (exact_title or (series_hit and subject_hit and edition_hit)) and
+              all(not (book.get(key) or "").strip() or norm(book.get(key, "")) in combined
+                  for key in ("edition", "curriculum_revision", "isbn13"))):
         status = "likely"
     elif score >= 60 and series_hit and subject_hit and (edition_hit or not expected_pair):
         status = "uncertain"
@@ -333,6 +418,22 @@ def assess(book, title, snippet, terms):
     return score, status, ", ".join(matched or (["답지/정답/해설"] if answer_signal else []))
 
 
+def _csv_safe(value):
+    text = "" if value is None else str(value)
+    if text.startswith(("=", "+", "-", "@", "\t", "\r")):
+        return "'" + text
+    return text
+
+
+def _write_candidates(output_path: Path, candidates: dict):
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    rows = sorted(candidates.values(), key=lambda row: (-int(row["match_score"]), row["book_title"]))
+    with output_path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=FIELDS)
+        writer.writeheader()
+        writer.writerows({key: _csv_safe(value) for key, value in row.items()} for row in rows)
+
+
 def run_search(input_path: Path, output_path: Path, config_path: Path, headed: bool,
                max_pages_override: int, callback: Callable[[str], None] = print, stop_event=None) -> int:
     books=read_books(input_path); config=json.loads(config_path.read_text(encoding="utf-8"))
@@ -340,32 +441,41 @@ def run_search(input_path: Path, output_path: Path, config_path: Path, headed: b
     web_enabled=bool(web_cfg.get("enabled",True)); engines=web_cfg.get("engines",["google","bing"])
     if not sources and not web_enabled: raise ValueError("공식 자료실 또는 공개 웹 검색 중 하나 이상을 활성화하세요.")
     terms=config.get("answer_keywords") or ["정답과 해설","정답 해설","정답 및 해설","답지"]
-    delay=max(1.0,float(config.get("request_delay_seconds",1.0))); timeout=int(config.get("page_timeout_ms",20000))
-    limit=max(1, min(100, max_pages_override or int(config.get("max_sitemap_urls_per_source",80))))
-    search_limit=max(1,min(5,int(web_cfg.get("results_per_engine",5))))
-    query_limit=max(1,min(3,int(web_cfg.get("max_queries_per_book",3))))
-    candidate_limit=max(1,min(5,int(web_cfg.get("max_candidates_per_book",5))))
+    delay=max(1.0,float(config.get("request_delay_seconds",2.0))); timeout=int(config.get("page_timeout_ms",20000))
+    limit=max_pages_override or int(config.get("max_sitemap_urls_per_source",500))
+    search_limit=max(1,min(20,int(web_cfg.get("results_per_engine",8))))
+    query_limit=max(1,min(10,int(web_cfg.get("max_queries_per_book",8))))
     candidates={}; robots_cache={}
     log(callback,f"교재 {len(books)}권 · 공식 출처 {len(sources)}곳 · 공개 검색엔진 {', '.join(engines) if web_enabled else '사용 안 함'}")
-    log(callback,f"검색 전략: 교재당 검색어 최대 {query_limit}개 · 엔진별 결과 최대 {search_limit}개 · 최종 후보 최대 {candidate_limit}개")
+    log(callback,f"검색 전략: 교재당 최대 {query_limit}개 검색어 · 엔진별 검색 결과 최대 {search_limit}개")
     with sync_playwright() as p:
-        browser=p.chromium.launch(headless=not headed); context=browser.new_context(user_agent=USER_AGENT,locale="ko-KR")
+        browser=p.chromium.launch(headless=not headed); context=browser.new_context(locale="ko-KR")
         page=context.new_page(); page.set_default_navigation_timeout(timeout)
-        # A headed Playwright window starts at about:blank. Show a local status
-        # screen immediately, before sitemap/RSS requests can take time.
-        page.set_content("""<!doctype html>
-<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>답지모음 탐색 진행 중</title>
-<style>
-body{font-family:Arial,'Malgun Gothic',sans-serif;background:#f8fafc;color:#172033;display:grid;place-items:center;min-height:90vh;margin:0}
-main{max-width:620px;padding:36px;background:white;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 12px 36px #0f172a12}
-h1{font-size:22px;margin:0 0 12px}p{line-height:1.7;color:#475569}small{color:#64748b}
-</style></head><body><main><h1>답지모음 링크 탐색기가 준비되었습니다.</h1>
-<p>교재별 공개 검색과 출판사 자료실 확인을 진행하고 있습니다.</p>
-<p>실제 검색이 시작되면 이 창에 Google 또는 확인 중인 웹페이지가 표시됩니다.</p>
-<small>이 화면은 오류가 아닌 탐색 대기 화면입니다. 진행 상황은 프로그램의 로그에서 확인할 수 있습니다.</small>
-</main></body></html>""", wait_until="domcontentloaded")
-        log(callback, "[브라우저 준비] 빈 about:blank 대신 탐색 상태 화면을 표시했습니다.")
+        navigation_host_guard = None
+        def guard_browser_request(route):
+            request_url = route.request.url
+            navigation = route.request.is_navigation_request()
+            safe = is_safe_public_url(request_url, resolve_dns=True) if navigation else is_safe_public_url(request_url, resolve_dns=False)
+            if not safe:
+                log(callback, f"[비공개/로컬 네트워크 요청 차단] {request_url[:200]}")
+                route.abort("blockedbyclient")
+                return
+            if navigation:
+                host = (urlparse(request_url).hostname or "").lower()
+                if navigation_host_guard and host != navigation_host_guard:
+                    log(callback, f"[동일 호스트 외부 리디렉션 차단] {request_url[:200]}")
+                    route.abort("blockedbyclient")
+                    return
+                search_hosts = {"google.com", "www.google.com", "bing.com", "www.bing.com",
+                                "duckduckgo.com", "html.duckduckgo.com"}
+                if host not in search_hosts:
+                    policy = robots_for_target(request_url)
+                    if policy is None or not policy.can_fetch(USER_AGENT, request_url):
+                        log(callback, f"[robots 정책으로 탐색 차단] {request_url[:200]}")
+                        route.abort("blockedbyclient")
+                        return
+            route.continue_()
+        page.route("**/*", guard_browser_request)
         def robots_for_target(target):
             parsed=urlparse(target); key=(parsed.scheme,parsed.netloc)
             if key not in robots_cache:
@@ -377,34 +487,35 @@ h1{font-size:22px;margin:0 0 12px}p{line-height:1.7;color:#475569}small{color:#6
             target=canonicalize_url(target); score,status,matched=assess(book,title,snippet,terms)
             if status=="mismatch": return
             parsed=urlparse(target); host=(parsed.hostname or "").lower()
-            if any(d in host for d in ("tistory.com","blog.naver.com","blogspot.","brunch.co.kr","velog.io","wordpress.com","cafe.naver.com")): source_label="blog-search"
+            blog_domains = ("tistory.com", "blog.naver.com", "blogspot.com", "brunch.co.kr", "velog.io", "wordpress.com", "cafe.naver.com")
+            if any(host == domain or host.endswith("." + domain) for domain in blog_domains):
+                source_label = "blog-search"
+            # Search snippets do not prove PDF contents. Keep PDF hits review-only.
+            if parsed.path.lower().endswith(".pdf") and status == "likely":
+                status = "uncertain"
+                score = min(score, 59)
             key=(book.get("id") or book["title"],target)
             row={"book_id":book.get("id",""),"book_title":book.get("title",""),"publisher":book.get("publisher",""),
                  "subject":book.get("subject",""),"grade":book.get("grade",""),"semester":book.get("semester",""),
-                 "series":book.get("series",""),"candidate_title":title or host,"url":target,"source_name":host,
+                 "series":book.get("series",""),"edition":book.get("edition",""),"curriculum_revision":book.get("curriculum_revision",""),"isbn13":book.get("isbn13",""),"candidate_title":title or host,"url":target,"source_name":host,
                  "source_type":source_label,"snippet":str(snippet or "")[:1200],"match_score":score,
                  "match_status":status,"matched_answer_terms":matched,
                  "link_type":"PDF" if parsed.path.lower().endswith(".pdf") else "웹페이지","search_query":query}
-            if key in candidates:
-                if score > int(candidates[key].get("match_score", 0)):
-                    candidates[key] = row
-                return
-            book_key = book.get("id") or book.get("title")
-            same_book = [(candidate_key, candidate) for candidate_key, candidate in candidates.items()
-                         if candidate_key[0] == book_key]
-            if len(same_book) >= candidate_limit:
-                weakest_key, weakest = min(same_book, key=lambda item: int(item[1].get("match_score", 0)))
-                if score <= int(weakest.get("match_score", 0)):
-                    return
-                candidates.pop(weakest_key, None)
-            candidates[key] = row
+            if key not in candidates or score>int(candidates[key].get("match_score",0)):
+                candidates[key]=row
+                if len(candidates) % 10 == 0:
+                    try:
+                        _write_candidates(output_path, candidates)
+                        log(callback, f"  [체크포인트 저장] 후보 {len(candidates)}개")
+                    except OSError as exc:
+                        log(callback, f"  [체크포인트 저장 실패] {exc}")
         try:
             for source in sources:
                 if stop_event is not None and stop_event.is_set(): break
                 publisher=(source.get("publisher") or "").strip()
                 for start_url in source.get("start_urls") or []:
                     parsed=urlparse(start_url)
-                    if parsed.scheme not in ("http","https") or not parsed.hostname:
+                    if not is_safe_public_url(start_url, resolve_dns=True):
                         log(callback,f"[건너뜀] 올바르지 않은 URL: {start_url}"); continue
                     host=parsed.hostname.lower()
                     try: robots,sitemaps=robots_for(start_url)
@@ -416,9 +527,15 @@ h1{font-size:22px;margin:0 0 12px}p{line-height:1.7;color:#475569}small{color:#6
                         if stop_event is not None and stop_event.is_set(): break
                         if not allowed_host(url,host) or not robots.can_fetch(USER_AGENT,url): continue
                         try:
-                            response=page.goto(url,wait_until="domcontentloaded")
+                            navigation_host_guard = host
+                            try:
+                                response=page.goto(url,wait_until="domcontentloaded")
+                            finally:
+                                navigation_host_guard = None
                             if response and response.status>=400: continue
-                            if not allowed_host(page.url,host): continue
+                            if not allowed_host(page.url,host) or not is_safe_public_url(page.url, resolve_dns=True): continue
+                            final_robots = robots_for_target(page.url)
+                            if final_robots is None or not final_robots.can_fetch(USER_AGENT, page.url): continue
                             title,description,body=extract_page(page); combined=" ".join([title,description,body])
                             links=page.locator("a[href]").evaluate_all("""els => els.map(a => ({
                               href:a.href,text:(a.innerText||a.getAttribute('aria-label')||'').trim()
@@ -441,26 +558,35 @@ h1{font-size:22px;margin:0 0 12px}p{line-height:1.7;color:#475569}small{color:#6
                 for book in books:
                     if stop_event is not None and stop_event.is_set(): break
                     queries=build_queries(book,query_limit); log(callback,f"[검색어 구성] {book['title']}: {len(queries)}개")
-                    seen_urls=set(); google_blocked=False
+                    seen_urls=set(); google_blocked=False; bing_blocked=False
                     for qi,query in enumerate(queries,1):
                         if stop_event is not None and stop_event.is_set(): break
                         results=[]
-                        if "bing" in engines:
+                        if "bing" in engines and not bing_blocked:
                             try:
                                 got=search_bing_rss(query,search_limit); results.extend(got)
                                 log(callback,f"[Bing {qi}/{len(queries)}] {len(got)}개 · {query}")
-                            except Exception as exc: log(callback,f"[Bing 검색 건너뜀] {book['title']}: {exc}")
+                            except Exception as exc:
+                                message = str(exc)
+                                log(callback,f"[Bing 검색 건너뜀] {book['title']}: {message}")
+                                if re.search(r"(?:HTTP\s*Error\s*)?(?:403|429)", message, re.I):
+                                    bing_blocked = True
+                                    log(callback, "[Bing 일시 중지] 접근 제한 응답을 받아 현재 교재의 추가 Bing 요청을 중단합니다.")
                         if "google" in engines and not google_blocked:
                             try:
                                 got=search_google_page(page,query,search_limit,allow_manual=headed,callback=callback)
                                 results.extend(got); log(callback,f"[Google {qi}/{len(queries)}] {len(got)}개")
                             except Exception as exc:
                                 log(callback,f"[Google 검색 건너뜀] {book['title']}: {exc}")
-                                if "대기 시간이 끝났습니다" in str(exc) or "인증을 요구합니다" in str(exc): google_blocked=True
+                                if ("대기 시간이 끝났습니다" in str(exc) or "인증을 요구합니다" in str(exc)
+                                        or re.search(r"HTTP\s*(?:403|429)", str(exc), re.I)):
+                                    google_blocked=True
+                                    log(callback, "[Google 일시 중지] 접근 제한 또는 인증 응답을 받아 현재 교재의 추가 Google 요청을 중단합니다.")
                         for item in results:
                             if stop_event is not None and stop_event.is_set(): break
                             raw=item.get("url","").strip(); parsed=urlparse(raw)
-                            if parsed.scheme not in ("http","https") or not parsed.hostname: continue
+                            if not is_safe_public_url(raw):
+                                log(callback, f"[안전하지 않은 URL 제외] {raw[:200]}"); continue
                             target=canonicalize_url(raw)
                             if target in seen_urls: continue
                             seen_urls.add(target); policy=robots_for_target(target)
@@ -483,11 +609,19 @@ h1{font-size:22px;margin:0 0 12px}p{line-height:1.7;color:#475569}small{color:#6
                         time.sleep(delay)
                     log(callback,f"[웹 검색 완료] {book['title']} · 누적 후보 {len(candidates)}개")
         finally:
-            context.close(); browser.close()
+            # Persist all collected candidates even when navigation or parsing raises.
+            try:
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                _write_candidates(output_path, candidates)
+                log(callback, f"[최종 체크포인트 저장] 후보 {len(candidates)}개")
+            except Exception as save_error:
+                log(callback, f"[최종 체크포인트 저장 실패] {save_error}")
+            try:
+                context.close()
+            finally:
+                browser.close()
     output_path.parent.mkdir(parents=True,exist_ok=True)
-    with output_path.open("w",encoding="utf-8-sig",newline="") as handle:
-        writer=csv.DictWriter(handle,fieldnames=FIELDS); writer.writeheader()
-        writer.writerows(sorted(candidates.values(),key=lambda row:(-int(row["match_score"]),row["book_title"])))
+    _write_candidates(output_path, candidates)
     if stop_event is not None and stop_event.is_set():
         log(callback,f"중지됨: 현재까지의 후보 {len(candidates)}개를 저장했습니다 → {output_path}")
     else:
