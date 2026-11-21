@@ -152,6 +152,16 @@ function assessFileName(book: Record<string, unknown> | undefined, filename: str
   const expected = [book.series, book.subject, book.grade, book.semester, book.edition, book.curriculum_revision]
     .map(value => String(value ?? '').trim()).filter(Boolean);
   const hits = expected.filter(value => fileText.includes(normalizedFileText(value)));
+  const expectedGrade = String(book.grade ?? '').match(/중\s*([1-3])/);
+  const actualGrades = [...filename.matchAll(/중\s*([1-3])/g)].map(match => match[1]);
+  if (expectedGrade && actualGrades.length && !actualGrades.includes(expectedGrade[1])) {
+    return { status: 'mismatch' as const, note: '파일명 학년이 교재 학년과 다릅니다.' };
+  }
+  const expectedSemester = String(book.semester ?? '').match(/([12])\s*학기/);
+  const actualSemesters = [...filename.matchAll(/([12])\s*학기/g)].map(match => match[1]);
+  if (expectedSemester && actualSemesters.length && !actualSemesters.includes(expectedSemester[1])) {
+    return { status: 'mismatch' as const, note: '파일명 학기가 교재 학기와 다릅니다.' };
+  }
   const expectedPair = String(book.title ?? '').match(/(?<![0-9])([1-3])\s*[-–]\s*([12])(?![0-9])/);
   const actualPair = filename.match(/(?<![0-9])([1-3])\s*[-–]\s*([12])(?![0-9])/);
   if (expectedPair && actualPair && (expectedPair[1] !== actualPair[1] || expectedPair[2] !== actualPair[2])) {
@@ -242,6 +252,7 @@ Deno.serve(async request => {
         const head = await fetchFollowingSafeRedirects(link.url, { method: 'HEAD' }, reserveSlot, controller.signal);
         let response = head.response;
         finalUrl = head.finalUrl;
+        let redirectCount = head.redirects;
         let usedGet = false;
         const headType = response.headers.get('content-type') ?? '';
         const pdfExpectedFromUrl = /\.pdf(?:$|[?#])/i.test(finalUrl);
@@ -256,6 +267,7 @@ Deno.serve(async request => {
           );
           response = get.response;
           finalUrl = get.finalUrl;
+          redirectCount += get.redirects;
           usedGet = true;
         }
         httpStatus = response.status;
@@ -280,7 +292,7 @@ Deno.serve(async request => {
           fileName = filenameFromResponse(response, finalUrl);
           const disposition = response.headers.get('content-disposition') ?? '';
           isDownload = /attachment/i.test(disposition)
-            || (contentType ?? '').toLowerCase().includes('application/pdf')
+            || /application\/(?:pdf|octet-stream|zip|vnd\.)/i.test(contentType ?? '')
             || /\.pdf(?:$|[?#])/i.test(finalUrl);
           const expectsPdf = /\.pdf(?:$|[?#])/i.test(finalUrl)
             || (contentType ?? '').toLowerCase().includes('application/pdf');
@@ -336,6 +348,7 @@ Deno.serve(async request => {
     if (updateError) errors.push(link.id + ': ' + updateError.message);
     summary.checked += 1;
     if (status === 'healthy') summary.healthy += 1;
+    if (typeof redirectCount !== 'undefined' && redirectCount > 0) summary.redirected += 1;
     else if (status === 'broken') summary.broken += 1;
     else if (status === 'redirected') summary.redirected += 1;
     else if (status === 'invalid_pdf') summary.invalidPdf += 1;
