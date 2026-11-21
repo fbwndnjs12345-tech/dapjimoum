@@ -11,6 +11,7 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from urllib.request import HTTPRedirectHandler, build_opener
 import webbrowser
 from pathlib import Path
@@ -91,7 +92,7 @@ class FinderApp:
         self.kakao_key_visible = tk.BooleanVar(value=False)
         self.password_visible = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value="Supabase에서 교재를 불러오거나 CSV 파일을 선택하세요.")
-        self.headed = tk.BooleanVar(value=True)
+        self.headed = tk.BooleanVar(value=False)
         self.max_pages = tk.StringVar(value="500")
         self.auto_upload = tk.BooleanVar(value=False)
         self._build()
@@ -101,8 +102,8 @@ class FinderApp:
         """Build a compact, enterprise-style workspace with clear task separation."""
         self.root.configure(bg="#f3f5f9")
         self.root.title("답지모음 | 로컬 탐색기")
-        self.root.geometry("1320x880")
-        self.root.minsize(1080, 740)
+        self.root.geometry("1280x740")
+        self.root.minsize(960, 640)
 
         style = ttk.Style()
         try:
