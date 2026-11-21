@@ -1044,7 +1044,10 @@ def self_test():
                         "<!doctype html><html><head><title>DapjiMoum browser navigation OK</title></head>"
                         "<body><main><p>오투 중등 과학 2-1 정답과 해설 자료를 확인할 수 있습니다. "
                         "실제 브라우저 페이지 본문과 첨부 링크 추출 기능을 검사합니다.</p>"
-                        "<a href='/answer.pdf'>정답 PDF 다운로드</a></main></body></html>"
+                        "<a href='/answer.pdf'>정답 PDF 다운로드</a>"
+                        "<button data-href='/answer-data.pdf'>정답 자료 버튼</button>"
+                        "<button onclick=\"window.open('/answer-click.pdf')\">해설 파일 열기</button>"
+                        "</main></body></html>"
                     ).encode("utf-8")
                     self.send_response(200)
                     self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1067,6 +1070,10 @@ def self_test():
                 if not any("answer.pdf" in link.get("href", "") and "오투" in link.get("context", "")
                            for link in answer_links):
                     raise RuntimeError("실제 브라우저의 정답 링크 및 주변 문맥 추출 테스트 실패")
+                if not any("answer-data.pdf" in link.get("href", "") for link in answer_links):
+                    raise RuntimeError("data-href 다운로드 버튼 추출 테스트 실패")
+                if not any("answer-click.pdf" in link.get("href", "") for link in answer_links):
+                    raise RuntimeError("onclick 다운로드 URL 추출 테스트 실패")
                 migrated, changed = upgrade_search_config({"web_search": {
                     "max_queries_per_book": 3, "results_per_engine": 5,
                     "max_candidates_per_book": 5
