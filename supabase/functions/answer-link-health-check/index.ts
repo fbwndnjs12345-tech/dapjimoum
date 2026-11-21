@@ -358,12 +358,11 @@ Deno.serve(async request => {
     if (updateError) errors.push(link.id + ': ' + updateError.message);
     summary.checked += 1;
     if (status === 'healthy') summary.healthy += 1;
-    if (typeof redirectCount !== 'undefined' && redirectCount > 0) summary.redirected += 1;
-    else if (status === 'broken') summary.broken += 1;
-    else if (status === 'redirected') summary.redirected += 1;
-    else if (status === 'invalid_pdf') summary.invalidPdf += 1;
-    else if (status === 'rate_limited') summary.rateLimited += 1;
-    else summary.temporaryErrors += 1;
+    if (redirectCount > 0) summary.redirected += 1;
+    if (status === 'broken') summary.broken += 1;
+    if (status === 'invalid_pdf') summary.invalidPdf += 1;
+    if (status === 'rate_limited') summary.rateLimited += 1;
+    if (status === 'temporary_error') summary.temporaryErrors += 1;
 
     if (['broken', 'redirected', 'invalid_pdf'].includes(status)) {
       const { error: queueError } = await admin.from('answer_link_search_queue').insert({
