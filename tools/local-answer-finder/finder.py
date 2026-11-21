@@ -522,7 +522,7 @@ def upgrade_search_config(config: dict) -> tuple[dict, bool]:
         version = int(web_cfg.get("strategy_version", 0))
     except (TypeError, ValueError):
         version = 0
-    if version >= 2:
+    if version >= 3:
         return config, False
     web_cfg["max_queries_per_book"] = max(8, int(web_cfg.get("max_queries_per_book", 3)))
     web_cfg["results_per_engine"] = max(12, int(web_cfg.get("results_per_engine", 5)))
