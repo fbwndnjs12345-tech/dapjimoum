@@ -558,6 +558,7 @@ export function AdminBookForm({ mode }: { mode: 'create' | 'edit' }) {
   const [isLoading, setIsLoading] = useState(isEdit);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
+  const [detailImageUrls, setDetailImageUrls] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -570,6 +571,9 @@ export function AdminBookForm({ mode }: { mode: 'create' | 'edit' }) {
         const book = await getBookById(bookId);
         if (!book) throw new Error('교재를 찾을 수 없습니다.');
         if (active) setForm({ title: book.title ?? '', publisher: book.publisher ?? '', subject: book.subject ?? '', grade: book.grade ?? '', semester: book.semester ?? '', series: book.series ?? '', edition: book.edition ?? '', description: book.description ?? '', thumbnail_url: book.thumbnail_url ?? '', book_url: book.book_url ?? '' });
+        const { data: imageRows, error: imageError } = await supabase.from('book_images').select('image_url').eq('book_id', bookId).order('sort_order');
+        if (imageError) throw imageError;
+        if (active) setDetailImageUrls((imageRows ?? []).map(row => row.image_url).join('\n'));
       } catch (loadError) { if (active) setError(getAdminDataError(loadError)); }
       finally { if (active) setIsLoading(false); }
     };
@@ -587,6 +591,10 @@ export function AdminBookForm({ mode }: { mode: 'create' | 'edit' }) {
       const savedBook = isEdit
         ? await updateBook(bookId, values)
         : await createBook(values);
+      const imageUrls = [...new Set(detailImageUrls.split(/\r?\n/).map(value => value.trim()).filter(value => { try { return new URL(value).protocol === 'https:'; } catch { return false; } }))].slice(0, 20);
+      const { error: removeImagesError } = await supabase.from('book_images').delete().eq('book_id', savedBook.id);
+      if (removeImagesError) throw removeImagesError;
+      if (imageUrls.length) { const { error: addImagesError } = await supabase.from('book_images').insert(imageUrls.map((image_url, index) => ({ book_id: savedBook.id, image_url, alt_text: savedBook.title + ' 상세 이미지 ' + (index + 1), sort_order: index, is_cover: index === 0, source_url: image_url }))); if (addImagesError) throw addImagesError; }
       await refreshCatalog();
       showToast(isEdit ? '교재 정보가 수정되었습니다.' : '새 교재가 등록되었습니다.');
       if (!isEdit) navigateTo(`/admin/books/${savedBook.id}`, { id: savedBook.id });
@@ -611,6 +619,7 @@ export function AdminBookForm({ mode }: { mode: 'create' | 'edit' }) {
           <div className="space-y-2"><label htmlFor="book-series" className="block text-sm font-semibold text-[#344054]">시리즈</label><input id="book-series" value={form.series} onChange={e => change('series', e.target.value)} className={inputClass} /></div>
           <div className="space-y-2"><label htmlFor="book-edition" className="block text-sm font-semibold text-[#344054]">개정판 / 판본</label><input id="book-edition" value={form.edition} onChange={e => change('edition', e.target.value)} placeholder="공식 표기 확인 후 입력" className={inputClass} /></div>
           <div className="space-y-2"><label htmlFor="book-thumbnail" className="block text-sm font-semibold text-[#344054]">대표 표지 이미지 URL</label><input id="book-thumbnail" type="url" value={form.thumbnail_url} onChange={e => change('thumbnail_url', e.target.value)} placeholder="https://..." className={inputClass} /></div>
+          <div className="space-y-2"><label htmlFor="book-detail-images" className="block text-sm font-semibold text-[#344054]">상세페이지 이미지 URL (한 줄에 하나씩, 최대 20장)</label><textarea id="book-detail-images" value={detailImageUrls} onChange={e => setDetailImageUrls(e.target.value)} rows={5} placeholder="HTTPS 이미지 주소를 줄바꿈으로 구분해 입력" className={inputClass} /><p className="text-xs text-[#667085]">출판사·공식 서점에서 확인한 HTTPS 이미지 주소만 저장됩니다.</p></div>
           <div className="space-y-2"><label htmlFor="book-url" className="block text-sm font-semibold text-[#344054]">교재 페이지 URL</label><input id="book-url" type="url" value={form.book_url} onChange={e => change('book_url', e.target.value)} placeholder="https://..." className={inputClass} /></div>
           <div className="space-y-2"><label htmlFor="book-description" className="block text-sm font-semibold text-[#344054]">교재 요약 정보</label><textarea id="book-description" value={form.description} onChange={e => change('description', e.target.value)} rows={4} className={inputClass} /></div>
           <button type="submit" disabled={isSaving} className="w-full py-3.5 bg-[#191F28] hover:bg-[#333D4B] text-white font-bold text-sm rounded-xl transition-colors disabled:opacity-50">{isSaving ? '저장 중…' : isEdit ? '저장하기' : '교재 등록 완료'}</button>
