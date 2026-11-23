@@ -246,7 +246,7 @@ if (siteUrl) {
   // Keep one canonical XML sitemap format. Omit lastmod until every page type
   // has a trustworthy significant-content modification timestamp.
   const sitemapUrls = [
-    siteUrl + '/',
+    siteUrl,
     ...publicInfoPages.map(page => `${siteUrl}/${page.route}/`),
     ...qualifyingBooks.map(book => `${siteUrl}/books/${encodeURIComponent(book.id)}/`)
   ];
