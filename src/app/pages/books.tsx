@@ -421,7 +421,7 @@ export function BookDetailPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {relatedBooks.map(relatedBook => <a
               key={relatedBook.id}
-              href={`/books/${encodeURIComponent(relatedBook.id)}`}
+              href={`/books/${encodeURIComponent(relatedBook.id)}/`}
               onClick={event => { event.preventDefault(); navigateTo(`/books/${relatedBook.id}`, { id: relatedBook.id }); }}
               className="bg-white rounded-2xl border border-[#E5E8EB] p-4 hover:border-[#3182F6] transition-colors"
             >
