@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
-from finder import run_search
+from finder import run_search, is_safe_public_url
 
 
 BOOK_TITLE = "오투 중등 과학 2-1"
@@ -86,9 +86,17 @@ class FinderEndToEndTests(unittest.TestCase):
                     }
                 }, ensure_ascii=False), encoding="utf-8")
                 output = root / "answer-link-candidates.csv"
-                with patch("finder.search_google_page", return_value=[search_result]) as google:
-                    with patch("finder.search_bing_rss", return_value=[search_result]) as bing:
-                        count = run_search(books, output, config, False, 10, lambda _line: None)
+                original_validator = is_safe_public_url
+                def test_only_localhost_validator(url, resolve_dns=False):
+                    from urllib.parse import urlparse
+                    host = (urlparse(url).hostname or "").lower()
+                    if host in {"127.0.0.1", "::1", "localhost"}:
+                        return True
+                    return original_validator(url, resolve_dns=resolve_dns)
+                with patch("finder.is_safe_public_url", side_effect=test_only_localhost_validator):
+                    with patch("finder.search_google_page", return_value=[search_result]) as google:
+                        with patch("finder.search_bing_rss", return_value=[search_result]) as bing:
+                            count = run_search(books, output, config, False, 10, lambda _line: None)
                 self.assertGreaterEqual(count, 1)
                 self.assertTrue(output.is_file())
                 with output.open("r", encoding="utf-8-sig", newline="") as handle:
