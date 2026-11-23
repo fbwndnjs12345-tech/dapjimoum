@@ -559,6 +559,30 @@ export function AdminBookForm({ mode }: { mode: 'create' | 'edit' }) {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [detailImageUrls, setDetailImageUrls] = useState('');
+  const [isUploadingImages, setIsUploadingImages] = useState(false);
+  const handleDetailImageUpload = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setIsUploadingImages(true);
+    setError('');
+    try {
+      const uploaded: string[] = [];
+      for (const file of Array.from(files).slice(0, 20)) {
+        if (!['image/jpeg','image/png','image/webp','image/avif'].includes(file.type)) throw new Error('JPG, PNG, WebP, AVIF 이미지 파일만 업로드할 수 있습니다.');
+        if (file.size > 10 * 1024 * 1024) throw new Error('이미지 한 장의 용량은 10MB 이하여야 합니다.');
+        const extension = file.type === 'image/jpeg' ? 'jpg' : file.type.split('/')[1];
+        const path = 'uploads/' + crypto.randomUUID() + '.' + extension;
+        const { error: uploadError } = await supabase.storage.from('book-images').upload(path, file, { contentType: file.type, upsert: false });
+        if (uploadError) throw uploadError;
+        const { data } = supabase.storage.from('book-images').getPublicUrl(path);
+        uploaded.push(data.publicUrl);
+      }
+      setDetailImageUrls(current => [...new Set([...current.split(/\\r?\\n/).map(value => value.trim()).filter(Boolean), ...uploaded])].join('\\n'));
+    } catch (uploadError) {
+      setError(getAdminDataError(uploadError));
+    } finally {
+      setIsUploadingImages(false);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -619,7 +643,12 @@ export function AdminBookForm({ mode }: { mode: 'create' | 'edit' }) {
           <div className="space-y-2"><label htmlFor="book-series" className="block text-sm font-semibold text-[#344054]">시리즈</label><input id="book-series" value={form.series} onChange={e => change('series', e.target.value)} className={inputClass} /></div>
           <div className="space-y-2"><label htmlFor="book-edition" className="block text-sm font-semibold text-[#344054]">개정판 / 판본</label><input id="book-edition" value={form.edition} onChange={e => change('edition', e.target.value)} placeholder="공식 표기 확인 후 입력" className={inputClass} /></div>
           <div className="space-y-2"><label htmlFor="book-thumbnail" className="block text-sm font-semibold text-[#344054]">대표 표지 이미지 URL</label><input id="book-thumbnail" type="url" value={form.thumbnail_url} onChange={e => change('thumbnail_url', e.target.value)} placeholder="https://..." className={inputClass} /></div>
-          <div className="space-y-2"><label htmlFor="book-detail-images" className="block text-sm font-semibold text-[#344054]">상세페이지 이미지 URL (한 줄에 하나씩, 최대 20장)</label><textarea id="book-detail-images" value={detailImageUrls} onChange={e => setDetailImageUrls(e.target.value)} rows={5} placeholder="HTTPS 이미지 주소를 줄바꿈으로 구분해 입력" className={inputClass} /><p className="text-xs text-[#667085]">출판사·공식 서점에서 확인한 HTTPS 이미지 주소만 저장됩니다.</p></div>
+          <div className="space-y-2">
+            <label htmlFor="book-detail-upload" className="block text-sm font-semibold text-[#344054]">상세페이지 이미지 직접 업로드</label>
+            <input id="book-detail-upload" type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple disabled={isUploadingImages} onChange={event => { void handleDetailImageUpload(event.target.files); event.currentTarget.value = ''; }} className={inputClass} />
+            <p className="text-xs text-[#667085]">JPG·PNG·WebP·AVIF, 이미지당 10MB 이하. {isUploadingImages ? '업로드 중…' : '선택한 이미지는 비공개 관리자 저장소에 업로드 후 공개 URL로 연결됩니다.'}</p>
+          </div>
+          <div className="space-y-2"><label htmlFor="book-detail-images" className="block text-sm font-semibold text-[#344054]">상세페이지 이미지 URL (한 줄에 하나씩, 최대 20장)</label><textarea id="book-detail-images" value={detailImageUrls} onChange={e => setDetailImageUrls(e.target.value)} rows={5} placeholder="HTTPS 이미지 주소를 줄바꿈으로 구분해 입력" className={inputClass} /><p className="text-xs text-[#667085]">업로드한 이미지와 출판사·공식 서점 이미지 URL을 함께 관리할 수 있습니다.</p></div>
           <div className="space-y-2"><label htmlFor="book-url" className="block text-sm font-semibold text-[#344054]">교재 페이지 URL</label><input id="book-url" type="url" value={form.book_url} onChange={e => change('book_url', e.target.value)} placeholder="https://..." className={inputClass} /></div>
           <div className="space-y-2"><label htmlFor="book-description" className="block text-sm font-semibold text-[#344054]">교재 요약 정보</label><textarea id="book-description" value={form.description} onChange={e => change('description', e.target.value)} rows={4} className={inputClass} /></div>
           <button type="submit" disabled={isSaving} className="w-full py-3.5 bg-[#191F28] hover:bg-[#333D4B] text-white font-bold text-sm rounded-xl transition-colors disabled:opacity-50">{isSaving ? '저장 중…' : isEdit ? '저장하기' : '교재 등록 완료'}</button>
