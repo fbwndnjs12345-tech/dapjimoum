@@ -32,6 +32,9 @@ export function AdminLinkSearchPage() {
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [healthLoading, setHealthLoading] = useState(false);
+  const [healthStats, setHealthStats] = useState({ total: 803, checked: 0, pending: 803, healthy: 0, broken: 0, redirected: 0, invalidPdf: 0, rateLimited: 0, temporaryErrors: 0, directDownloads: 0, landingPages: 0, matchedDownloads: 0, mismatchedDownloads: 0, uncertainDownloads: 0 });
+  const [healthError, setHealthError] = useState('');
   const pumpGuard = useRef(false);
 
   const loadRuns = useCallback(async () => {
@@ -101,17 +104,50 @@ export function AdminLinkSearchPage() {
     }
   }, [invoke, loadRuns, refreshCatalog]);
 
+  const loadHealthStats = useCallback(async () => {
+    setHealthLoading(true);
+    const { data, error: queryError } = await supabase.from('answer_links')
+      .select('health_status,health_checked_at,health_is_download,health_match_status');
+    if (queryError) {
+      setHealthError(queryError.message);
+      setHealthLoading(false);
+      return;
+    }
+    const rows = data ?? [];
+    setHealthStats({
+      total: rows.length,
+      checked: rows.filter(row => row.health_checked_at !== null).length,
+      pending: rows.filter(row => row.health_checked_at === null).length,
+      healthy: rows.filter(row => row.health_status === 'healthy').length,
+      broken: rows.filter(row => row.health_status === 'broken').length,
+      redirected: rows.filter(row => row.health_status === 'redirected').length,
+      invalidPdf: rows.filter(row => row.health_status === 'invalid_pdf').length,
+      rateLimited: rows.filter(row => row.health_status === 'rate_limited').length,
+      temporaryErrors: rows.filter(row => row.health_status === 'temporary_error').length,
+      directDownloads: rows.filter(row => row.health_is_download === true).length,
+      landingPages: rows.filter(row => row.health_status === 'healthy' && row.health_is_download === false).length,
+      matchedDownloads: rows.filter(row => row.health_match_status === 'matched').length,
+      mismatchedDownloads: rows.filter(row => row.health_match_status === 'mismatch').length,
+      uncertainDownloads: rows.filter(row => row.health_match_status === 'uncertain').length,
+    });
+    setHealthError('');
+    setHealthLoading(false);
+  }, []);
+
   useEffect(() => {
     void loadRuns();
+    void loadHealthStats();
+    const healthTimer = window.setInterval(() => { void loadHealthStats(); }, 15000);
     const channel = supabase.channel('admin-search-run-workspace-v2')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'answer_link_search_runs' }, () => { void loadRuns(); })
       .subscribe();
     const timer = window.setInterval(() => { void loadRuns(); }, 10000);
     return () => {
       window.clearInterval(timer);
+      window.clearInterval(healthTimer);
       void supabase.removeChannel(channel);
     };
-  }, [loadRuns]);
+  }, [loadRuns, loadHealthStats]);
 
   useEffect(() => {
     const active = runs.find(run => run.status === 'running');
@@ -123,6 +159,8 @@ export function AdminLinkSearchPage() {
     const haystack = [book.title, book.publisher, book.subject, book.grade, book.semester, book.series].filter(Boolean).join(' ').toLocaleLowerCase('ko-KR');
     return haystack.includes(bookSearch.trim().toLocaleLowerCase('ko-KR'));
   }).slice(0, 12), [books, bookSearch]);
+
+
 
   const startSearch = async () => {
     if (busy) return;
@@ -227,6 +265,28 @@ export function AdminLinkSearchPage() {
           ].map(option => <button key={option.value} type="button" onClick={() => setProviderMode(option.value as typeof providerMode)} className={'rounded-xl border p-3 text-left ' + (providerMode === option.value ? 'border-[#344054] bg-[#F2F4F6]' : 'border-[#EAECF0] bg-white hover:bg-[#F9FAFB]')}><p className="text-sm font-bold text-[#344054]">{option.label}</p><p className="mt-1 text-xs leading-5 text-[#667085]">{option.detail}</p></button>)}
         </div>
         <p className="mt-3 rounded-xl bg-[#F9FAFB] p-3 text-xs leading-5 text-[#667085]">검색 서비스의 API 키·호출 한도·접근 제한에 따라 결과가 달라질 수 있습니다. 통합 검색은 설정된 경로가 실패해도 나머지 경로를 계속 사용하고, 실패 원인을 실행 진단에 기록합니다.</p>
+      </section>
+
+      <section className="rounded-2xl border border-[#E5E8EB] bg-white p-4 sm:p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div><h3 className="font-bold text-[#191F28]">답지 링크 전체 검증</h3><p className="mt-1 text-xs leading-5 text-[#667085]">서버가 1분마다 10개씩 전체 링크를 자동 검사합니다. 안전한 리디렉션을 따라가고 페이지 내부의 PDF·첨부 다운로드 주소도 찾아 실제 파일 시그니처를 확인합니다.</p></div>
+          <button type="button" onClick={() => void loadHealthStats()} disabled={healthLoading} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-[#D0D5DD] bg-white px-4 text-xs font-semibold text-[#344054] disabled:opacity-40"><RefreshCw className={'h-4 w-4 ' + (healthLoading ? 'animate-spin' : '')} />현황 새로고침</button>
+        </div>
+        <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#E5E8EB]"><div className="h-full rounded-full bg-[#344054] transition-all" style={{ width: Math.min(100, healthStats.checked / Math.max(1, healthStats.total) * 100) + '%' }} /></div>
+        <p className="mt-2 text-xs tabular-nums text-[#667085]">{healthStats.checked} / {healthStats.total} 검사 완료 · {Math.round(Math.min(100, healthStats.checked / Math.max(1, healthStats.total) * 100))}% · 남은 링크 {healthStats.pending}개</p>
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <div><p className="text-xs text-[#667085]">직접 다운로드</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.directDownloads}</p></div>
+          <div><p className="text-xs text-[#667085]">웹페이지 연결</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.landingPages}</p></div>
+          <div><p className="text-xs text-[#667085]">끊김</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.broken}</p></div>
+          <div><p className="text-xs text-[#667085]">잘못된 PDF</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.invalidPdf}</p></div>
+          <div><p className="text-xs text-[#667085]">교재 일치</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.matchedDownloads}</p></div>
+          <div><p className="text-xs text-[#667085]">교재 불일치</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.mismatchedDownloads}</p></div>
+          <div><p className="text-xs text-[#667085]">파일명 확인 필요</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.uncertainDownloads}</p></div>
+          <div><p className="text-xs text-[#667085]">일시 오류·제한</p><p className="mt-1 text-xl font-extrabold tabular-nums">{healthStats.temporaryErrors + healthStats.rateLimited}</p></div>
+        </div>
+        {(healthStats.redirected + healthStats.temporaryErrors + healthStats.rateLimited) > 0 && <p className="mt-3 text-xs text-[#667085]">리디렉션 오류 {healthStats.redirected} · 요청 제한 {healthStats.rateLimited} · 일시 오류 {healthStats.temporaryErrors}</p>}
+        {healthError && <p role="alert" className="mt-3 whitespace-pre-wrap break-words rounded-lg bg-[#FFEEEC] p-3 text-xs text-[#B42318]">{healthError}</p>}
+        {healthStats.pending > 0 ? <p className="mt-3 text-xs font-semibold text-[#475467]">자동 검사 진행 중입니다. 페이지를 닫아도 서버 예약 작업은 계속됩니다.</p> : <p className="mt-3 text-xs font-semibold text-[#027A48]">현재 등록된 전체 링크 검사가 완료되었습니다.</p>}
       </section>
 
       <section className="rounded-2xl border border-[#E5E8EB] bg-white p-4 sm:p-6">

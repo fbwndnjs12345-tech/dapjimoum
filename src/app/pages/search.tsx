@@ -1,9 +1,9 @@
 
-import { useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import type { Book } from '../../types/book';
 import type { AnswerLinkCount } from '../../lib/supabase/answerLinks';
-import { isPlaceholderBook } from '../../lib/catalog';
+import { isPlaceholderBook, normalizeGradeLabel } from '../../lib/catalog';
 import { scoreBookSearch } from '../../lib/bookSearch';
 
 import { useAppContext } from '../../state/useAppContext';
@@ -17,6 +17,7 @@ export function SearchPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState('');
     const [reloadKey, setReloadKey] = useState(0);
+    const deferredSearchQuery = useDeferredValue(searchQuery);
 
     useEffect(() => {
       let isCurrentRequest = true;
@@ -48,17 +49,18 @@ export function SearchPage() {
       return () => { isCurrentRequest = false; };
     }, [reloadKey]);
 
+    const countsByBook = useMemo(() => new Map(linkCounts.map(item => [item.book_id, item] as const)), [linkCounts]);
+
     const displayedBooks = useMemo(() => {
-      const query = searchQuery.trim();
+      const query = deferredSearchQuery.trim();
       const filtered = allBooks.filter(book => !isPlaceholderBook(book)).filter(book => {
         const matchesQuery = !query || scoreBookSearch(book, query) > 0;
         return matchesQuery &&
           (publisherFilter === '전체' || book.publisher?.trim() === publisherFilter) &&
           (subjectFilter === '전체' || book.subject?.trim() === subjectFilter) &&
-          (gradeFilter === '전체' || book.grade?.trim() === gradeFilter) &&
+          (gradeFilter === '전체' || normalizeGradeLabel(book.grade) === gradeFilter) &&
           (semesterFilter === '전체' || book.semester?.trim() === semesterFilter);
       });
-      const countsByBook = new Map(linkCounts.map(item => [item.book_id, item] as const));
       if (query && sortBy !== 'latest') return filtered.sort((a, b) =>
         scoreBookSearch(b, query) - scoreBookSearch(a, query) ||
         (countsByBook.get(b.id)?.click_count ?? 0) - (countsByBook.get(a.id)?.click_count ?? 0)
@@ -69,12 +71,12 @@ export function SearchPage() {
       );
       if (sortBy === 'latest') return filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
       return filtered.sort((a, b) => scoreBookSearch(b, query) - scoreBookSearch(a, query));
-    }, [allBooks, linkCounts, searchQuery, publisherFilter, subjectFilter, gradeFilter, semesterFilter, sortBy]);
+    }, [allBooks, countsByBook, deferredSearchQuery, publisherFilter, subjectFilter, gradeFilter, semesterFilter, sortBy]);
     const visibleCatalog = useMemo(() => allBooks.filter(book => !isPlaceholderBook(book)), [allBooks]);
     const queryMatchedBooks = useMemo(() => {
       const query = searchQuery.trim();
       return visibleCatalog.filter(book => !query || scoreBookSearch(book, query) > 0);
-    }, [visibleCatalog, searchQuery]);
+    }, [visibleCatalog, deferredSearchQuery]);
 
     // 각 필터의 선택지는 검색어와 나머지 필터를 적용한 교재만으로 계산한다.
     // 자기 자신의 필터는 제외하므로 다른 값으로 전환할 수 있다.
@@ -178,7 +180,7 @@ export function SearchPage() {
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {displayedBooks.map(book => {
-                  const bookLinks = linkCounts.find(item => item.book_id === book.id);
+                  const bookLinks = countsByBook.get(book.id);
                   const isBookmarked = bookmarks.includes(book.id);
 
                   return <BookCard key={book.id} book={book} linksCount={bookLinks?.link_count ?? 0} isBookmarked={isBookmarked} onOpen={() => navigateTo(`/books/${book.id}`, { id: book.id })} onToggleBookmark={(event) => toggleBookmark(book.id, event)} />;

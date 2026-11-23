@@ -13,7 +13,19 @@ export interface BookSearchFilters {
 
 export type BookInput = Pick<Book, 'title'> & Partial<Omit<Book, 'id' | 'created_at' | 'title'>>;
 
+let booksCache: { expiresAt: number; value: Book[] } | null = null;
+let booksRequest: Promise<Book[]> | null = null;
+const BOOKS_CACHE_TTL_MS = 60_000;
+
+function invalidateBooksCache() {
+  booksCache = null;
+  booksRequest = null;
+}
+
 export async function getBooks(): Promise<Book[]> {
+  if (booksCache && booksCache.expiresAt > Date.now()) return booksCache.value;
+  if (booksRequest) return booksRequest;
+  booksRequest = (async () => {
   const pageSize = 1000;
   const records: Book[] = [];
   for (let offset = 0; ; offset += pageSize) {
@@ -27,8 +39,13 @@ export async function getBooks(): Promise<Book[]> {
     if (error) throw error;
     const page = (data ?? []) as Book[];
     records.push(...page);
-    if (page.length < pageSize) return records;
+    if (page.length < pageSize) {
+      booksCache = { value: records, expiresAt: Date.now() + BOOKS_CACHE_TTL_MS };
+      return records;
+    }
   }
+  })();
+  try { return await booksRequest; } finally { booksRequest = null; }
 }
 
 export async function createBook(book: BookInput): Promise<Book> {
@@ -39,6 +56,7 @@ export async function createBook(book: BookInput): Promise<Book> {
     .single();
 
   if (error) throw error;
+  invalidateBooksCache();
   return data as Book;
 }
 
@@ -51,12 +69,14 @@ export async function updateBook(id: string, book: BookInput): Promise<Book> {
     .single();
 
   if (error) throw error;
+  invalidateBooksCache();
   return data as Book;
 }
 
 export async function deleteBook(id: string): Promise<void> {
   const { error } = await supabase.from('books').delete().eq('id', id);
   if (error) throw error;
+  invalidateBooksCache();
 }
 
 export async function getBookById(id: string): Promise<Book | null> {
