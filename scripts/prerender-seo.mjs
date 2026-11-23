@@ -96,7 +96,7 @@ function metadataRows(book) {
 }
 
 function pageHtml(template, book, bookLinks, relatedBooks) {
-  const canonical = siteUrl ? siteUrl + '/books/' + encodeURIComponent(book.id) : '';
+  const canonical = siteUrl ? siteUrl + '/books/' + encodeURIComponent(book.id) + '/' : '';
   const title = book.title + ' 교재 정보·답지 안내 | 답지모음';
   const facts = [book.publisher, book.subject, book.grade, book.semester, book.series, book.edition].filter(Boolean);
   const searchFacts = [book.publisher, book.subject, book.grade, book.semester, book.series, book.edition, book.author, book.isbn13 ? 'ISBN ' + book.isbn13 : null].filter(Boolean);
@@ -107,7 +107,7 @@ function pageHtml(template, book, bookLinks, relatedBooks) {
   const bookPageMarkup = isPublicHttpsUrl(book.book_url) ? '<p class="mt-3 text-sm"><a href="' + escapeHtml(book.book_url) + '" target="_blank" rel="noopener noreferrer">출판사·서점의 교재 상세 페이지 확인</a></p>' : '<p class="mt-3 text-sm text-[#8B95A1]">공식 교재 상세 페이지 주소는 확인 중입니다.</p>';
   const descriptionMarkup = book.description ? '<section class="space-y-2"><h2 class="text-lg font-bold text-[#191F28]">등록된 교재 소개</h2><p class="text-sm leading-7">' + escapeHtml(book.description) + '</p><p class="text-xs text-[#8B95A1]">소개 문구의 출처와 정확성은 출판사 원문과 대조해 확인해 주세요.</p></section>' : '';
   const useGuide = '<section class="space-y-3"><h2 class="text-lg font-bold text-[#191F28]">' + escapeHtml(book.title) + ' 학습 활용 안내</h2><p class="text-sm leading-7">' + escapeHtml(book.title) + '은(는) ' + escapeHtml([book.grade, book.subject, book.semester].filter(Boolean).join(' ')) + ' 교재로 등록되어 있습니다. 실제 목차와 단원별 학습 목표를 확인하고 현재 수업 진도 및 학습 목적에 맞는 단원부터 활용하세요.</p><p class="text-sm leading-7">' + escapeHtml(subjectGuide(book)) + '</p><h3 class="font-semibold text-[#344054]">교재 확인 체크리스트</h3><ul class="list-disc space-y-1 pl-5 text-sm leading-7"><li>표지의 교재명, 학년, 학기와 판본이 일치하는지 확인합니다.</li><li>개정 교육과정 적용 여부와 발행 연도를 확인합니다.</li><li>답지 자료를 이용하기 전 ISBN과 출판사 정보를 대조합니다.</li><li>목차, 페이지 수, 정가는 실제 교재 또는 출판사 안내에서 최종 확인합니다.</li></ul></section>';
-  const relatedMarkup = relatedBooks.map(related => '<li><a href="/books/' + encodeURIComponent(related.id) + '">' + escapeHtml(related.title) + '</a> <span>' + escapeHtml([related.publisher, related.subject, related.grade, related.semester].filter(Boolean).join(' · ')) + '</span></li>').join('');
+  const relatedMarkup = relatedBooks.map(related => '<li><a href="/books/' + encodeURIComponent(related.id) + '/">' + escapeHtml(related.title) + '</a> <span>' + escapeHtml([related.publisher, related.subject, related.grade, related.semester].filter(Boolean).join(' · ')) + '</span></li>').join('');
   const content = '<main class="mx-auto max-w-[860px] space-y-7 px-5 py-8"><nav aria-label="Breadcrumb" class="text-sm"><a href="/">답지모음 홈</a> › ' + escapeHtml(book.title) + '</nav><article class="space-y-7"><header class="rounded-3xl border border-[#E5E8EB] bg-white p-6 sm:p-8">' + coverMarkup + '<h1 class="text-2xl font-extrabold text-[#191F28]">' + escapeHtml(book.title) + '</h1><p class="mt-3 text-sm text-[#6B7684]">' + escapeHtml(facts.join(' · ')) + '</p>' + bookPageMarkup + '</header>' + descriptionMarkup + useGuide + '<section class="space-y-3"><h2 class="text-lg font-bold text-[#191F28]">교재 상세 서지정보</h2><p class="text-sm leading-6">ISBN과 발행 정보를 항목별로 정리했습니다. 확인되지 않은 값은 임의로 추정하지 않고 자료 확인 중으로 표시합니다.</p><div class="overflow-x-auto rounded-xl border border-[#DCE4EE]"><table class="w-full border-collapse text-sm"><tbody>' + metadataRows(book) + '</tbody></table></div></section><section class="space-y-3"><h2 class="text-lg font-bold text-[#191F28]">답지 및 관련 자료</h2><ul class="list-disc space-y-2 pl-5 text-sm">' + linksMarkup + '</ul><p class="text-xs text-[#8B95A1]">답지 링크는 외부 원본 페이지로 연결됩니다. 자료의 출처와 저작권 및 이용 조건을 확인하세요.</p></section>' + (relatedMarkup ? '<nav class="space-y-3" aria-label="관련 교재"><h2 class="text-lg font-bold text-[#191F28]">관련 교재</h2><ul class="list-disc space-y-2 pl-5 text-sm">' + relatedMarkup + '</ul></nav>' : '') + '</article></main>';
   const metas = [naverVerificationMeta, '<title>' + escapeHtml(title) + '</title>', '<meta name="description" content="' + escapeHtml(description) + '" />', '<meta name="robots" content="' + (qualifiesForIndex(book) ? 'index, follow' : 'noindex, follow') + '" />', '<meta property="og:type" content="article" />', '<meta property="og:site_name" content="답지모음" />', '<meta property="og:title" content="' + escapeHtml(title) + '" />', '<meta property="og:description" content="' + escapeHtml(description) + '" />', '<meta property="og:locale" content="ko_KR" />', '<meta name="twitter:card" content="' + (isPublicHttpsUrl(book.thumbnail_url) ? 'summary_large_image' : 'summary') + '" />', '<meta name="twitter:title" content="' + escapeHtml(title) + '" />', '<meta name="twitter:description" content="' + escapeHtml(description) + '" />', ...(canonical ? ['<link rel="canonical" href="' + escapeHtml(canonical) + '" />', '<meta property="og:url" content="' + escapeHtml(canonical) + '" />'] : []), ...(isPublicHttpsUrl(book.thumbnail_url) ? ['<meta property="og:image" content="' + escapeHtml(book.thumbnail_url) + '" />'] : [])].join('\n    ');
   const jsonLd = JSON.stringify([
@@ -209,7 +209,7 @@ const publicInfoPages = [
 ];
 
 for (const page of publicInfoPages) {
-  const pagePath = `/${page.route}`;
+  const pagePath = `/${page.route}/`;
   const canonical = siteUrl ? `<link rel="canonical" href="${escapeHtml(siteUrl + pagePath)}" />` : '';
   const pageHtml = template
     .replace(/<title>[\s\S]*?<\/title>/, `<title>${escapeHtml(page.title)}</title>`)
@@ -245,8 +245,8 @@ for (const book of books) {
 if (siteUrl) {
   const sitemapEntries = [
     { url: siteUrl, updatedAt: null },
-    ...publicInfoPages.map(page => ({ url: `${siteUrl}/${page.route}`, updatedAt: null })),
-    ...qualifyingBooks.map(book => ({ url: `${siteUrl}/books/${encodeURIComponent(book.id)}`, updatedAt: book.updated_at || book.created_at || null }))
+    ...publicInfoPages.map(page => ({ url: `${siteUrl}/${page.route}/`, updatedAt: null })), 
+    ...qualifyingBooks.map(book => ({ url: `${siteUrl}/books/${encodeURIComponent(book.id)}/`, updatedAt: book.updated_at || book.created_at || null }))
   ];
   const locations = sitemapEntries.map(entry => entry.url);
   const sitemap = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${sitemapEntries.map(entry => `  <url><loc>${escapeHtml(entry.url)}</loc>${entry.updatedAt && !Number.isNaN(new Date(entry.updatedAt).getTime()) ? `<lastmod>${new Date(entry.updatedAt).toISOString().slice(0, 10)}</lastmod>` : ''}</url>`).join('\n')}\n</urlset>\n`;
