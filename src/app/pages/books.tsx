@@ -29,6 +29,7 @@ export function BookDetailPage() {
     const [supabaseBook, setSupabaseBook] = useState<Book | null>();
     const [supabaseLinks, setSupabaseLinks] = useState<AnswerLink[] | undefined>();
     const [relatedBooks, setRelatedBooks] = useState<Book[]>([]);
+    const [detailImages, setDetailImages] = useState<Array<{id:string;image_url:string;alt_text:string;caption:string}>>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isLinksLoading, setIsLinksLoading] = useState(true);
     const [bookError, setBookError] = useState('');
@@ -36,6 +37,12 @@ export function BookDetailPage() {
 
     useEffect(() => {
       let isCurrentRequest = true;
+      if (bookId) {
+        void import('../../lib/supabase/client').then(async ({ supabase }) => {
+          const { data, error } = await supabase.from('book_images').select('id,image_url,alt_text,caption').eq('book_id', bookId).order('sort_order');
+          if (!error && isCurrentRequest) setDetailImages((data ?? []) as Array<{id:string;image_url:string;alt_text:string;caption:string}>);
+        }).catch(() => { if (isCurrentRequest) setDetailImages([]); });
+      } else setDetailImages([]);
       setIsLoading(true);
       setBookError('');
       setLinksError('');
@@ -315,6 +322,14 @@ export function BookDetailPage() {
             </div>
           </div>
         </section>
+
+        {detailImages.length > 0 && <section aria-labelledby="book-gallery-heading" className="mt-5 rounded-2xl border border-[#E5E8EB] bg-white p-5 sm:p-6 space-y-4">
+          <div><h2 id="book-gallery-heading" className="text-base font-extrabold text-[#191F28]">교재 상세 이미지</h2><p className="mt-1 text-xs text-[#667085]">교재 구성과 내지·목차 이미지</p></div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{detailImages.map((item,index) => <figure key={item.id} className="overflow-hidden rounded-xl border border-[#EAECF0] bg-[#F9FAFB]">
+            <img src={item.image_url} alt={item.alt_text || book.title + ' 상세 이미지 ' + (index+1)} loading="lazy" referrerPolicy="no-referrer" className="h-auto max-h-[720px] w-full object-contain" onError={event => { event.currentTarget.style.display='none'; }} />
+            {item.caption && <figcaption className="px-3 py-2 text-xs text-[#667085]">{item.caption}</figcaption>}
+          </figure>)}</div>
+        </section>}
 
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.45fr)_minmax(280px,0.85fr)] gap-5 items-start">
           <div className="space-y-5 min-w-0">
