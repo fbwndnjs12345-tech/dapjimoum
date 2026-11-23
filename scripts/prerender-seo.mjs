@@ -117,7 +117,7 @@ function pageHtml(template, book, bookLinks, relatedBooks) {
   const cleanedTemplate = [['name', 'description'], ['name', 'robots'], ['name', 'twitter:card'], ['name', 'twitter:title'], ['name', 'twitter:description'], ['property', 'og:type'], ['property', 'og:site_name'], ['property', 'og:title'], ['property', 'og:description'], ['property', 'og:url'], ['property', 'og:locale'], ['property', 'og:image']].reduce((html, pair) => stripMetaTag(html, pair[0], pair[1]), template);
   return cleanedTemplate.replace(/<title>[\s\S]*?<\/title>/, '').replace('</head>', '    ' + metas + '\n    ' + adsenseCode + '\n    <script type="application/ld+json">' + jsonLd + '</script>\n  </head>').replace('<div id="root"></div>', '<div id="root">' + content + '</div>');
 }
-const robots = ['User-agent: *', 'Allow: /', ...(siteUrl ? [`Sitemap: ${siteUrl}/sitemap.xml`, `Sitemap: ${siteUrl}/sitemap.txt`] : [])].join('\n') + '\n';
+const robots = ['User-agent: *', 'Allow: /', ...(siteUrl ? [`Sitemap: ${siteUrl}/sitemap.xml`] : [])].join('\n') + '\n';
 await writeFile(path.join(outputRoot, 'robots.txt'), robots, 'utf8');
 
 if (!siteUrl) {
@@ -243,17 +243,29 @@ for (const book of books) {
 }
 
 if (siteUrl) {
-  const sitemapEntries = [
-    { url: siteUrl, updatedAt: null },
-    ...publicInfoPages.map(page => ({ url: `${siteUrl}/${page.route}/`, updatedAt: null })), 
-    ...qualifyingBooks.map(book => ({ url: `${siteUrl}/books/${encodeURIComponent(book.id)}/`, updatedAt: book.updated_at || book.created_at || null }))
+  // Keep one canonical XML sitemap format. Omit lastmod until every page type
+  // has a trustworthy significant-content modification timestamp.
+  const sitemapUrls = [
+    siteUrl + '/',
+    ...publicInfoPages.map(page => `${siteUrl}/${page.route}/`),
+    ...qualifyingBooks.map(book => `${siteUrl}/books/${encodeURIComponent(book.id)}/`)
   ];
-  const locations = sitemapEntries.map(entry => entry.url);
-  const sitemap = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${sitemapEntries.map(entry => `  <url><loc>${escapeHtml(entry.url)}</loc>${entry.updatedAt && !Number.isNaN(new Date(entry.updatedAt).getTime()) ? `<lastmod>${new Date(entry.updatedAt).toISOString().slice(0, 10)}</lastmod>` : ''}</url>`).join('\n')}\n</urlset>\n`;
+  const uniqueSitemapUrls = [...new Set(sitemapUrls)];
+  if (uniqueSitemapUrls.length > 50000) {
+    throw new Error(`SEO: sitemap has ${uniqueSitemapUrls.length} URLs; split it into multiple sitemap files before deployment.`);
+  }
+  const invalidSitemapUrl = uniqueSitemapUrls.find(url => {
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol !== 'https:' || parsed.origin !== siteUrl;
+    } catch {
+      return true;
+    }
+  });
+  if (invalidSitemapUrl) throw new Error(`SEO: invalid or non-canonical sitemap URL: ${invalidSitemapUrl}`);
+
+  const sitemap = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${uniqueSitemapUrls.map(url => `  <url>\n    <loc>${escapeHtml(url)}</loc>\n  </url>`).join('\n')}\n</urlset>\n`;
   await writeFile(path.join(outputRoot, 'sitemap.xml'), sitemap, 'utf8');
-  // Plain-text sitemap is an independent fallback for crawlers or CDN rules
-  // that mishandle XML content types. Keep exactly the same canonical URLs.
-  await writeFile(path.join(outputRoot, 'sitemap.txt'), `${locations.join('\n')}\n`, 'utf8');
 }
 
 
